@@ -6,15 +6,14 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Checkbox } from '@/components/ui/checkbox';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { registerUser } from '@/api/api';
 
 const SignUp = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
     email: '',
     password: '',
     confirmPassword: '',
@@ -24,23 +23,10 @@ const SignUp = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleSocialSignUp = (provider: string) => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      localStorage.setItem('isAuthenticated', 'true');
-      toast({
-        title: "Sign Up Simulation",
-        description: `Would sign up with ${provider}`,
-      });
-      navigate('/');
-    }, 1000);
-  };
-
-  const handleSignUp = (e: React.FormEvent) => {
+  const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.firstName || !formData.lastName || !formData.email || !formData.password || !formData.confirmPassword) {
+    if (!formData.email || !formData.password || !formData.confirmPassword) {
       toast({
         title: "Missing Information",
         description: "Please fill in all required fields",
@@ -67,16 +53,23 @@ const SignUp = () => {
       return;
     }
     
-    setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      localStorage.setItem('isAuthenticated', 'true');
+    try {
+      setIsLoading(true);
+      await registerUser({ email: formData.email, password: formData.password });
       toast({
         title: "Account Created!",
         description: "Welcome to LegalAI Pro",
       });
-      navigate('/');
-    }, 1000);
+      navigate('/signin');
+    } catch (error: any) {
+      toast({
+        title: "Registration Failed",
+        description: error.response?.data?.message || "Something went wrong",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const updateFormData = (field: string, value: string | boolean) => {
@@ -86,12 +79,7 @@ const SignUp = () => {
   return (
     <div className="min-h-screen w-full bg-background flex items-center justify-center p-4 md:p-6">
       <div className="w-full max-w-[520px] mx-auto space-y-6">
-        {/* Back Button */}
-        <Button 
-          variant="ghost" 
-          className="gap-2"
-          onClick={() => navigate('/signin')}
-        >
+        <Button variant="ghost" className="gap-2" onClick={() => navigate('/signin')}>
           <ArrowLeft className="w-4 h-4" />
           Back
         </Button>
@@ -154,29 +142,6 @@ const SignUp = () => {
 
             {/* Sign Up Form */}
             <form onSubmit={handleSignUp} className="space-y-5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="firstName" className="text-sm font-medium">First Name</Label>
-                  <Input
-                    id="firstName"
-                    placeholder="John"
-                    value={formData.firstName}
-                    onChange={(e) => updateFormData('firstName', e.target.value)}
-                    className="h-11"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="lastName" className="text-sm font-medium">Last Name</Label>
-                  <Input
-                    id="lastName"
-                    placeholder="Doe"
-                    value={formData.lastName}
-                    onChange={(e) => updateFormData('lastName', e.target.value)}
-                    className="h-11"
-                  />
-                </div>
-              </div>
-
               <div className="space-y-2">
                 <Label htmlFor="email" className="text-sm font-medium">Email Address</Label>
                 <Input
@@ -235,7 +200,6 @@ const SignUp = () => {
                 </div>
               </div>
 
-              {/* Terms Checkbox */}
               <div className="flex items-start gap-3 pt-2">
                 <Checkbox
                   id="terms"
@@ -245,36 +209,21 @@ const SignUp = () => {
                 />
                 <label htmlFor="terms" className="text-sm text-muted-foreground leading-5 cursor-pointer">
                   I agree to the{' '}
-                  <Button 
-                    variant="link" 
-                    className="p-0 h-auto text-primary text-sm hover:underline"
-                    onClick={() => navigate('/terms-of-service')}
-                    type="button"
-                  >
+                  <Button variant="link" className="p-0 h-auto text-primary text-sm hover:underline" type="button">
                     Terms of Service
                   </Button>
                   {' '}and{' '}
-                  <Button 
-                    variant="link" 
-                    className="p-0 h-auto text-primary text-sm hover:underline"
-                    onClick={() => navigate('/privacy-policy')}
-                    type="button"
-                  >
+                  <Button variant="link" className="p-0 h-auto text-primary text-sm hover:underline" type="button">
                     Privacy Policy
                   </Button>
                 </label>
               </div>
 
-              <Button
-                type="submit"
-                className="w-full h-11 text-base font-medium mt-6"
-                disabled={isLoading}
-              >
+              <Button type="submit" className="w-full h-11 text-base font-medium mt-6" disabled={isLoading}>
                 {isLoading ? "Creating Account..." : "Create Account"}
               </Button>
             </form>
 
-            {/* Sign In Link */}
             <div className="text-center pt-6 border-t mt-6">
               <span className="text-sm text-muted-foreground">
                 Already have an account?{' '}

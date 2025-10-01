@@ -7,6 +7,7 @@ import { Separator } from '@/components/ui/separator';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { loginUser } from '@/api/api';   
 
 const SignIn = () => {
   const navigate = useNavigate();
@@ -32,9 +33,10 @@ const SignIn = () => {
     }, 1000);
   };
 
-  const handleSignIn = (e: React.FormEvent) => {
+  // Actual login API call
+  const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!formData.email || !formData.password) {
       toast({
         title: "Missing Information",
@@ -45,15 +47,37 @@ const SignIn = () => {
     }
 
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      localStorage.setItem('isAuthenticated', 'true');
-      toast({
-        title: "Welcome Back!",
-        description: "Successfully signed in to your account",
+    try {
+      const response = await loginUser({
+        email: formData.email,
+        password: formData.password,
       });
-      navigate('/');
-    }, 1000);
+
+      // check response for token
+      const token = response.data?.token || response.data?.access;
+      if (token) {
+        localStorage.setItem("authToken", token);
+        toast({
+          title: "Welcome Back!",
+          description: "Successfully signed in to your account",
+        });
+        navigate("/");
+      } else {
+        toast({
+          title: "Login Failed",
+          description: "Invalid server response",
+          variant: "destructive",
+        });
+      }
+    } catch (error: any) {
+      toast({
+        title: "Login Failed",
+        description: error.response?.data?.detail || "Invalid email or password",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const updateFormData = (field: string, value: string | boolean) => {
