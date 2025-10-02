@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowLeft, Upload, Download, Check, Scissors, Printer, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Upload, Download, Scissors, Plus, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
+import { splitPDF as splitPDFApi } from "@/api/api";   // ✅ import API
 
 type ProcessStep = "upload" | "processing" | "download";
 type SplitMode = "range" | "pages" | "size";
@@ -43,8 +44,7 @@ const SplitPDF = () => {
       setFile(selectedFile);
       toast.success("PDF file uploaded successfully");
     }
-    // Reset input value to allow selecting the same file again
-    event.target.value = '';
+    event.target.value = "";
   };
 
   const addRange = () => {
@@ -54,35 +54,52 @@ const SplitPDF = () => {
 
   const removeRange = (id: string) => {
     if (ranges.length > 1) {
-      setRanges(ranges.filter(r => r.id !== id));
+      setRanges(ranges.filter((r) => r.id !== id));
     }
   };
 
   const updateRange = (id: string, field: "from" | "to", value: number) => {
-    setRanges(ranges.map(r => r.id === id ? { ...r, [field]: value } : r));
+    setRanges(ranges.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
   };
 
-  const splitPDF = () => {
+  // ✅ Replaced dummy progress simulation with real API call
+  const splitPDF = async () => {
     if (!file) {
       toast.error("Please upload a PDF file first");
       return;
     }
-    
+
     setCurrentStep("processing");
-    
-    let currentProgress = 0;
-    const interval = setInterval(() => {
-      currentProgress += Math.random() * 12;
-      if (currentProgress >= 100) {
-        currentProgress = 100;
-        setProgress(100);
-        clearInterval(interval);
-        setTimeout(() => {
-          setCurrentStep("download");
-        }, 500);
-      }
-      setProgress(currentProgress);
-    }, 180);
+    setProgress(20);
+
+    try {
+      const response = await splitPDFApi(file);
+
+      // ✅ fake progress animation (keeps your UI flow the same)
+      let currentProgress = 20;
+      const interval = setInterval(() => {
+        currentProgress += Math.random() * 20;
+        if (currentProgress >= 100) {
+          currentProgress = 100;
+          setProgress(100);
+          clearInterval(interval);
+
+          // ✅ after API success → go to download step
+          setTimeout(() => {
+            setCurrentStep("download");
+          }, 500);
+        }
+        setProgress(currentProgress);
+      }, 200);
+
+      console.log("Split PDF response:", response.data);
+      toast.success("PDF split successfully!");
+    } catch (error: any) {
+      console.error(error);
+      toast.error("Failed to split PDF");
+      setCurrentStep("upload");
+      setProgress(0);
+    }
   };
 
   const downloadFiles = () => {
@@ -90,13 +107,6 @@ const SplitPDF = () => {
     setTimeout(() => {
       toast.success("Files downloaded successfully!");
     }, 1000);
-  };
-
-  const printFiles = () => {
-    toast.success("Opening print dialog...");
-    setTimeout(() => {
-      window.print();
-    }, 500);
   };
 
   const resetProcess = () => {
@@ -561,10 +571,12 @@ const SplitPDF = () => {
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center gap-4 mb-8">
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={() => currentStep === "upload" ? navigate("/pdf-tools") : setCurrentStep("upload")}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() =>
+              currentStep === "upload" ? navigate("/pdf-tools") : setCurrentStep("upload")
+            }
             className="flex items-center gap-2"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -572,11 +584,13 @@ const SplitPDF = () => {
           </Button>
           <div>
             <h1 className="text-3xl font-bold text-foreground">Split PDF</h1>
-            <p className="text-muted-foreground">Separate one PDF document into several files.</p>
+            <p className="text-muted-foreground">
+              Separate one PDF document into several files.
+            </p>
           </div>
         </div>
 
-        {/* Hidden file input that's always available */}
+        {/* hidden input for upload */}
         <input
           id="pdf-upload"
           type="file"
