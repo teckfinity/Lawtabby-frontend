@@ -20,3 +20,16 @@ export const registerUser = async (data: {
 export const loginUser = async (data: { email: string; password: string }) => {
   return axios.post(`${API_BASE_URL}/accounts/login/`, data);
 };
+
+// Password Reset API
+export const passwordReset = async (data: { email: string }) => {
+  return axios.post(`${API_BASE_URL}/accounts/password_reset/`, data);
+};
+
+// Change Password API
+export const changePassword = async (data: {
+  old_password: string;
+  new_password: string;
+}) => {
+  return axios.post(`${API_BASE_URL}/accounts/change_password/`, data);
+};
