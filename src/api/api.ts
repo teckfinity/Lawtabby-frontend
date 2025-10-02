@@ -6,30 +6,85 @@ export const API_BASE_URL =
 
 console.log("API Base URL:", API_BASE_URL);
 
-// ________________________ auth apis _______________
+// -------------------- TOKEN HANDLER --------------------
+export const getAuthToken = () => localStorage.getItem("authToken");
+
+export const setAuthToken = (token: string) => {
+  localStorage.setItem("authToken", token);
+};
+
+export const clearAuthToken = () => {
+  localStorage.removeItem("authToken");
+};
+
+// Axios instance with interceptor
+const apiClient = axios.create({
+  baseURL: API_BASE_URL,
+});
+
+apiClient.interceptors.request.use(
+  (config) => {
+    const token = getAuthToken();
+    if (token) {
+      config.headers.Authorization = `Token ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+// ________________________ auth apis ________________________
 
 // Register API
-export const registerUser = async (data: {
-  email: string;
-  password: string;
-}) => {
-  return axios.post(`${API_BASE_URL}/accounts/register/`, data);
+export const registerUser = async (data: { email: string; password: string }) => {
+  return apiClient.post("/accounts/register/", data);
 };
 
 // Login API
 export const loginUser = async (data: { email: string; password: string }) => {
-  return axios.post(`${API_BASE_URL}/accounts/login/`, data);
+  const response = await apiClient.post("/accounts/login/", data);
+
+  // Store token after login
+  if (response.data && response.data.token) {
+    setAuthToken(response.data.token);
+  }
+
+  return response;
+};
+
+// Logout API (optional)
+export const logoutUser = async () => {
+  clearAuthToken();
 };
 
 // Password Reset API
 export const passwordReset = async (data: { email: string }) => {
-  return axios.post(`${API_BASE_URL}/accounts/password_reset/`, data);
+  return apiClient.post("/accounts/password_reset/", data);
 };
 
 // Change Password API
-export const changePassword = async (data: {
-  old_password: string;
-  new_password: string;
-}) => {
-  return axios.post(`${API_BASE_URL}/accounts/change_password/`, data);
+export const changePassword = async (data: { old_password: string; new_password: string }) => {
+  return apiClient.post("/accounts/change_password/", data);
+};
+
+// ________________________ pdf apis ________________________
+
+// Merge PDFs API
+export const mergePDFs = async (files: File[]) => {
+  if (!files || files.length < 2) {
+    throw new Error("At least two PDF files are required to merge.");
+  }
+
+  const formData = new FormData();
+  files.forEach((file) => {
+    // attach original filename to avoid EOF issues
+    formData.append("pdf_files", file, file.name);
+  });
+
+  return apiClient.post("/pdf/merge_pdf/", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+    responseType: "json", 
+  });
 };
