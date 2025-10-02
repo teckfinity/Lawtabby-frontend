@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { registerUser } from '@/api/api';
+import GoogleLoginButton from '@/components/GoogleLoginButton';  // ✅ import Google button
 
 const SignUp = () => {
   const navigate = useNavigate();
@@ -95,22 +96,29 @@ const SignUp = () => {
           <CardContent className="px-6 pb-8">
             {/* Social Sign Up Buttons */}
             <div className="space-y-3 mb-6">
-              <Button
-                variant="outline"
-                className="w-full h-11 justify-start gap-3 text-sm font-medium"
-                onClick={() => handleSocialSignUp('Google')}
-                disabled={isLoading}
-              >
-                <div className="w-5 h-5 bg-red-500 rounded flex items-center justify-center text-white text-xs font-bold">
-                  G
-                </div>
-                Continue with Google
-              </Button>
+              {/* ✅ Replace old Google button with GoogleLoginButton */}
+              <GoogleLoginButton 
+                onSuccess={(token) => {
+                  toast({
+                    title: "Google Sign Up Successful",
+                    description: "Your account is created with Google",
+                  });
+                  navigate("/dashboard");
+                }}
+                onError={(err) => {
+                  toast({
+                    title: "Google Sign Up Failed",
+                    description: "Something went wrong, please try again.",
+                    variant: "destructive",
+                  });
+                  console.error(err);
+                }}
+              />
 
               <Button
                 variant="outline"
                 className="w-full h-11 justify-start gap-3 text-sm font-medium"
-                onClick={() => handleSocialSignUp('Apple')}
+                onClick={() => toast({ title: "Apple Sign Up", description: "TODO: implement Apple login" })}
                 disabled={isLoading}
               >
                 <div className="w-5 h-5 bg-black rounded flex items-center justify-center text-white text-xs">
@@ -122,7 +130,7 @@ const SignUp = () => {
               <Button
                 variant="outline"
                 className="w-full h-11 justify-start gap-3 text-sm font-medium"
-                onClick={() => handleSocialSignUp('Microsoft')}
+                onClick={() => toast({ title: "Microsoft Sign Up", description: "TODO: implement Microsoft login" })}
                 disabled={isLoading}
               >
                 <div className="w-5 h-5 bg-blue-500 rounded flex items-center justify-center text-white text-xs font-bold">

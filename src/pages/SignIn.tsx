@@ -7,7 +7,8 @@ import { Separator } from '@/components/ui/separator';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { loginUser } from '@/api/api';   
+import { loginUser } from '@/api/api';
+import GoogleLoginButton from '@/components/GoogleLoginButton';  
 
 const SignIn = () => {
   const navigate = useNavigate();
@@ -19,19 +20,6 @@ const SignIn = () => {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-
-  const handleSocialSignIn = (provider: string) => {
-    setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      localStorage.setItem('isAuthenticated', 'true');
-      toast({
-        title: "Sign In Simulation",
-        description: `Would sign in with ${provider}`,
-      });
-      navigate('/');
-    }, 1000);
-  };
 
   // Actual login API call
   const handleSignIn = async (e: React.FormEvent) => {
@@ -108,22 +96,30 @@ const SignIn = () => {
           <CardContent className="px-6 pb-8">
             {/* Social Login Buttons */}
             <div className="space-y-3 mb-6">
-              <Button
-                variant="outline"
-                className="w-full h-11 justify-start gap-3 text-sm font-medium"
-                onClick={() => handleSocialSignIn('Google')}
-                disabled={isLoading}
-              >
-                <div className="w-5 h-5 bg-red-500 rounded flex items-center justify-center text-white text-xs font-bold">
-                  G
-                </div>
-                Continue with Google
-              </Button>
+              {/* ✅ Replaced old Google button with real GoogleLoginButton */}
+              <GoogleLoginButton 
+                onSuccess={(token) => {
+                  toast({
+                    title: "Google Login Successful",
+                    description: "You are now signed in with Google",
+                  });
+                  navigate("/dashboard");
+                }}
+                onError={(err) => {
+                  toast({
+                    title: "Google Login Failed",
+                    description: "Something went wrong, please try again.",
+                    variant: "destructive",
+                  });
+                  console.error(err);
+                }}
+              />
 
+              {/* Apple Button (UI unchanged) */}
               <Button
                 variant="outline"
                 className="w-full h-11 justify-start gap-3 text-sm font-medium"
-                onClick={() => handleSocialSignIn('Apple')}
+                onClick={() => toast({ title: "Apple Sign In", description: "TODO: implement Apple login" })}
                 disabled={isLoading}
               >
                 <div className="w-5 h-5 bg-black rounded flex items-center justify-center text-white text-xs">
@@ -132,10 +128,11 @@ const SignIn = () => {
                 Continue with Apple
               </Button>
 
+              {/* Microsoft Button (UI unchanged) */}
               <Button
                 variant="outline"
                 className="w-full h-11 justify-start gap-3 text-sm font-medium"
-                onClick={() => handleSocialSignIn('Microsoft')}
+                onClick={() => toast({ title: "Microsoft Sign In", description: "TODO: implement Microsoft login" })}
                 disabled={isLoading}
               >
                 <div className="w-5 h-5 bg-blue-500 rounded flex items-center justify-center text-white text-xs font-bold">
