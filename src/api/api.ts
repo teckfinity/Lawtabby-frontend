@@ -85,7 +85,7 @@ export const mergePDFs = async (files: File[]) => {
     headers: {
       "Content-Type": "multipart/form-data",
     },
-    responseType: "json", 
+    responseType: "json",
   });
 };
 
@@ -108,4 +108,23 @@ export const splitPDF = async (file: File, startPage: number, endPage: number) =
   });
 };
 
+// Protect PDF API
+export const protectPDF = async (file: File, password: string) => {
+  if (!file) {
+    throw new Error("A PDF file is required to protect.");
+  }
+  if (!password) {
+    throw new Error("Password is required to protect PDF.");
+  }
 
+  const formData = new FormData();
+  formData.append("input_pdf", file, file.name);
+  formData.append("pdf_password", password);
+
+  return apiClient.post("/pdf/protect_pdf/", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+    responseType: "json", 
+  });
+};
