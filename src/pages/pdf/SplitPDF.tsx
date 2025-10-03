@@ -34,9 +34,11 @@ const SplitPDF = () => {
   const [maxFileSize, setMaxFileSize] = useState(217);
   const [sizeUnit, setSizeUnit] = useState<"KB" | "MB">("KB");
   const [allowCompression, setAllowCompression] = useState(false);
-  const [selectedPages, setSelectedPages] = useState<number[]>([]);
   const [pagesToExtract, setPageToExtract] = useState("");
   const [mergeExtracted, setMergeExtracted] = useState(false);
+
+  // store API response (download URLs)
+  const [splitFiles, setSplitFiles] = useState<string[]>([]);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
@@ -62,7 +64,7 @@ const SplitPDF = () => {
     setRanges(ranges.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
   };
 
-  // ✅ Replaced dummy progress simulation with real API call
+  // ✅ Fixed API call to use backend's response format
   const splitPDF = async () => {
     if (!file) {
       toast.error("Please upload a PDF file first");
@@ -74,8 +76,11 @@ const SplitPDF = () => {
 
     try {
       const response = await splitPDFApi(file);
+      const fileUrl: string | undefined = response.data?.split_pdf?.split_pdf;
+      if (fileUrl) {
+        setSplitFiles([fileUrl]);
+      }
 
-      // ✅ fake progress animation (keeps your UI flow the same)
       let currentProgress = 20;
       const interval = setInterval(() => {
         currentProgress += Math.random() * 20;
@@ -102,11 +107,37 @@ const SplitPDF = () => {
     }
   };
 
-  const downloadFiles = () => {
-    toast.success("Download started!");
-    setTimeout(() => {
-      toast.success("Files downloaded successfully!");
-    }, 1000);
+  // ✅ Proper file download
+  const downloadFiles = async () => {
+    if (!splitFiles.length) {
+      toast.error("No split files available for download.");
+      return;
+    }
+
+    try {
+      for (let i = 0; i < splitFiles.length; i++) {
+        const fileUrl = splitFiles[i];
+        const response = await fetch(fileUrl, { method: "GET" });
+        if (!response.ok) throw new Error("Failed to fetch split PDF");
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = `split_part_${i + 1}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      }
+
+      toast.success("Download started!");
+    } catch (error) {
+      console.error("Download failed:", error);
+      toast.error("Failed to download split files. Please try again.");
+    }
   };
 
   const resetProcess = () => {
@@ -114,7 +145,7 @@ const SplitPDF = () => {
     setCurrentStep("upload");
     setProgress(0);
     setRanges([{ id: "1", from: 1, to: 5 }]);
-    setSelectedPages([]);
+    setSplitFiles([]);
   };
 
   const renderUploadStep = () => (
@@ -514,19 +545,26 @@ const SplitPDF = () => {
         <CardContent className="p-8 text-center">
           <h3 className="text-xl font-semibold mb-2">PDF split successfully!</h3>
           <p className="text-sm text-muted-foreground mb-6">
-            Your PDF has been split into multiple files. Download them below or continue with other tools.
+            Your PDF has been split. Download it below or continue with other tools.
           </p>
 
           <div className="space-y-3 mb-6">
-            {[1, 2, 3].map((num) => (
-              <div key={num} className="bg-muted rounded-lg p-3">
+            {splitFiles.map((url, index) => (
+              <div key={index} className="bg-muted rounded-lg p-3">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-red-100 rounded flex items-center justify-center">
                     <span className="text-red-600 font-bold text-xs">PDF</span>
                   </div>
                   <div className="flex-1 text-left">
-                    <h4 className="font-medium text-sm">split_page_{num}.pdf</h4>
-                    <p className="text-xs text-muted-foreground">0.{num + 5} MB</p>
+                    <h4 className="font-medium text-sm">split_part_{index + 1}.pdf</h4>
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-600 hover:underline"
+                    >
+                      {url}
+                    </a>
                   </div>
                 </div>
               </div>
@@ -569,13 +607,15 @@ const SplitPDF = () => {
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         <div className="flex items-center gap-4 mb-8">
           <Button
             variant="ghost"
             size="sm"
             onClick={() =>
-              currentStep === "upload" ? navigate("/pdf-tools") : setCurrentStep("upload")
+              currentStep === "upload"
+                ? navigate("/pdf-tools")
+                : setCurrentStep("upload")
             }
             className="flex items-center gap-2"
           >
@@ -585,7 +625,7 @@ const SplitPDF = () => {
           <div>
             <h1 className="text-3xl font-bold text-foreground">Split PDF</h1>
             <p className="text-muted-foreground">
-              Separate one PDF document into several files.
+              Extract or split pages from a PDF document.
             </p>
           </div>
         </div>
