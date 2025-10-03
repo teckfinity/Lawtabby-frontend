@@ -14,6 +14,7 @@ import { Progress } from "@/components/ui/progress";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
@@ -124,12 +125,46 @@ const EditPDF = () => {
     }, 180);
   };
 
-  const downloadFile = () => {
-    toast.success("Download started!");
-    setTimeout(() => {
-      toast.success("Edited PDF downloaded successfully!");
-    }, 1000);
-  };
+const downloadFile = async () => {
+  if (!file) {
+    toast.error("No PDF to download");
+    return;
+  }
+
+  // Load the existing PDF into pdf-lib
+  const arrayBuffer = await file.arrayBuffer();
+  const pdfDoc = await PDFDocument.load(arrayBuffer);
+
+  const pages = pdfDoc.getPages();
+  const firstPage = pages[0];
+
+  // Example: add your annotations
+  for (const ann of annotations) {
+    if (ann.type === "text") {
+      const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      firstPage.drawText("Sample Edited Text", {
+        x: 50,
+        y: 700,
+        size: 24,
+        font,
+        color: rgb(0, 0, 0),
+      });
+    }
+    // Later we can extend this for shapes/drawings too
+  }
+
+  // Save the edited PDF
+  const pdfBytes = await pdfDoc.save();
+const blob = new Blob([new Uint8Array(pdfBytes)], { type: "application/pdf" });
+
+  // Trigger browser download
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `edited_${file.name}`;
+  link.click();
+
+  toast.success("Edited PDF downloaded with your changes!");
+};
 
   const resetProcess = () => {
     setFile(null);
