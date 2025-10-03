@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowLeft, Upload, Download, Lock, Unlock, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Upload, Download, Lock, Unlock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { unlockPDF as unlockPDFApi } from "@/api/api";
 
 const UnlockPDF = () => {
   const navigate = useNavigate();
@@ -13,48 +14,89 @@ const UnlockPDF = () => {
   const [password, setPassword] = useState("");
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [isUnlocked, setIsUnlocked] = useState(false);
+  const [unlockedFileUrl, setUnlockedFileUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = event.target.files?.[0];
-    if (selectedFile) {
-      setFile(selectedFile);
-      setIsUnlocked(false);
-      setPassword("");
-      toast.success("PDF file uploaded successfully");
-    }
+const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+  console.log("File selected:", event.target.files);
+  const selectedFile = event.target.files?.[0];
+  if (selectedFile) {
+    console.log("File details:", {
+      name: selectedFile.name,
+      size: selectedFile.size,
+      type: selectedFile.type,
+    });
+    setFile(selectedFile);
+    setIsUnlocked(false);
+    setUnlockedFileUrl(null);
+    setPassword("");
+    toast.success("PDF file uploaded successfully");
+  }
+};
+  const handleButtonClick = () => {
+    console.log("Button clicked");
+    fileInputRef.current?.click();
   };
 
-  const unlockPDF = async () => {
+  const handleUnlockPDF = async () => {
     if (!file) {
       toast.error("Please upload a PDF file first");
       return;
     }
-    
     if (!password) {
       toast.error("Please enter the PDF password");
       return;
     }
 
-    setIsUnlocking(true);
-    
-    // Simulate password verification
-    setTimeout(() => {
-      setIsUnlocking(false);
-      if (password === "demo" || password === "password" || password === "123456") {
+    try {
+      setIsUnlocking(true);
+      const response = await unlockPDFApi(file, password);
+
+      if (response.data?.unlocked_file) {
+        setUnlockedFileUrl(response.data.unlocked_file);
         setIsUnlocked(true);
         toast.success("PDF unlocked successfully!");
       } else {
-        toast.error("Incorrect password. Please try again.");
+        toast.error("Failed to unlock PDF. Please try again.");
       }
-    }, 2000);
+    } catch (error: any) {
+      toast.error(
+        error.response?.data?.message || "Error unlocking PDF. Please try again."
+      );
+    } finally {
+      setIsUnlocking(false);
+    }
   };
 
-  const downloadUnlockedPDF = () => {
-    if (!isUnlocked) {
+  const downloadUnlockedPDF = async () => {
+    if (!isUnlocked || !unlockedFileUrl) {
       toast.error("PDF is not unlocked yet");
       return;
     }
-    toast.success("Unlocked PDF download started!");
+
+    try {
+      const res = await fetch(unlockedFileUrl, {
+        headers: {
+          Authorization: `Token ${localStorage.getItem("authToken") || ""}`,
+        },
+      });
+
+      if (!res.ok) throw new Error("Failed to fetch unlocked PDF");
+
+      const blob = await res.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = "unlocked.pdf";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+
+      toast.success("Unlocked PDF downloaded!");
+    } catch (error) {
+      toast.error("Failed to download unlocked PDF");
+    }
   };
 
   return (
@@ -73,165 +115,120 @@ const UnlockPDF = () => {
           </Button>
           <div>
             <h1 className="text-3xl font-bold text-foreground">Unlock PDF</h1>
-            <p className="text-muted-foreground">Remove PDF password security, giving you the freedom to use your PDFs as you want.</p>
+            <p className="text-muted-foreground">Remove PDF password protection and download it unlocked.</p>
           </div>
         </div>
 
-        <div className="space-y-8">
-          {/* File Upload */}
-          <Card>
-            <CardContent className="p-8">
-              {!file ? (
-                <div className="text-center">
-                  <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8">
-                    <Lock className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                    <h3 className="text-lg font-semibold mb-2">Upload Password-Protected PDF</h3>
-                    <p className="text-muted-foreground mb-4">Choose a password-protected PDF file from your device</p>
-                    <label htmlFor="pdf-upload">
-                      <Button className="bg-primary hover:bg-primary/90">
-                        <Upload className="h-4 w-4 mr-2" />
-                        Select PDF File
-                      </Button>
-                      <input
-                        id="pdf-upload"
-                        type="file"
-                        accept=".pdf"
-                        className="hidden"
-                        onChange={handleFileUpload}
-                      />
-                    </label>
-                  </div>
-                </div>
-              ) : (
-                <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
-                  <div className={`w-12 h-12 rounded flex items-center justify-center ${
-                    isUnlocked ? "bg-green-100" : "bg-red-100"
-                  }`}>
-                    {isUnlocked ? (
-                      <Unlock className="h-6 w-6 text-green-600" />
-                    ) : (
-                      <Lock className="h-6 w-6 text-red-600" />
-                    )}
-                  </div>
-                  <div className="flex-1">
-                    <h4 className="font-medium">{file.name}</h4>
-                    <p className="text-sm text-muted-foreground">
-                      Status: {isUnlocked ? "Unlocked" : "Password Protected"}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {(file.size / 1024 / 1024).toFixed(2)} MB
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setFile(null)}
+        {/* File Upload */}
+        <Card>
+          <CardContent className="p-8">
+            {!file ? (
+              <div className="text-center">
+                <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8">
+                  <Lock className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <h3 className="text-lg font-semibold mb-2">Upload Password-Protected PDF</h3>
+                  <Button 
+                    className="bg-primary hover:bg-primary/90" 
+                    onClick={handleButtonClick}
                   >
-                    Remove
+                    <Upload className="h-4 w-4 mr-2" />
+                    Select PDF File
                   </Button>
+                  <input
+                    id="pdf-upload"
+                    type="file"
+                    accept="application/pdf"
+                    className="hidden"
+                    onChange={handleFileUpload}
+                    ref={fileInputRef}
+                  />
                 </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Password Input */}
-          {file && !isUnlocked && (
-            <Card>
-              <CardContent className="p-6">
-                <h3 className="text-lg font-semibold mb-4">Enter PDF Password</h3>
-                
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="password">Password</Label>
-                    <Input
-                      id="password"
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Enter PDF password"
-                      onKeyPress={(e) => e.key === 'Enter' && unlockPDF()}
-                    />
-                  </div>
-
-                  <Button
-                    onClick={unlockPDF}
-                    disabled={isUnlocking}
-                    className="w-full bg-primary hover:bg-primary/90"
-                  >
-                    <Unlock className="h-4 w-4 mr-2" />
-                    {isUnlocking ? "Unlocking..." : "Unlock PDF"}
-                  </Button>
-                </div>
-
-                {/* Demo Help */}
-                <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="h-5 w-5 text-blue-600 mt-0.5" />
-                    <div>
-                      <h4 className="font-medium text-blue-800">Demo Mode</h4>
-                      <p className="text-sm text-blue-600">
-                        For demonstration purposes, try these passwords: "demo", "password", or "123456"
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Success State */}
-          {isUnlocked && (
-            <Card className="bg-green-50 border-green-200">
-              <CardContent className="p-6">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+              </div>
+            ) : (
+              <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
+                <div className={`w-12 h-12 rounded flex items-center justify-center ${
+                  isUnlocked ? "bg-green-100" : "bg-red-100"
+                }`}>
+                  {isUnlocked ? (
                     <Unlock className="h-6 w-6 text-green-600" />
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-green-800">PDF Successfully Unlocked!</h3>
-                    <p className="text-green-600">
-                      Your PDF is now unlocked and ready for download. The password protection has been removed.
-                    </p>
-                  </div>
-                  <Button
-                    onClick={downloadUnlockedPDF}
-                    className="bg-green-600 hover:bg-green-700"
-                  >
-                    <Download className="h-4 w-4 mr-2" />
-                    Download Unlocked PDF
-                  </Button>
+                  ) : (
+                    <Lock className="h-6 w-6 text-red-600" />
+                  )}
                 </div>
-              </CardContent>
-            </Card>
-          )}
+                <div className="flex-1">
+                  <h4 className="font-medium">{file.name}</h4>
+                  <p className="text-sm text-muted-foreground">
+                    Status: {isUnlocked ? "Unlocked" : "Password Protected"}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {(file.size / 1024 / 1024).toFixed(2)} MB
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFile(null)}
+                >
+                  Remove
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-          {/* Security Information */}
-          <Card className="bg-muted/50">
+        {/* Password Input */}
+        {file && !isUnlocked && (
+          <Card>
             <CardContent className="p-6">
-              <h3 className="font-semibold mb-3">Security & Privacy</h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-muted-foreground">
-                <div>
-                  <h4 className="font-medium text-foreground mb-2">What We Do</h4>
-                  <ul className="space-y-1">
-                    <li>• Remove password protection safely</li>
-                    <li>• Preserve all document content</li>
-                    <li>• Maintain original formatting</li>
-                    <li>• Process files securely</li>
-                  </ul>
+              <h3 className="text-lg font-semibold mb-4">Enter PDF Password</h3>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <Input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter PDF password"
+                    onKeyPress={(e) => e.key === 'Enter' && handleUnlockPDF()}
+                  />
                 </div>
-                <div>
-                  <h4 className="font-medium text-foreground mb-2">Privacy Guarantee</h4>
-                  <ul className="space-y-1">
-                    <li>• Files processed locally when possible</li>
-                    <li>• No permanent storage of documents</li>
-                    <li>• Automatic deletion after processing</li>
-                    <li>• End-to-end encryption for uploads</li>
-                  </ul>
-                </div>
+                <Button
+                  onClick={handleUnlockPDF}
+                  disabled={isUnlocking}
+                  className="w-full bg-primary hover:bg-primary/90"
+                >
+                  <Unlock className="h-4 w-4 mr-2" />
+                  {isUnlocking ? "Unlocking..." : "Unlock PDF"}
+                </Button>
               </div>
             </CardContent>
           </Card>
-        </div>
+        )}
+
+        {/* Success State */}
+        {isUnlocked && unlockedFileUrl && (
+          <Card className="bg-green-50 border-green-200 mt-6">
+            <CardContent className="p-6 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center">
+                  <Unlock className="h-6 w-6 text-green-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-green-600">PDF Successfully Unlocked!</h3>
+                  <p className="text-green-600">Click below to download.</p>
+                </div>
+              </div>
+              <Button
+                onClick={downloadUnlockedPDF}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Download
+              </Button>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

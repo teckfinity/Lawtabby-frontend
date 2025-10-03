@@ -128,3 +128,25 @@ export const protectPDF = async (file: File, password: string) => {
     responseType: "json", 
   });
 };
+
+
+// Unlock PDF API
+export const unlockPDF = async (file: File, password: string) => {
+  if (!file) {
+    throw new Error("A PDF file is required to unlock.");
+  }
+  if (!password) {
+    throw new Error("Password is required to unlock PDF.");
+  }
+
+  const formData = new FormData();
+  formData.append("input_pdf", file, file.name);
+  formData.append("password", password);
+
+  return apiClient.post("/pdf/unlock_pdf/", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+    responseType: "json",
+  });
+};
