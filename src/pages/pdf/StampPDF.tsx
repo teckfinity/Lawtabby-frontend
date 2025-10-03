@@ -1,10 +1,14 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowLeft, Upload, Download, Check, Stamp, Type, Image as ImageIcon, Printer } from "lucide-react";
+import {
+  ArrowLeft, Upload, Download, Check, Stamp, Type,
+  Image as ImageIcon, Printer
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
+import { PDFDocument, rgb, degrees } from "pdf-lib";
 
 type ProcessStep = "upload" | "processing" | "download";
 
@@ -16,6 +20,12 @@ const StampPDF = () => {
   const [stampType, setStampType] = useState<string>("text");
   const [stampText, setStampText] = useState("CONFIDENTIAL");
   const [opacity, setOpacity] = useState(50);
+  const [stampedPdf, setStampedPdf] = useState<Uint8Array | null>(null);
+  const [imageStamp, setImageStamp] = useState<File | null>(null);
+
+  // ✅ refs for file pickers
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
@@ -25,54 +35,116 @@ const StampPDF = () => {
     }
   };
 
-  const addStamp = () => {
+  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedImage = event.target.files?.[0];
+    if (selectedImage) {
+      setImageStamp(selectedImage);
+      toast.success("Image uploaded for stamp");
+    }
+  };
+
+  const addStamp = async () => {
     if (!file) {
       toast.error("Please upload a PDF file first");
       return;
     }
-    
     setCurrentStep("processing");
-    
-    let currentProgress = 0;
-    const interval = setInterval(() => {
-      currentProgress += Math.random() * 16;
-      if (currentProgress >= 100) {
-        currentProgress = 100;
-        setProgress(100);
-        clearInterval(interval);
-        setTimeout(() => {
-          setCurrentStep("download");
-        }, 500);
+    setProgress(10);
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdfDoc = await PDFDocument.load(arrayBuffer);
+
+      if (stampType === "text") {
+        const pages = pdfDoc.getPages();
+        pages.forEach((page) => {
+          page.drawText(stampText, {
+            x: page.getWidth() / 4,
+            y: page.getHeight() / 2,
+            size: 48,
+            color: rgb(1, 0, 0),
+            opacity: opacity / 100,
+            rotate: degrees(45),
+          });
+        });
+      } else if (stampType === "image" && imageStamp) {
+        const imgBytes = await imageStamp.arrayBuffer();
+        const ext = imageStamp.name.split(".").pop()?.toLowerCase();
+        let image;
+        if (ext === "png") {
+          image = await pdfDoc.embedPng(imgBytes);
+        } else {
+          image = await pdfDoc.embedJpg(imgBytes);
+        }
+        const pages = pdfDoc.getPages();
+        pages.forEach((page) => {
+          const { width, height } = image.scale(0.5);
+          page.drawImage(image, {
+            x: page.getWidth() / 2 - width / 2,
+            y: page.getHeight() / 2 - height / 2,
+            width,
+            height,
+            opacity: opacity / 100,
+          });
+        });
       }
-      setProgress(currentProgress);
-    }, 170);
+
+      const pdfBytes = await pdfDoc.save();
+      setStampedPdf(pdfBytes);
+
+      let currentProgress = 20;
+      const interval = setInterval(() => {
+        currentProgress += Math.random() * 20;
+        if (currentProgress >= 100) {
+          currentProgress = 100;
+          setProgress(100);
+          clearInterval(interval);
+          setTimeout(() => setCurrentStep("download"), 500);
+        }
+        setProgress(currentProgress);
+      }, 170);
+    } catch (err) {
+      console.error(err);
+      toast.error("Error applying stamp");
+      setCurrentStep("upload");
+    }
   };
 
   const downloadFile = () => {
-    toast.success("Download started!");
-    setTimeout(() => {
-      toast.success("Stamped PDF downloaded successfully!");
-    }, 1000);
+    if (!stampedPdf) return;
+    const blob = new Blob([stampedPdf], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `stamped_${file?.name}`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Stamped PDF downloaded successfully!");
   };
 
   const printFile = () => {
-    toast.success("Opening print dialog...");
-    setTimeout(() => {
-      window.print();
-    }, 500);
+    if (!stampedPdf) return;
+    const blob = new Blob([stampedPdf], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url);
+    if (win) {
+      win.print();
+    }
   };
 
   const resetProcess = () => {
     setFile(null);
+    setStampedPdf(null);
     setCurrentStep("upload");
     setProgress(0);
   };
 
   const predefinedStamps = [
-    "CONFIDENTIAL", "DRAFT", "APPROVED", "REJECTED", 
+    "CONFIDENTIAL", "DRAFT", "APPROVED", "REJECTED",
     "URGENT", "COPY", "ORIGINAL", "REVIEWED"
   ];
 
+  // ---------------- UI Steps -----------------
   const renderUploadStep = () => (
     <div className="space-y-6">
       <Card>
@@ -83,19 +155,22 @@ const StampPDF = () => {
                 <Upload className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <h3 className="text-lg font-semibold mb-2">Upload PDF to Stamp</h3>
                 <p className="text-muted-foreground mb-4">Choose a PDF file from your device</p>
-                <label htmlFor="pdf-upload">
-                  <Button className="bg-primary hover:bg-primary/90">
-                    <Upload className="h-4 w-4 mr-2" />
-                    Select PDF File
-                  </Button>
-                  <input
-                    id="pdf-upload"
-                    type="file"
-                    accept=".pdf"
-                    className="hidden"
-                    onChange={handleFileUpload}
-                  />
-                </label>
+                
+                {/* ✅ Button opens file input via ref */}
+                <Button 
+                  className="bg-primary hover:bg-primary/90"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Select PDF File
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf"
+                  className="hidden"
+                  onChange={handleFileUpload}
+                />
               </div>
             </div>
           ) : (
@@ -153,24 +228,19 @@ const StampPDF = () => {
                       placeholder="Enter stamp text"
                     />
                   </div>
-                  
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Quick Stamps</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {predefinedStamps.map((stamp) => (
-                        <Button
-                          key={stamp}
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setStampText(stamp)}
-                          className="text-xs"
-                        >
-                          {stamp}
-                        </Button>
-                      ))}
-                    </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {predefinedStamps.map((stamp) => (
+                      <Button
+                        key={stamp}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setStampText(stamp)}
+                        className="text-xs"
+                      >
+                        {stamp}
+                      </Button>
+                    ))}
                   </div>
-                  
                   <div className="space-y-2">
                     <label className="text-sm font-medium">Opacity: {opacity}%</label>
                     <input
@@ -190,21 +260,23 @@ const StampPDF = () => {
                 <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8 text-center">
                   <ImageIcon className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                   <p className="text-muted-foreground mb-4">Upload an image for your stamp</p>
-                  <label htmlFor="stamp-upload">
-                    <Button variant="outline">
-                      <Upload className="h-4 w-4 mr-2" />
-                      Choose Image
-                    </Button>
-                    <input
-                      id="stamp-upload"
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                    />
-                  </label>
+                  <Button 
+                    variant="outline"
+                    onClick={() => imageInputRef.current?.click()}
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Choose Image
+                  </Button>
+                  <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleImageUpload}
+                  />
                 </div>
               )}
-              
+
               <Button onClick={addStamp} className="w-full bg-primary hover:bg-primary/90">
                 <Stamp className="h-4 w-4 mr-2" />
                 Apply Stamp
@@ -221,22 +293,11 @@ const StampPDF = () => {
       <Card>
         <CardContent className="p-12">
           <div className="space-y-6">
-            <div className="flex justify-center">
-              <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center">
-                <Stamp className="h-10 w-10 text-primary animate-pulse" />
-              </div>
-            </div>
-            
-            <div>
-              <h3 className="text-xl font-semibold mb-2">Adding Stamp...</h3>
-              <p className="text-muted-foreground">{file?.name} ({(file?.size / 1024 / 1024)?.toFixed(2)}mb)</p>
-            </div>
-
-            <div className="space-y-2">
-              <Progress value={progress} className="h-3" />
-              <div className="text-2xl font-bold">{Math.round(progress)}%</div>
-              <div className="text-sm text-muted-foreground">STAMPING</div>
-            </div>
+            <Stamp className="h-10 w-10 text-primary animate-pulse mx-auto" />
+            <h3 className="text-xl font-semibold mb-2">Adding Stamp...</h3>
+            <p className="text-muted-foreground">{file?.name}</p>
+            <Progress value={progress} className="h-3" />
+            <div className="text-2xl font-bold">{Math.round(progress)}%</div>
           </div>
         </CardContent>
       </Card>
@@ -248,32 +309,10 @@ const StampPDF = () => {
       <Card>
         <CardContent className="p-12">
           <div className="space-y-6">
-            <div className="flex justify-center">
-              <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center">
-                <Check className="h-10 w-10 text-green-600" />
-              </div>
+            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
+              <Check className="h-10 w-10 text-green-600" />
             </div>
-            
-            <div>
-              <h3 className="text-xl font-semibold mb-2">Stamp Applied!</h3>
-              <p className="text-muted-foreground">Your PDF has been stamped successfully</p>
-            </div>
-
-            <div className="bg-muted rounded-lg p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-red-100 rounded flex items-center justify-center">
-                  <span className="text-red-600 font-bold text-xs">PDF</span>
-                </div>
-                <div className="flex-1 text-left">
-                  <h4 className="font-medium">stamped_{file?.name}</h4>
-                  <p className="text-sm text-muted-foreground">
-                    {(file?.size / 1024 / 1024)?.toFixed(2)} MB
-                  </p>
-                </div>
-                <div className="text-green-600 font-medium text-sm">✓ Stamped</div>
-              </div>
-            </div>
-
+            <h3 className="text-xl font-semibold mb-2">Stamp Applied!</h3>
             <div className="flex gap-4 justify-center">
               <Button onClick={downloadFile} className="bg-primary hover:bg-primary/90">
                 <Download className="h-4 w-4 mr-2" />
@@ -294,14 +333,13 @@ const StampPDF = () => {
   );
 
   return (
-    <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
+    <div className="w-full p-4 md:p-6 lg:p-8 bg-background min-h-screen">
       <div className="max-w-4xl mx-auto">
         <div className="flex items-center gap-4 mb-8">
-          <Button 
-            variant="ghost" 
-            size="sm" 
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => currentStep === "upload" ? navigate("/pdf-tools") : setCurrentStep("upload")}
-            className="flex items-center gap-2"
           >
             <ArrowLeft className="h-4 w-4" />
             Back
