@@ -150,3 +150,25 @@ export const unlockPDF = async (file: File, password: string) => {
     responseType: "json",
   });
 };
+
+
+// Compress PDF API
+export const compressPDF = async (file: File, compressionQuality: number) => {
+  if (!file) {
+    throw new Error("A PDF file is required to compress.");
+  }
+  if (compressionQuality < 0 || compressionQuality > 100) {
+    throw new Error("Compression quality must be between 0 and 100.");
+  }
+
+  const formData = new FormData();
+  formData.append("input_pdf", file, file.name);
+  formData.append("compression_quality", compressionQuality.toString());
+
+  return apiClient.post("/pdf/compress_pdf/", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+    responseType: "json", 
+  });
+};
