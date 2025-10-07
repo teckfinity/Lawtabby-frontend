@@ -52,8 +52,9 @@ const CompressPDF = () => {
       const qualityMap: Record<string, number> = { low: 80, medium: 60, high: 40 };
       const response = await compressPDFApi(file, qualityMap[compressionLevel]);
 
-      if (response.data && response.data.file_url) {
-        setCompressedFileUrl(response.data.file_url);
+      // Use split_pdf.compressed_file instead of file_url
+      if (response.data && response.data.split_pdf?.compressed_file) {
+        setCompressedFileUrl(response.data.split_pdf.compressed_file);
         setProgress(100);
         setTimeout(() => setCurrentStep("download"), 500);
         toast.success("PDF compressed successfully!");
