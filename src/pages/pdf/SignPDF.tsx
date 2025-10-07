@@ -322,197 +322,259 @@ const SignPDF = () => {
   };
 
   const renderUploadStep = () => (
-    <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-      <div className="lg:col-span-3">
-        {!file ? (
-          <Card className="border-2 border-dashed border-muted-foreground/20 hover:border-primary/50 transition-colors h-96">
-            <CardContent className="p-12 text-center">
-              <div className="flex flex-col items-center gap-4">
-                <Upload className="h-16 w-16 mx-auto text-muted-foreground" />
-                <h3 className="text-xl font-semibold">Upload PDF to Sign</h3>
-                <p className="text-muted-foreground">Choose a PDF file from your device</p>
-                <input
-                  id="pdf-upload"
-                  type="file"
-                  accept=".pdf"
-                  className="hidden"
-                  onChange={handleFileUpload}
-                />
-                <Button 
-                  className="bg-primary hover:bg-primary/90"
-                  onClick={() => document.getElementById("pdf-upload")?.click()}
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  Select PDF File
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-4">
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" size="icon" onClick={() => setScale(Math.max(scale - 0.2, 0.5))}>
-                      <ZoomOut className="h-4 w-4" />
-                    </Button>
-                    <span className="text-sm font-medium">{Math.round(scale * 100)}%</span>
-                    <Button variant="outline" size="icon" onClick={() => setScale(Math.min(scale + 0.2, 2))}>
-                      <ZoomIn className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    Page {currentPage} of {numPages}
-                  </div>
-                </div>
-
-                <div
-                  id="pdf-container"
-                  className={`border rounded-lg bg-gray-100 overflow-auto max-h-[600px] relative ${currentPlacingType ? 'cursor-crosshair' : ''}`}
-                  onMouseMove={handleFieldDrag}
-                  onMouseUp={handleFieldDragEnd}
-                  onMouseLeave={handleFieldDragEnd}
-                >
-                  <Document
-                    file={file}
-                    onLoadSuccess={onDocumentLoadSuccess}
-                    onLoadError={onDocumentLoadError}
-                    className="flex justify-center p-4"
-                  >
-                    <div ref={pageRef} style={{ position: 'relative' }} onClick={handlePdfClick}>
-                      <Page
-                        pageNumber={currentPage}
-                        scale={scale}
-                        renderTextLayer={true}
-                        renderAnnotationLayer={true}
-                      />
-                      {placedFields
-                        .filter(field => field.page === currentPage)
-                        .map(field => {
-                          const Icon = getFieldIcon(field.type);
-                          return (
-                            <div
-                              key={field.id}
-                              className={`absolute cursor-move border-2 rounded shadow-lg p-2 group ${getFieldColor(field.type)}`}
-                              style={{
-                                left: `${field.x * scale}px`,
-                                top: `${field.y * scale}px`,
-                                opacity: field.isDragging ? 0.7 : 1,
-                                minWidth: "120px",
-                              }}
-                              onMouseDown={(e) => {
-                                e.stopPropagation();
-                                handleFieldDragStart(e, field.id);
-                              }}
-                            >
-                              <div className="flex items-center gap-2 pointer-events-none select-none">
-                                <Icon className="h-4 w-4" />
-                                <span className="text-xs font-medium capitalize">
-                                  {field.value || field.type.replace("-", " ")}
-                                </span>
-                              </div>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  removeField(field.id);
-                                }}
-                                className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                              >
-                                ×
-                              </button>
-                            </div>
-                          );
-                        })}
-                    </div>
-                  </Document>
-                </div>
-
-                {numPages > 1 && (
-                  <div className="flex justify-center gap-2 mt-4">
-                    <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>
-                      Previous
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.min(numPages, p + 1))} disabled={currentPage === numPages}>
-                      Next
-                    </Button>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        )}
-      </div>
-
-      {file && fullName && (
+  <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+    <div className="lg:col-span-3">
+{!file ? (
+  <Card className="border-2 border-dashed border-muted-foreground/20 hover:border-primary/50 transition-colors h-96 flex items-center justify-center">
+    <CardContent className="p-12 text-center flex flex-col items-center justify-center gap-4">
+      <Upload className="h-16 w-16 text-muted-foreground" />
+      <h3 className="text-xl font-semibold">Upload PDF to Sign</h3>
+      <p className="text-muted-foreground">Choose a PDF file from your device</p>
+      <input
+        id="pdf-upload"
+        type="file"
+        accept=".pdf"
+        className="hidden"
+        onChange={handleFileUpload}
+      />
+      <Button
+        className="bg-primary hover:bg-primary/90 mt-2"
+        onClick={() => document.getElementById("pdf-upload")?.click()}
+      >
+        <Upload className="h-4 w-4 mr-2" />
+        Select PDF File
+      </Button>
+    </CardContent>
+  </Card>
+      ) : (
         <div className="space-y-4">
           <Card>
             <CardContent className="p-4">
-              <h3 className="font-semibold mb-2 text-sm">Fields</h3>
-
-              <button
-                onClick={() => setCurrentPlacingType("signature")}
-                className="w-full flex items-center gap-3 p-3 mb-2 bg-green-50 border-2 border-green-400 rounded-lg hover:bg-green-100 transition-colors"
-              >
-                <div className="w-8 h-8 bg-green-500 rounded flex items-center justify-center">
-                  <PenTool className="h-4 w-4 text-white" />
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="icon" onClick={() => setScale(Math.max(scale - 0.2, 0.5))}>
+                    <ZoomOut className="h-4 w-4" />
+                  </Button>
+                  <span className="text-sm font-medium">{Math.round(scale * 100)}%</span>
+                  <Button variant="outline" size="icon" onClick={() => setScale(Math.min(scale + 0.2, 2))}>
+                    <ZoomIn className="h-4 w-4" />
+                  </Button>
                 </div>
-                <span className="text-sm font-medium">Signature</span>
-              </button>
-
-              <button
-                onClick={() => setCurrentPlacingType("date")}
-                className="w-full flex items-center gap-3 p-3 bg-blue-50 border border-blue-400 rounded-lg hover:bg-blue-100 transition-colors"
-              >
-                <div className="w-8 h-8 bg-blue-500 rounded flex items-center justify-center">
-                  <Calendar className="h-4 w-4 text-white" />
+                <div className="text-sm text-muted-foreground">
+                  Page {currentPage} of {numPages}
                 </div>
-                <span className="text-sm">Date</span>
-              </button>
+              </div>
 
-              <Button onClick={handleSignPDF} className="w-full mt-4 bg-primary" disabled={placedFields.length === 0}>
-                Sign →
-              </Button>
+              <div
+                id="pdf-container"
+                className={`border rounded-lg bg-gray-100 overflow-auto max-h-[600px] relative ${currentPlacingType ? 'cursor-crosshair' : ''}`}
+                onMouseMove={handleFieldDrag}
+                onMouseUp={handleFieldDragEnd}
+                onMouseLeave={handleFieldDragEnd}
+              >
+                <Document
+                  file={file}
+                  onLoadSuccess={onDocumentLoadSuccess}
+                  onLoadError={onDocumentLoadError}
+                  className="flex justify-center p-4"
+                >
+                  <div ref={pageRef} style={{ position: 'relative' }} onClick={handlePdfClick}>
+                    <Page
+                      pageNumber={currentPage}
+                      scale={scale}
+                      renderTextLayer={true}
+                      renderAnnotationLayer={true}
+                    />
+                    {placedFields
+                      .filter(field => field.page === currentPage)
+                      .map(field => {
+                        const Icon = getFieldIcon(field.type);
+                        return (
+                          <div
+                            key={field.id}
+                            className={`absolute cursor-move border-2 rounded shadow-lg p-2 group ${getFieldColor(field.type)}`}
+                            style={{
+                              left: `${field.x * scale}px`,
+                              top: `${field.y * scale}px`,
+                              opacity: field.isDragging ? 0.7 : 1,
+                              minWidth: "120px",
+                            }}
+                            onMouseDown={(e) => {
+                              e.stopPropagation();
+                              handleFieldDragStart(e, field.id);
+                            }}
+                          >
+                            <div className="flex items-center gap-2 pointer-events-none select-none">
+                              <Icon className="h-4 w-4" />
+                              <span className="text-xs font-medium capitalize">
+                                {field.value || field.type.replace("-", " ")}
+                              </span>
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                removeField(field.id);
+                              }}
+                              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </Document>
+              </div>
 
-              {placedFields.length > 0 && (
-                <p className="text-xs text-center text-muted-foreground mt-2">
-                  {placedFields.length} field(s) placed
-                </p>
+              {numPages > 1 && (
+                <div className="flex justify-center gap-2 mt-4">
+                  <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>
+                    Previous
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.min(numPages, p + 1))} disabled={currentPage === numPages}>
+                    Next
+                  </Button>
+                </div>
               )}
             </CardContent>
           </Card>
         </div>
       )}
     </div>
-  );
 
-  return (
-    <div className="space-y-6">
-      <Button variant="link" onClick={() => navigate(-1)} className="flex items-center gap-2">
-        <ArrowLeft className="h-4 w-4" /> Back
-      </Button>
+    {file && fullName && (
+      <div className="space-y-4">
+        <Card>
+          <CardContent className="p-4">
+            <h3 className="font-semibold mb-2 text-sm">Fields</h3>
 
+            <button
+              onClick={() => setCurrentPlacingType("signature")}
+              className="w-full flex items-center gap-3 p-3 mb-2 bg-green-50 border-2 border-green-400 rounded-lg hover:bg-green-100 transition-colors"
+            >
+              <div className="w-8 h-8 bg-green-500 rounded flex items-center justify-center">
+                <PenTool className="h-4 w-4 text-white" />
+              </div>
+              <span className="text-sm font-medium">Signature</span>
+            </button>
+
+            <button
+              onClick={() => setCurrentPlacingType("date")}
+              className="w-full flex items-center gap-3 p-3 bg-blue-50 border border-blue-400 rounded-lg hover:bg-blue-100 transition-colors"
+            >
+              <div className="w-8 h-8 bg-blue-500 rounded flex items-center justify-center">
+                <Calendar className="h-4 w-4 text-white" />
+              </div>
+              <span className="text-sm">Date</span>
+            </button>
+
+            <Button onClick={handleSignPDF} className="w-full mt-4 bg-primary" disabled={placedFields.length === 0}>
+              Sign →
+            </Button>
+
+            {placedFields.length > 0 && (
+              <p className="text-xs text-center text-muted-foreground mt-2">
+                {placedFields.length} field(s) placed
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    )}
+  </div>
+);
+
+return (
+  <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
+    <div className="max-w-6xl mx-auto">
+      {/* Back Button and Header */}
+      <div className="flex items-center gap-4 mb-8">
+        <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="flex items-center gap-2">
+          <ArrowLeft className="h-4 w-4" /> Back
+        </Button>
+        <div>
+          <h1 className="text-3xl font-bold text-foreground">Sign PDF</h1>
+          <p className="text-muted-foreground">Upload and place signature & date fields on your PDF.</p>
+        </div>
+      </div>
+
+      {/* Render steps */}
       {currentStep === "upload" && renderUploadStep()}
 
       {currentStep === "processing" && (
-        <div className="space-y-4 text-center">
-          <p className="font-semibold">Signing your PDF...</p>
-          <Progress value={progress} className="w-1/2 mx-auto" />
+        <div className="max-w-2xl mx-auto text-center">
+          <Card>
+            <CardContent className="p-12">
+              <div className="space-y-6">
+                <p className="font-semibold text-xl">Signing your PDF...</p>
+                <Progress value={progress} className="w-1/2 mx-auto" />
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
 
-      {currentStep === "download" && signedFileUrl && (
-        <div className="space-y-4 text-center">
-          <p className="font-semibold">PDF signed successfully!</p>
-          <Button onClick={downloadFile} className="bg-primary">
+{currentStep === "download" && signedFileUrl && file && (
+  <div className="max-w-2xl mx-auto">
+    <Card className="border-2 border-primary">
+      <CardContent className="p-8 text-center">
+        <h3 className="text-xl font-semibold mb-2">Signing Complete!</h3>
+        <p className="text-sm text-muted-foreground mb-6">
+          Your PDF has been signed successfully. Download or continue with other tools.
+        </p>
+
+        <div className="bg-muted rounded-lg p-4 mb-6">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-12 h-12 bg-red-100 rounded flex items-center justify-center">
+              <span className="text-red-600 font-bold text-xs">PDF</span>
+            </div>
+            <div className="flex-1 text-left">
+              <h4 className="font-medium">signed_{file.name}</h4>
+              <p className="text-sm text-muted-foreground">
+                {(file.size / 1024 / 1024).toFixed(2)} MB
+              </p>
+            </div>
+          </div>
+          {/* Optional: If you want percentage reduction, calculate it here */}
+        </div>
+
+        <div className="flex items-center justify-center gap-4 mb-6">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={resetProcess}
+            className="h-12 w-12"
+          >
+            <ArrowLeft className="h-5 w-5" />
+          </Button>
+
+          <Button
+            onClick={downloadFile}
+            className="bg-primary hover:bg-primary/90 h-12 px-8"
+          >
             <Download className="h-4 w-4 mr-2" />
             Download Signed PDF
           </Button>
-          <Button onClick={resetProcess} variant="outline">Sign Another PDF</Button>
-        </div>
-      )}
 
-      {/* Signature Details Modal */}
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={resetProcess}
+            className="h-12 w-12 text-destructive hover:text-destructive"
+          >
+            <Trash2 className="h-5 w-5" />
+          </Button>
+        </div>
+
+        <PDFToolRecommendations currentTool="sign" />
+      </CardContent>
+    </Card>
+  </div>
+)}
+
+      
+
+      {/* Signature Details Modal remains unchanged */}
       <Dialog open={showSignatureDetailsModal} onOpenChange={setShowSignatureDetailsModal}>
         <DialogContent>
           <DialogHeader>
@@ -535,7 +597,9 @@ const SignPDF = () => {
         </DialogContent>
       </Dialog>
     </div>
-  );
+  </div>
+);
+
 };
 
 export default SignPDF;
