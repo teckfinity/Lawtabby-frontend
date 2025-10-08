@@ -195,3 +195,24 @@ export const signPDF = async (file: File, signatures: { text: string; page: numb
     responseType: "json", 
   });
 };
+
+// Organize api
+export const organizePDF = async (file: File, userOrder: number[]) => {
+  if (!file) {
+    throw new Error("A PDF file is required to organize.");
+  }
+  if (!userOrder || userOrder.length === 0) {
+    throw new Error("User order for PDF pages is required.");
+  }
+
+  const formData = new FormData();
+  formData.append("input_pdf", file, file.name);
+  formData.append("user_order", JSON.stringify(userOrder)); // send as string "[3,1,2]"
+
+  return apiClient.post("/pdf/organize_pdf/", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+    responseType: "json",
+  });
+};
