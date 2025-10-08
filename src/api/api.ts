@@ -172,3 +172,26 @@ export const compressPDF = async (file: File, compressionQuality: number) => {
     responseType: "json", 
   });
 };
+
+
+
+// Sign PDF API
+export const signPDF = async (file: File, signatures: { text: string; page: number; x: number; y: number }[]) => {
+  if (!file) {
+    throw new Error("A PDF file is required to sign.");
+  }
+  if (!signatures || signatures.length === 0) {
+    throw new Error("At least one signature is required.");
+  }
+
+  const formData = new FormData();
+  formData.append("input_pdf", file, file.name);
+  formData.append("signatures", JSON.stringify(signatures));
+
+  return apiClient.post("/pdf/sign_pdf/", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+    },
+    responseType: "json", 
+  });
+};
