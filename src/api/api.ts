@@ -220,8 +220,6 @@ export const organizePDF = async (file: File, userOrder: number[]) => {
 
 // ________________________ convert pdf to image api ________________________
 
-// ________________________ convert pdf to image api ________________________
-
 export const convertPDFToImage = async (file: File, outputFormat: string) => {
   if (!file) {
     throw new Error("A PDF file is required to convert.");
@@ -241,3 +239,26 @@ export const convertPDFToImage = async (file: File, outputFormat: string) => {
     responseType: "json",
   });
 };
+
+
+// ________________________ word to pdf api ________________________
+
+export const convertWordToPDF = async (file: File) => {
+  if (!file) {
+    throw new Error("A Word file is required to convert.");
+  }
+
+  const token = getAuthToken(); // ✅ Get token from local storage
+  const formData = new FormData();
+  formData.append("input_word", file, file.name);
+
+  // Call your backend endpoint with auth header
+  return apiClient.post("/pdf/word_to_pdf/", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+      ...(token ? { Authorization: `Token ${token}` } : {}), 
+    },
+    responseType: "json", 
+  });
+};
+
