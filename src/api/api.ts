@@ -262,3 +262,23 @@ export const convertWordToPDF = async (file: File) => {
   });
 };
 
+// ________________________ OCR to PDF API ________________________
+export const convertOCRToPDF = async (file: File) => {
+  if (!file) {
+    throw new Error("An image or scanned document file is required for OCR.");
+  }
+
+  const token = getAuthToken();
+
+  const formData = new FormData();
+  formData.append("input_pdf", file, file.name); // ✅ match backend field name
+
+  return apiClient.post("/pdf/ocr_to_pdf/", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data",
+      ...(token ? { Authorization: `Token ${token}` } : {}),
+    },
+    responseType: "json", // or "blob" if the response is a file
+  });
+};
+
