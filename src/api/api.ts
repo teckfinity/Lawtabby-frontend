@@ -216,3 +216,28 @@ export const organizePDF = async (file: File, userOrder: number[]) => {
     responseType: "json",
   });
 };
+
+
+// ________________________ convert pdf to image api ________________________
+
+// ________________________ convert pdf to image api ________________________
+
+export const convertPDFToImage = async (file: File, outputFormat: string) => {
+  if (!file) {
+    throw new Error("A PDF file is required to convert.");
+  }
+
+  if (!outputFormat) {
+    throw new Error("Output format (JPG or PNG) is required.");
+  }
+
+  const formData = new FormData();
+  formData.append("input_pdf", file, file.name);
+  formData.append("output_format", outputFormat.toUpperCase());
+
+  // This call returns JSON with zip_file info
+  return apiClient.post("/pdf/pdf_to_image/", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+    responseType: "json",
+  });
+};
