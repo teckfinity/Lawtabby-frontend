@@ -40,7 +40,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
 const mainNavItems = [
-  { title: "Home", url: "/", icon: Home },
+  { title: "Home", url: "/dashboard", icon: Home },
   { title: "AI Chat", url: "/chat", icon: MessageSquare },
   { title: "PDF Management Tools", url: "/pdf-tools", icon: FileText },
 ];

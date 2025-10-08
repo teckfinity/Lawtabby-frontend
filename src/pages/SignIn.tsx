@@ -41,15 +41,19 @@ const SignIn = () => {
         password: formData.password,
       });
 
-      // check response for token
       const token = response.data?.token || response.data?.access;
       if (token) {
         localStorage.setItem("authToken", token);
+
+        // ✅ Set isAuthenticated in localStorage
+        localStorage.setItem("isAuthenticated", "true");
+        console.log("Login successful. isAuthenticated:", localStorage.getItem("isAuthenticated"));
+
         toast({
           title: "Welcome Back!",
           description: "Successfully signed in to your account",
         });
-        navigate("/");
+        navigate("/dashboard");
       } else {
         toast({
           title: "Login Failed",
@@ -63,6 +67,7 @@ const SignIn = () => {
         description: error.response?.data?.detail || "Invalid email or password",
         variant: "destructive",
       });
+      console.error("Login error:", error);
     } finally {
       setIsLoading(false);
     }
@@ -75,7 +80,6 @@ const SignIn = () => {
   return (
     <div className="min-h-screen w-full bg-background flex items-center justify-center p-4 md:p-6">
       <div className="w-full max-w-[480px] mx-auto space-y-6">
-        {/* Back Button */}
         <Button 
           variant="ghost" 
           className="gap-2"
@@ -94,15 +98,15 @@ const SignIn = () => {
           </CardHeader>
 
           <CardContent className="px-6 pb-8">
-            {/* Social Login Buttons */}
             <div className="space-y-3 mb-6">
-              {/* ✅ Replaced old Google button with real GoogleLoginButton */}
               <GoogleLoginButton 
                 onSuccess={(token) => {
                   toast({
                     title: "Google Login Successful",
                     description: "You are now signed in with Google",
                   });
+                  localStorage.setItem("isAuthenticated", "true");
+                  console.log("Google login successful. isAuthenticated:", localStorage.getItem("isAuthenticated"));
                   navigate("/dashboard");
                 }}
                 onError={(err) => {
@@ -115,34 +119,27 @@ const SignIn = () => {
                 }}
               />
 
-              {/* Apple Button (UI unchanged) */}
               <Button
                 variant="outline"
                 className="w-full h-11 justify-start gap-3 text-sm font-medium"
                 onClick={() => toast({ title: "Apple Sign In", description: "TODO: implement Apple login" })}
                 disabled={isLoading}
               >
-                <div className="w-5 h-5 bg-black rounded flex items-center justify-center text-white text-xs">
-                  🍎
-                </div>
+                <div className="w-5 h-5 bg-black rounded flex items-center justify-center text-white text-xs">🍎</div>
                 Continue with Apple
               </Button>
 
-              {/* Microsoft Button (UI unchanged) */}
               <Button
                 variant="outline"
                 className="w-full h-11 justify-start gap-3 text-sm font-medium"
                 onClick={() => toast({ title: "Microsoft Sign In", description: "TODO: implement Microsoft login" })}
                 disabled={isLoading}
               >
-                <div className="w-5 h-5 bg-blue-500 rounded flex items-center justify-center text-white text-xs font-bold">
-                  M
-                </div>
+                <div className="w-5 h-5 bg-blue-500 rounded flex items-center justify-center text-white text-xs font-bold">M</div>
                 Continue with Microsoft
               </Button>
             </div>
 
-            {/* Divider */}
             <div className="relative my-6">
               <Separator />
               <div className="absolute inset-0 flex items-center justify-center">
@@ -150,7 +147,6 @@ const SignIn = () => {
               </div>
             </div>
 
-            {/* Sign In Form */}
             <form onSubmit={handleSignIn} className="space-y-5">
               <div className="space-y-2">
                 <Label htmlFor="email" className="text-sm font-medium">Email Address</Label>
@@ -217,7 +213,6 @@ const SignIn = () => {
               </Button>
             </form>
 
-            {/* Sign Up Link */}
             <div className="text-center pt-6 border-t mt-6">
               <span className="text-sm text-muted-foreground">
                 Don't have an account?{' '}

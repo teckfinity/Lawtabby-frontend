@@ -152,6 +152,31 @@ export const unlockPDF = async (file: File, password: string) => {
 };
 
 
+
+
+
+// ---------------------- User Profile API ----------------------
+export const getUserProfile = async () => {
+  try {
+    const token = getAuthToken();
+    if (!token) {
+      throw new Error("No authentication token found. Please log in.");
+    }
+
+    const response = await apiClient.get("/accounts/profile/", {
+      headers: {
+        Authorization: `Token ${token}`, // explicitly sending auth header
+      },
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching user profile:", error);
+    throw error;
+  }
+};
+
+
 // Compress PDF API
 export const compressPDF = async (file: File, compressionQuality: number) => {
   if (!file) {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import SubscriptionPopup from '@/components/SubscriptionPopup';
@@ -12,7 +12,6 @@ import {
   Settings,
   Edit2,
   Camera,
-  Upload,
   Moon,
   Sun,
   Monitor,
@@ -23,27 +22,27 @@ import {
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useNavigate } from 'react-router-dom';
+import { getUserProfile } from '@/api/api'; // <-- import the API function
 
 const Profile = () => {
   const { toast } = useToast();
   const { theme, setTheme } = useTheme();
   const navigate = useNavigate();
-  
-  // Profile state
+
+  const [loading, setLoading] = useState(true); // loading state
   const [profile, setProfile] = useState({
-    username: 'angelahenry054051',
-    email: 'angelahenry@yahoo.com',
+    username: '',
+    email: '',
     plan: 'Free Plan',
-    avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b631?w=150&h=150&fit=crop&crop=face'
+    avatar: ''
   });
 
   // Editing states
   const [isEditingUsername, setIsEditingUsername] = useState(false);
   const [isEditingEmail, setIsEditingEmail] = useState(false);
-  const [tempUsername, setTempUsername] = useState(profile.username);
-  const [tempEmail, setTempEmail] = useState(profile.email);
+  const [tempUsername, setTempUsername] = useState('');
+  const [tempEmail, setTempEmail] = useState('');
 
-  // Site settings state
   const [siteSettings, setSiteSettings] = useState({
     siteName: 'LegalAI Pro',
     darkMode: false,
@@ -51,9 +50,37 @@ const Profile = () => {
     autoSave: true
   });
 
-  // Subscription popup state
   const [isSubscriptionPopupOpen, setIsSubscriptionPopupOpen] = useState(false);
 
+  // ------------------- Fetch user profile on mount -------------------
+  useEffect(() => {
+    const fetchProfile = async () => {
+      setLoading(true);
+      try {
+        const data = await getUserProfile();
+        setProfile({
+          username: data.username || '',
+          email: data.email || '',
+          plan: data.plan || 'Free Plan',
+          avatar: data.avatar || 'https://via.placeholder.com/150'
+        });
+        setTempUsername(data.username || '');
+        setTempEmail(data.email || '');
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to fetch user profile.",
+          variant: "destructive"
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProfile();
+  }, []);
+
+  // ------------------- Existing handlers remain unchanged -------------------
   const handleSaveUsername = () => {
     if (tempUsername.trim()) {
       setProfile({ ...profile, username: tempUsername });
@@ -103,47 +130,24 @@ const Profile = () => {
     input.click();
   };
 
-  const handleSignOut = () => {
-    // Navigate to signout page which shows confirmation
-    navigate('/signout');
-  };
+  const handleSignOut = () => navigate('/signout');
 
-  const handleDeleteAccount = () => {
-    toast({
-      title: "Account deletion requested",
-      description: "Please contact support to complete account deletion.",
-      variant: "destructive"
-    });
-  };
+  const handleDeleteAccount = () => toast({
+    title: "Account deletion requested",
+    description: "Please contact support to complete account deletion.",
+    variant: "destructive"
+  });
 
-  const getThemeLabel = () => {
-    switch (theme) {
-      case 'light':
-        return 'Light';
-      case 'dark':
-        return 'Dark';
-      default:
-        return 'System';
-    }
-  };
-
-  const getThemeIcon = () => {
-    switch (theme) {
-      case 'light':
-        return <Sun className="h-4 w-4" />;
-      case 'dark':
-        return <Moon className="h-4 w-4" />;
-      default:
-        return <Monitor className="h-4 w-4" />;
-    }
-  };
-
+  const getThemeLabel = () => theme === 'light' ? 'Light' : theme === 'dark' ? 'Dark' : 'System';
+  const getThemeIcon = () => theme === 'light' ? <Sun className="h-4 w-4" /> : theme === 'dark' ? <Moon className="h-4 w-4" /> : <Monitor className="h-4 w-4" />;
   const cycleTheme = () => {
     const themes = ['light', 'dark', 'system'];
-    const currentIndex = themes.indexOf(theme || 'system');
-    const nextIndex = (currentIndex + 1) % themes.length;
+    const nextIndex = (themes.indexOf(theme || 'system') + 1) % themes.length;
     setTheme(themes[nextIndex]);
   };
+
+  // ------------------- Render -------------------
+  if (loading) return <p>Loading profile...</p>;
 
   return (
     <div className="w-full flex-col space-y-8 p-4 md:p-6 lg:p-8 lg:pl-12 md:flex">
