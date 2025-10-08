@@ -50,8 +50,15 @@ import TermsOfService from "./pages/TermsOfService";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import History from "./pages/History";
 
-// ✅ Google OAuth Provider
+// Google OAuth
 import { GoogleOAuthProvider } from "@react-oauth/google";
+
+// Protected Route
+import { Navigate as RouterNavigate } from "react-router-dom";
+const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
+  const isAuthenticated = !!localStorage.getItem("authToken");
+  return isAuthenticated ? children : <RouterNavigate to="/signin" replace />;
+};
 
 const queryClient = new QueryClient();
 
@@ -86,52 +93,54 @@ const App = () => (
                 <Route
                   path="/*"
                   element={
-                    <div className="min-h-screen flex w-full bg-background">
-                      <AppSidebar />
-                      <div className="flex-1 flex flex-col">
-                        <main className="flex-1 overflow-auto">
-                          <Routes>
-                            <Route path="/dashboard" element={<Dashboard />} />
-                            <Route path="/chat" element={<Chat />} />
-                            <Route path="/pdf-tools" element={<PDFTools />} />
-                            <Route path="/library/uploaded" element={<Library />} />
-                            <Route path="/library/downloaded" element={<Library />} />
-                            <Route path="/ai/summarizer" element={<DocumentSummarizer />} />
-                            <Route path="/ai/judge-analytics" element={<JudgeAnalytics />} />
-                            <Route path="/ai/judge/:judgeId" element={<JudgeProfile />} />
-                            <Route path="/ai/judge/:judgeId/case-history" element={<CaseHistory />} />
-                            <Route path="/ai/judge/:judgeId/predictions" element={<JudgePredictions />} />
-                            <Route path="/ai/judges/compare" element={<CompareJudges />} />
-                            <Route path="/ai/citation-maps" element={<CitationMaps />} />
-                            <Route path="/ai/citation-maps/create" element={<CreateCitationMap />} />
-                            <Route path="/ai/predictive" element={<PredictiveAI />} />
-                            <Route path="/ai/predictions/all" element={<AllPredictions />} />
-                            <Route path="/ai/automation" element={<DocumentAutomation />} />
-                            <Route path="/ai/legal-research" element={<LegalResearch />} />
+                    <ProtectedRoute>
+                      <div className="min-h-screen flex w-full bg-background">
+                        <AppSidebar />
+                        <div className="flex-1 flex flex-col">
+                          <main className="flex-1 overflow-auto">
+                            <Routes>
+                              <Route path="/dashboard" element={<Dashboard />} />
+                              <Route path="/chat" element={<Chat />} />
+                              <Route path="/pdf-tools" element={<PDFTools />} />
+                              <Route path="/library/uploaded" element={<Library />} />
+                              <Route path="/library/downloaded" element={<Library />} />
+                              <Route path="/ai/summarizer" element={<DocumentSummarizer />} />
+                              <Route path="/ai/judge-analytics" element={<JudgeAnalytics />} />
+                              <Route path="/ai/judge/:judgeId" element={<JudgeProfile />} />
+                              <Route path="/ai/judge/:judgeId/case-history" element={<CaseHistory />} />
+                              <Route path="/ai/judge/:judgeId/predictions" element={<JudgePredictions />} />
+                              <Route path="/ai/judges/compare" element={<CompareJudges />} />
+                              <Route path="/ai/citation-maps" element={<CitationMaps />} />
+                              <Route path="/ai/citation-maps/create" element={<CreateCitationMap />} />
+                              <Route path="/ai/predictive" element={<PredictiveAI />} />
+                              <Route path="/ai/predictions/all" element={<AllPredictions />} />
+                              <Route path="/ai/automation" element={<DocumentAutomation />} />
+                              <Route path="/ai/legal-research" element={<LegalResearch />} />
                             {/* PDF Tool routes */}
-                            <Route path="/pdf/merge" element={<MergePDF />} />
-                            <Route path="/pdf/split" element={<SplitPDF />} />
-                            <Route path="/pdf/compress" element={<CompressPDF />} />
-                            <Route path="/pdf/edit" element={<EditPDF />} />
-                            <Route path="/pdf/sign" element={<SignPDF />} />
-                            <Route path="/pdf/stamp" element={<StampPDF />} />
-                            <Route path="/pdf/convert-from" element={<ConvertFromPDF />} />
-                            <Route path="/pdf/convert-to" element={<ConvertToPDF />} />
-                            <Route path="/pdf/ocr" element={<OCRPDF />} />
-                            <Route path="/pdf/download-ocr" element={<DownloadOCRPDF />} />
-                            <Route path="/pdf/organize" element={<OrganizePDF />} />
-                            <Route path="/pdf/unlock" element={<UnlockPDF />} />
-                            <Route path="/pdf/protect" element={<ProtectPDF />} />
-                            <Route path="/pdf/download-protected" element={<DownloadProtectedPDF />} />
-                            <Route path="/profile" element={<Profile />} />
-                            <Route path="/subscription" element={<Subscription />} />
-                            <Route path="/history/:id" element={<History />} />
+                              <Route path="/pdf/merge" element={<MergePDF />} />
+                              <Route path="/pdf/split" element={<SplitPDF />} />
+                              <Route path="/pdf/compress" element={<CompressPDF />} />
+                              <Route path="/pdf/edit" element={<EditPDF />} />
+                              <Route path="/pdf/sign" element={<SignPDF />} />
+                              <Route path="/pdf/stamp" element={<StampPDF />} />
+                              <Route path="/pdf/convert-from" element={<ConvertFromPDF />} />
+                              <Route path="/pdf/convert-to" element={<ConvertToPDF />} />
+                              <Route path="/pdf/ocr" element={<OCRPDF />} />
+                              <Route path="/pdf/download-ocr" element={<DownloadOCRPDF />} />
+                              <Route path="/pdf/organize" element={<OrganizePDF />} />
+                              <Route path="/pdf/unlock" element={<UnlockPDF />} />
+                              <Route path="/pdf/protect" element={<ProtectPDF />} />
+                              <Route path="/pdf/download-protected" element={<DownloadProtectedPDF />} />
+                              <Route path="/profile" element={<Profile />} />
+                              <Route path="/subscription" element={<Subscription />} />
+                              <Route path="/history/:id" element={<History />} />
                             {/* Catch-all */}
-                            <Route path="*" element={<NotFound />} />
-                          </Routes>
-                        </main>
+                              <Route path="*" element={<NotFound />} />
+                            </Routes>
+                          </main>
+                        </div>
                       </div>
-                    </div>
+                    </ProtectedRoute>
                   }
                 />
               </Routes>
