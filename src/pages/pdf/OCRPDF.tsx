@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowLeft, Upload, ScanText, Languages } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { convertOCRToPDF } from "@/api/api";
 
 const OCRPDF = () => {
   const navigate = useNavigate();
@@ -28,24 +29,38 @@ const OCRPDF = () => {
     }
 
     setIsProcessing(true);
-    
-    // Simulate OCR processing and PDF creation
-    setTimeout(() => {
-      // Create a dummy OCR PDF blob
-      const blob = new Blob(["OCR processed PDF content"], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
-      
+
+    try {
+      // ✅ POST OCR API call
+      const response = await convertOCRToPDF(file);
+
+      if (response && response.data) {
+        const { message, data } = response.data;
+        toast.success(message || "OCR completed successfully!");
+
+        const pdfFileName = data?.pdf || "ocr_result.pdf";
+
+        // ✅ Construct file URL
+        const pdfUrl = `${
+          import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"
+        }/media/${pdfFileName}`;
+
+        // ✅ Navigate to download page
+        navigate("/pdf/download-ocr", {
+          state: {
+            pdfUrl,
+            fileName: pdfFileName,
+          },
+        });
+      } else {
+        toast.error("Failed to process OCR. Please try again.");
+      }
+    } catch (error: any) {
+      console.error("OCR API Error:", error);
+      toast.error("OCR processing failed. Please try again.");
+    } finally {
       setIsProcessing(false);
-      toast.success("OCR processing completed!");
-      
-      // Navigate to download page
-      navigate("/pdf/download-ocr", {
-        state: {
-          pdfUrl: url,
-          fileName: file.name.replace(/\.[^/.]+$/, "_OCR.pdf"),
-        },
-      });
-    }, 3000);
+    }
   };
 
   const languages = [
@@ -58,7 +73,7 @@ const OCRPDF = () => {
     { code: "ru", name: "Russian" },
     { code: "zh", name: "Chinese" },
     { code: "ja", name: "Japanese" },
-    { code: "ko", name: "Korean" }
+    { code: "ko", name: "Korean" },
   ];
 
   return (
@@ -66,9 +81,9 @@ const OCRPDF = () => {
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
-          <Button 
-            variant="ghost" 
-            size="sm" 
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => navigate("/pdf-tools")}
             className="flex items-center gap-2"
           >
@@ -77,7 +92,9 @@ const OCRPDF = () => {
           </Button>
           <div>
             <h1 className="text-3xl font-bold text-foreground">OCR</h1>
-            <p className="text-muted-foreground">Easily convert scanned PDF and images into searchable and selectable documents.</p>
+            <p className="text-muted-foreground">
+              Easily convert scanned PDF and images into searchable and selectable documents.
+            </p>
           </div>
         </div>
 
@@ -92,8 +109,10 @@ const OCRPDF = () => {
                     <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8">
                       <ScanText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                       <h3 className="text-lg font-semibold mb-2">Upload File for OCR</h3>
-                      <p className="text-muted-foreground mb-4">Choose a PDF or image file from your device</p>
-                      <Button 
+                      <p className="text-muted-foreground mb-4">
+                        Choose a PDF or image file from your device
+                      </p>
+                      <Button
                         className="bg-primary hover:bg-primary/90"
                         onClick={() => fileInputRef.current?.click()}
                       >
@@ -114,7 +133,7 @@ const OCRPDF = () => {
                     <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
                       <div className="w-12 h-12 bg-teal-100 rounded flex items-center justify-center">
                         <span className="text-teal-600 font-bold text-xs">
-                          {file.name.split('.').pop()?.toUpperCase()}
+                          {file.name.split(".").pop()?.toUpperCase()}
                         </span>
                       </div>
                       <div className="flex-1">
@@ -123,11 +142,7 @@ const OCRPDF = () => {
                           {(file.size / 1024 / 1024).toFixed(2)} MB
                         </p>
                       </div>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setFile(null)}
-                      >
+                      <Button variant="outline" size="sm" onClick={() => setFile(null)}>
                         Remove
                       </Button>
                     </div>
@@ -141,7 +156,7 @@ const OCRPDF = () => {
               <Card>
                 <CardContent className="p-6">
                   <h3 className="font-semibold mb-4">OCR Settings</h3>
-                  
+
                   <div className="space-y-4">
                     <div className="space-y-2">
                       <label className="text-sm font-medium">Document Language</label>
