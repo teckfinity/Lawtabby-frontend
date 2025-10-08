@@ -49,7 +49,7 @@ const SignIn = () => {
           title: "Welcome Back!",
           description: "Successfully signed in to your account",
         });
-        navigate("/");
+        navigate("/dashboard");
       } else {
         toast({
           title: "Login Failed",
