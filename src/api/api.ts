@@ -307,3 +307,21 @@ export const convertOCRToPDF = async (file: File) => {
   });
 };
 
+
+// ________________________ Download OCR PDF API ________________________
+export const downloadOCRPDF = (fileName: string) => {
+  if (!fileName) {
+    throw new Error("File name is required to download.");
+  }
+
+  // Construct the backend download URL
+  const fileUrl = `${API_BASE_URL}/pdf/download/${fileName}/`;
+
+  // Create a temporary link to trigger download
+  const link = document.createElement("a");
+  link.href = fileUrl;
+  link.setAttribute("download", fileName);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
