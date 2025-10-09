@@ -8,7 +8,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
-import { PDFDocument, rgb, degrees } from "pdf-lib";
+import { PDFDocument, rgb, degrees, StandardFonts } from "pdf-lib";
 
 type ProcessStep = "upload" | "processing" | "download";
 
@@ -55,18 +55,53 @@ const StampPDF = () => {
       const arrayBuffer = await file.arrayBuffer();
       const pdfDoc = await PDFDocument.load(arrayBuffer);
 
-      if (stampType === "text") {
-        const pages = pdfDoc.getPages();
-        pages.forEach((page) => {
-          page.drawText(stampText, {
-            x: page.getWidth() / 4,
-            y: page.getHeight() / 2,
-            size: 48,
-            color: rgb(1, 0, 0),
-            opacity: opacity / 100,
-            rotate: degrees(45),
-          });
-        });
+if (stampType === "text") {
+  const pages = pdfDoc.getPages();
+  const red = rgb(0.8, 0, 0);
+  const lightRed = rgb(1, 0.9, 0.9);
+  const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+  for (const page of pages) {
+    const width = page.getWidth();
+    const height = page.getHeight();
+
+    // smaller, more balanced rectangle
+    const stampWidth = 150;
+    const stampHeight = 45;
+    const rotation = degrees(15); // less rotation (looks more elegant)
+
+    const centerX = width / 2 - stampWidth / 2;
+    const centerY = height / 2 - stampHeight / 2;
+
+    // background rectangle
+    page.drawRectangle({
+      x: centerX,
+      y: centerY,
+      width: stampWidth,
+      height: stampHeight,
+      borderColor: red,
+      borderWidth: 3,
+      color: lightRed,
+      opacity: opacity / 100,
+      rotate: rotation,
+    });
+
+    // perfectly centered text
+    const textSize = 20;
+    const textWidth = font.widthOfTextAtSize(stampText.toUpperCase(), textSize);
+    const textX = centerX + (stampWidth - textWidth) / 2;
+    const textY = centerY + stampHeight / 2 - textSize / 3;
+
+    page.drawText(stampText.toUpperCase(), {
+      x: textX,
+      y: textY,
+      size: textSize,
+      font,
+      color: red,
+      opacity: opacity / 100,
+      rotate: rotation,
+    });
+  }
       } else if (stampType === "image" && imageStamp) {
         const imgBytes = await imageStamp.arrayBuffer();
         const ext = imageStamp.name.split(".").pop()?.toLowerCase();
