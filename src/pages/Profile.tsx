@@ -59,7 +59,7 @@ const Profile = () => {
       try {
         const data = await getUserProfile();
         setProfile({
-          username: data.username || '',
+          username: data.name || '',
           email: data.email || '',
           plan: data.plan || 'Free Plan',
           avatar: data.avatar || 'https://via.placeholder.com/150'
