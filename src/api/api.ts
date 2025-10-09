@@ -273,19 +273,19 @@ export const convertWordToPDF = async (file: File) => {
     throw new Error("A Word file is required to convert.");
   }
 
-  const token = getAuthToken(); // ✅ Get token from local storage
+  const token = getAuthToken();
   const formData = new FormData();
-  formData.append("input_word", file, file.name);
+  formData.append("input_files", file, file.name); // ✅ FIXED HERE
 
-  // Call your backend endpoint with auth header
   return apiClient.post("/pdf/word_to_pdf/", formData, {
     headers: {
       "Content-Type": "multipart/form-data",
-      ...(token ? { Authorization: `Token ${token}` } : {}), 
+      ...(token ? { Authorization: `Token ${token}` } : {}),
     },
-    responseType: "json", 
+    responseType: "blob", 
   });
 };
+
 
 // ________________________ OCR to PDF API ________________________
 export const convertOCRToPDF = async (file: File) => {
