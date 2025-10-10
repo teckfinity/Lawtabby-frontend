@@ -6,7 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
-import { mergePDFs } from "@/api/api"; // Import the mergePDFs API
+import { mergePDFs } from "@/api"; // Import the mergePDFs API
 
 interface PDFFile {
   id: string;

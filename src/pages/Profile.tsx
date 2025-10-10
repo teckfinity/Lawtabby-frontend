@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useNavigate } from 'react-router-dom';
-import { getUserProfile } from '@/api/api'; // <-- import the API function
+import { getUserProfile } from '@/api'; // <-- import the API function
 
 const Profile = () => {
   const { toast } = useToast();

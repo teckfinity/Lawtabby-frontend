@@ -5,7 +5,7 @@ import { ArrowLeft, Upload, Download, FileText, Image, FileSpreadsheet, Presenta
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
-import { convertWordToPDF } from "@/api/api"; // ✅ Import your API function
+import { convertWordToPDF } from "@/api"; // ✅ Import your API function
 
 type ProcessStep = "upload" | "processing" | "download";
 

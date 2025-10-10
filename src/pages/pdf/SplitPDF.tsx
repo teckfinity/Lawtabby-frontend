@@ -8,7 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
-import { splitPDF as splitPDFApi } from "@/api/api";   // ✅ import API
+import { splitPDF as splitPDFApi } from "@/api";   // ✅ import API
 
 type ProcessStep = "upload" | "processing" | "download";
 type SplitMode = "range" | "pages" | "size";

@@ -7,7 +7,7 @@ import { Separator } from '@/components/ui/separator';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { loginUser } from '@/api/api';
+import { loginUser } from '@/api';
 import GoogleLoginButton from '@/components/GoogleLoginButton';  
 
 const SignIn = () => {

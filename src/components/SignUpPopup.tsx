@@ -6,7 +6,7 @@ import { Separator } from '@/components/ui/separator';
 import { Checkbox } from '@/components/ui/checkbox';
 import { X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { registerUser } from '@/api/api';
+import { registerUser } from '@/api';
 
 interface SignUpPopupProps {
   isOpen: boolean;
