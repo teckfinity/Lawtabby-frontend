@@ -2,7 +2,7 @@
 import React from "react";
 import AppleSignin, { AppleAuthResponse } from "react-apple-signin-auth";
 import axios from "axios";
-import { API_BASE_URL } from "@/api/api";
+import { API_BASE_URL } from "@/api";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";   // ✅ use shadcn Button
 

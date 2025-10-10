@@ -6,7 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
-import { compressPDF as compressPDFApi } from "@/api/api"; // import your API function
+import { compressPDF as compressPDFApi } from "@/api"; // import your API function
 
 type ProcessStep = "upload" | "processing" | "download";
 

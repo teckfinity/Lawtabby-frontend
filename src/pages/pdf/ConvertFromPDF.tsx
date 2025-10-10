@@ -17,7 +17,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import axios from "axios";
-import { convertPDFToImage } from "@/api/api";
+import { convertPDFToImage } from "@/api";
 
 type ProcessStep = "upload" | "processing" | "download";
 

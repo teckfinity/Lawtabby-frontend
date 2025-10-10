@@ -10,7 +10,7 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { signPDF } from "@/api/api"; // Import the signPDF API function
+import { signPDF } from "@/api"; // Import the signPDF API function
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";

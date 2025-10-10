@@ -5,7 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ArrowLeft, Upload, ScanText, Languages, Download, CheckCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { convertOCRToPDF, downloadOCRPDF } from "@/api/api";
+import { convertOCRToPDF, downloadOCRPDF } from "@/api";
 
 const OCRPDF = () => {
   const navigate = useNavigate();

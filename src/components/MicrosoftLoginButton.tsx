@@ -3,7 +3,7 @@ import React from "react";
 import MicrosoftLogin from "react-microsoft-login";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
-import { API_BASE_URL } from "@/api/api";
+import { API_BASE_URL } from "@/api";
 import { Button } from "@/components/ui/button";   
 
 interface MicrosoftLoginResponse {

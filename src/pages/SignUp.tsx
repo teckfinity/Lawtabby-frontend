@@ -8,7 +8,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { registerUser } from '@/api/api';
+import { registerUser } from '@/api';
 import GoogleLoginButton from '@/components/GoogleLoginButton';  // ✅ import Google button
 
 const SignUp = () => {

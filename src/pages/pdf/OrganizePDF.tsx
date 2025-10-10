@@ -4,7 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ArrowLeft, Upload, Download, Trash2, RotateCcw, GripVertical } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { organizePDF } from "@/api/api";
+import { organizePDF } from "@/api";
 
 // Drag and drop
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";

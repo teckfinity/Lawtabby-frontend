@@ -7,7 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { ArrowLeft, Upload, Lock, Eye, EyeOff, Shield } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { protectPDF as protectPDFApi } from "@/api/api"; 
+import { protectPDF as protectPDFApi } from "@/api"; 
 
 const ProtectPDF = () => {
   const navigate = useNavigate();
