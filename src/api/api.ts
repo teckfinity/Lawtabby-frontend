@@ -273,19 +273,19 @@ export const convertWordToPDF = async (file: File) => {
     throw new Error("A Word file is required to convert.");
   }
 
-  const token = getAuthToken(); // ✅ Get token from local storage
+  const token = getAuthToken();
   const formData = new FormData();
-  formData.append("input_word", file, file.name);
+  formData.append("input_files", file, file.name); // ✅ FIXED HERE
 
-  // Call your backend endpoint with auth header
   return apiClient.post("/pdf/word_to_pdf/", formData, {
     headers: {
       "Content-Type": "multipart/form-data",
-      ...(token ? { Authorization: `Token ${token}` } : {}), 
+      ...(token ? { Authorization: `Token ${token}` } : {}),
     },
-    responseType: "json", 
+    responseType: "blob", 
   });
 };
+
 
 // ________________________ OCR to PDF API ________________________
 export const convertOCRToPDF = async (file: File) => {
@@ -307,3 +307,21 @@ export const convertOCRToPDF = async (file: File) => {
   });
 };
 
+
+// ________________________ Download OCR PDF API ________________________
+export const downloadOCRPDF = (fileName: string) => {
+  if (!fileName) {
+    throw new Error("File name is required to download.");
+  }
+
+  // Construct the backend download URL
+  const fileUrl = `${API_BASE_URL}/pdf/download/${fileName}/`;
+
+  // Create a temporary link to trigger download
+  const link = document.createElement("a");
+  link.href = fileUrl;
+  link.setAttribute("download", fileName);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};

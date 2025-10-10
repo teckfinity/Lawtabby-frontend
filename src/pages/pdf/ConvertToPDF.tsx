@@ -44,7 +44,7 @@ const ConvertToPDF = () => {
 
       for (const file of files) {
         const formData = new FormData();
-        formData.append("input_word", file, file.name);
+        formData.append("input_files", file, file.name);
 
         const response = await convertWordToPDF(file); // Call backend API
         toast.success(`${file.name} converted successfully`);
