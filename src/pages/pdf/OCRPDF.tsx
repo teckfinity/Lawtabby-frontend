@@ -13,7 +13,7 @@ const OCRPDF = () => {
   const [file, setFile] = useState<File | null>(null);
   const [selectedLanguage, setSelectedLanguage] = useState("en");
   const [isProcessing, setIsProcessing] = useState(false);
-  const [downloadInfo, setDownloadInfo] = useState<{ fileName: string } | null>(null);
+  const [downloadInfo, setDownloadInfo] = useState<{ pdfUrl: string; fileName: string } | null>(null);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
@@ -39,7 +39,12 @@ const OCRPDF = () => {
         toast.success(message || "OCR completed successfully!");
 
         const pdfFileName = data?.pdf || "";
-        setDownloadInfo({ fileName: pdfFileName });
+        const pdfUrl = `${
+          import.meta.env.VITE_API_URL || ""
+        }/media/orc/${pdfFileName}`;
+
+        //  Set download info to show the download screen
+        setDownloadInfo({ pdfUrl, fileName: pdfFileName });
       } else {
         toast.error("Failed to process OCR. Please try again.");
       }
@@ -51,11 +56,23 @@ const OCRPDF = () => {
     }
   };
 
-  const handleDownload = () => {
-    if (downloadInfo?.fileName) {
-      downloadOCRPDF(downloadInfo.fileName);
-    }
-  };
+const handleDownload = () => {
+  if (downloadInfo?.pdfUrl) {
+    const link = document.createElement("a");
+    link.href = downloadInfo.pdfUrl;
+    link.download = downloadInfo.fileName; // ✅ this forces download
+    link.target = "_blank"; // ✅ important to prevent React navigation
+    link.rel = "noopener noreferrer"; // safety
+    link.click();
+  }
+};
+
+  // 👇 Auto-download when OCR completes
+  if (downloadInfo) {
+    setTimeout(() => {
+      handleDownload();
+    }, 1000);
+  }
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
@@ -79,7 +96,7 @@ const OCRPDF = () => {
           </div>
         </div>
 
-        {/* Show download screen after processing */}
+        {/* ✅ Show download screen after processing */}
         {downloadInfo ? (
           <Card className="p-8 text-center shadow-lg">
             <CardContent>
@@ -112,10 +129,11 @@ const OCRPDF = () => {
           </Card>
         ) : (
           <>
-            {/* File upload + processing UI */}
+            {/* 👇 Your existing file upload + processing UI */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              {/* Left Column */}
+              {/* Left Column (Upload + Settings) */}
               <div className="space-y-6">
+                {/* File Upload */}
                 <Card>
                   <CardContent className="p-6">
                     {!file ? (
@@ -178,7 +196,16 @@ const OCRPDF = () => {
                             </SelectTrigger>
                             <SelectContent>
                               {[
-                                "en", "es", "fr", "de", "it", "pt", "ru", "zh", "ja", "ko",
+                                "en",
+                                "es",
+                                "fr",
+                                "de",
+                                "it",
+                                "pt",
+                                "ru",
+                                "zh",
+                                "ja",
+                                "ko",
                               ].map((code) => (
                                 <SelectItem key={code} value={code}>
                                   <div className="flex items-center gap-2">
@@ -227,23 +254,23 @@ const OCRPDF = () => {
                   <CardContent className="p-6">
                     <h4 className="font-semibold mb-3">How OCR Works</h4>
                     <ul className="text-sm text-muted-foreground space-y-2">
-                      <li>• <strong>Upload:</strong> Select your PDF or image file</li>
-                      <li>• <strong>Language:</strong> Choose document language for best results</li>
-                      <li>• <strong>Process:</strong> AI analyzes and recognizes text</li>
-                      <li>• <strong>Download:</strong> Get your searchable PDF</li>
-                    </ul>
-                  </CardContent>
-                </Card>
+                  <li>• <strong>Upload:</strong> Select your PDF or image file</li>
+                  <li>• <strong>Language:</strong> Choose document language for best results</li>
+                  <li>• <strong>Process:</strong> AI analyzes and recognizes text</li>
+                  <li>• <strong>Download:</strong> Get your searchable PDF</li>
+                </ul>
+              </CardContent>
+            </Card>
 
-                <Card className="bg-muted/50">
-                  <CardContent className="p-6">
-                    <h4 className="font-semibold mb-3">OCR Features</h4>
-                    <ul className="text-sm text-muted-foreground space-y-2">
-                      <li>• <strong>High Accuracy:</strong> Advanced OCR engine with 99%+ accuracy</li>
-                      <li>• <strong>Multi-language:</strong> Support for 10+ languages</li>
-                      <li>• <strong>Searchable PDF:</strong> Create searchable and selectable PDFs</li>
-                      <li>• <strong>Format Preservation:</strong> Maintains document structure</li>
-                      <li>• <strong>Image Support:</strong> Process scanned images and photos</li>
+            <Card className="bg-muted/50">
+              <CardContent className="p-6">
+                <h4 className="font-semibold mb-3">OCR Features</h4>
+                <ul className="text-sm text-muted-foreground space-y-2">
+                  <li>• <strong>High Accuracy:</strong> Advanced OCR engine with 99%+ accuracy</li>
+                  <li>• <strong>Multi-language:</strong> Support for 10+ languages</li>
+                  <li>• <strong>Searchable PDF:</strong> Create searchable and selectable PDFs</li>
+                  <li>• <strong>Format Preservation:</strong> Maintains document structure</li>
+                  <li>• <strong>Image Support:</strong> Process scanned images and photos</li>
                     </ul>
                   </CardContent>
                 </Card>

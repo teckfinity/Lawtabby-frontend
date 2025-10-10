@@ -52,13 +52,15 @@ const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
       setIsUnlocking(true);
       const response = await unlockPDFApi(file, password);
 
-      if (response.data?.unlocked_file) {
-        setUnlockedFileUrl(response.data.unlocked_file);
+      if (response.data?.unlocked_pdf?.unlock_pdf) {
+        const unlockedFilePath = response.data.unlocked_pdf.unlock_pdf;
+        const fullUrl = `${import.meta.env.VITE_API_BASE_URL}/media/${unlockedFilePath}`;
+        setUnlockedFileUrl(fullUrl);
         setIsUnlocked(true);
-        toast.success("PDF unlocked successfully!");
-      } else {
-        toast.error("Failed to unlock PDF. Please try again.");
-      }
+       toast.success(response.data.message || "PDF unlocked successfully!");
+       } else {
+         toast.error("Failed to unlock PDF. Please try again.");
+       }
     } catch (error: any) {
       toast.error(
         error.response?.data?.message || "Error unlocking PDF. Please try again."
