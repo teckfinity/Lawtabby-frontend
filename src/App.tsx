@@ -6,6 +6,9 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { ThemeProvider } from "next-themes";
 import { AppSidebar } from "@/components/AppSidebar";
+import { GoogleOAuthProvider } from "@react-oauth/google";
+
+// ---------- Pages ----------
 import Dashboard from "./pages/Dashboard";
 import Chat from "./pages/Chat";
 import PDFTools from "./pages/PDFTools";
@@ -15,16 +18,13 @@ import JudgeAnalytics from "./pages/ai/JudgeAnalytics";
 import JudgeProfile from "./pages/ai/judge/JudgeProfile";
 import CaseHistory from "./pages/ai/judge/CaseHistory";
 import JudgePredictions from "./pages/ai/judge/JudgePredictions";
+import CompareJudges from "./pages/ai/judge/CompareJudges";
 import CitationMaps from "./pages/ai/CitationMaps";
+import CreateCitationMap from "./pages/ai/citation/CreateCitationMap";
 import PredictiveAI from "./pages/ai/PredictiveAI";
+import AllPredictions from "./pages/ai/AllPredictions";
 import DocumentAutomation from "./pages/ai/DocumentAutomation";
 import LegalResearch from "./pages/ai/LegalResearch";
-import NotFound from "./pages/NotFound";
-// Added routes for newly created pages
-import CompareJudges from "./pages/ai/judge/CompareJudges";
-import AllPredictions from "./pages/ai/AllPredictions";
-import CreateCitationMap from "./pages/ai/citation/CreateCitationMap";
-// PDF Tool imports
 import MergePDF from "./pages/pdf/MergePDF";
 import SplitPDF from "./pages/pdf/SplitPDF";
 import CompressPDF from "./pages/pdf/CompressPDF";
@@ -41,6 +41,7 @@ import DownloadProtectedPDF from "./pages/pdf/DownloadProtectedPDF";
 import DownloadOCRPDF from "./pages/pdf/DownloadOCRPDF";
 import Profile from "./pages/Profile";
 import Subscription from "./pages/Subscription";
+import History from "./pages/History";
 import ForgotPassword from "./pages/ForgotPassword";
 import SignIn from "./pages/SignIn";
 import SignUp from "./pages/SignUp";
@@ -48,21 +49,27 @@ import SignOut from "./pages/SignOut";
 import ContactSupport from "./pages/ContactSupport";
 import TermsOfService from "./pages/TermsOfService";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
-import History from "./pages/History";
+import NotFound from "./pages/NotFound";
 
-// Google OAuth
-import { GoogleOAuthProvider } from "@react-oauth/google";
-
-// Protected Route
-import { Navigate as RouterNavigate } from "react-router-dom";
+// ---------- Protected Route ----------
 const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
   const isAuthenticated = !!localStorage.getItem("authToken");
-  return isAuthenticated ? children : <RouterNavigate to="/signin" replace />;
+  return isAuthenticated ? children : <Navigate to="/signin" replace />;
 };
 
+// ---------- Shared Layout for Protected Pages ----------
+const ProtectedLayout = ({ children }: { children: JSX.Element }) => (
+  <div className="min-h-screen flex w-full bg-background">
+    <AppSidebar />
+    <div className="flex-1 flex flex-col">
+      <main className="flex-1 overflow-auto">{children}</main>
+    </div>
+  </div>
+);
+
+// ---------- App Setup ----------
 const queryClient = new QueryClient();
 
-// ✅ Replace this with your actual Google Client ID
 const GOOGLE_CLIENT_ID =
   import.meta.env.VITE_GOOGLE_CLIENT_ID ||
   "YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com";
@@ -80,7 +87,7 @@ const App = () => (
                 {/* Redirect root to SignIn */}
                 <Route path="/" element={<Navigate to="/signin" replace />} />
 
-                {/* Public pages outside dashboard layout */}
+                {/* Public Routes */}
                 <Route path="/signin" element={<SignIn />} />
                 <Route path="/signup" element={<SignUp />} />
                 <Route path="/signout" element={<SignOut />} />
@@ -89,60 +96,350 @@ const App = () => (
                 <Route path="/terms-of-service" element={<TermsOfService />} />
                 <Route path="/privacy-policy" element={<PrivacyPolicy />} />
 
-                {/* Dashboard routes with sidebar */}
+                {/* Protected Routes */}
                 <Route
-                  path="/*"
+                  path="/dashboard"
                   element={
                     <ProtectedRoute>
-                      <div className="min-h-screen flex w-full bg-background">
-                        <AppSidebar />
-                        <div className="flex-1 flex flex-col">
-                          <main className="flex-1 overflow-auto">
-                            <Routes>
-                              <Route path="/dashboard" element={<Dashboard />} />
-                              <Route path="/chat" element={<Chat />} />
-                              <Route path="/pdf-tools" element={<PDFTools />} />
-                              <Route path="/library/uploaded" element={<Library />} />
-                              <Route path="/library/downloaded" element={<Library />} />
-                              <Route path="/ai/summarizer" element={<DocumentSummarizer />} />
-                              <Route path="/ai/judge-analytics" element={<JudgeAnalytics />} />
-                              <Route path="/ai/judge/:judgeId" element={<JudgeProfile />} />
-                              <Route path="/ai/judge/:judgeId/case-history" element={<CaseHistory />} />
-                              <Route path="/ai/judge/:judgeId/predictions" element={<JudgePredictions />} />
-                              <Route path="/ai/judges/compare" element={<CompareJudges />} />
-                              <Route path="/ai/citation-maps" element={<CitationMaps />} />
-                              <Route path="/ai/citation-maps/create" element={<CreateCitationMap />} />
-                              <Route path="/ai/predictive" element={<PredictiveAI />} />
-                              <Route path="/ai/predictions/all" element={<AllPredictions />} />
-                              <Route path="/ai/automation" element={<DocumentAutomation />} />
-                              <Route path="/ai/legal-research" element={<LegalResearch />} />
-                            {/* PDF Tool routes */}
-                              <Route path="/pdf/merge" element={<MergePDF />} />
-                              <Route path="/pdf/split" element={<SplitPDF />} />
-                              <Route path="/pdf/compress" element={<CompressPDF />} />
-                              <Route path="/pdf/edit" element={<EditPDF />} />
-                              <Route path="/pdf/sign" element={<SignPDF />} />
-                              <Route path="/pdf/stamp" element={<StampPDF />} />
-                              <Route path="/pdf/convert-from" element={<ConvertFromPDF />} />
-                              <Route path="/pdf/convert-to" element={<ConvertToPDF />} />
-                              <Route path="/pdf/ocr" element={<OCRPDF />} />
-                              <Route path="/pdf/download-ocr" element={<DownloadOCRPDF />} />
-                              <Route path="/pdf/organize" element={<OrganizePDF />} />
-                              <Route path="/pdf/unlock" element={<UnlockPDF />} />
-                              <Route path="/pdf/protect" element={<ProtectPDF />} />
-                              <Route path="/pdf/download-protected" element={<DownloadProtectedPDF />} />
-                              <Route path="/profile" element={<Profile />} />
-                              <Route path="/subscription" element={<Subscription />} />
-                              <Route path="/history/:id" element={<History />} />
-                            {/* Catch-all */}
-                              <Route path="*" element={<NotFound />} />
-                            </Routes>
-                          </main>
-                        </div>
-                      </div>
+                      <ProtectedLayout>
+                        <Dashboard />
+                      </ProtectedLayout>
                     </ProtectedRoute>
                   }
                 />
+                <Route
+                  path="/chat"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <Chat />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/pdf-tools"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <PDFTools />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/library/uploaded"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <Library />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/library/downloaded"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <Library />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/ai/summarizer"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <DocumentSummarizer />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/ai/judge-analytics"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <JudgeAnalytics />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/ai/judge/:judgeId"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <JudgeProfile />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/ai/judge/:judgeId/case-history"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <CaseHistory />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/ai/judge/:judgeId/predictions"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <JudgePredictions />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/ai/judges/compare"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <CompareJudges />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/ai/citation-maps"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <CitationMaps />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/ai/citation-maps/create"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <CreateCitationMap />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/ai/predictive"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <PredictiveAI />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/ai/predictions/all"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <AllPredictions />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/ai/automation"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <DocumentAutomation />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/ai/legal-research"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <LegalResearch />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/pdf/merge"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <MergePDF />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/pdf/split"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <SplitPDF />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/pdf/compress"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <CompressPDF />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/pdf/edit"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <EditPDF />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/pdf/sign"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <SignPDF />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/pdf/stamp"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <StampPDF />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/pdf/convert-from"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <ConvertFromPDF />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/pdf/convert-to"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <ConvertToPDF />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/pdf/ocr"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <OCRPDF />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/pdf/download-ocr"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <DownloadOCRPDF />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/pdf/organize"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <OrganizePDF />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/pdf/unlock"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <UnlockPDF />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/pdf/protect"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <ProtectPDF />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/pdf/download-protected"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <DownloadProtectedPDF />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/profile"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <Profile />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/subscription"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <Subscription />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/history/:id"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <History />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+
+                {/* Catch-all route */}
+                <Route path="*" element={<NotFound />} />
               </Routes>
             </SidebarProvider>
           </BrowserRouter>
