@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
-import { logoutUser } from "@/api/user";
+import { logoutUser, getUserProfile } from "@/api/user";
 
 import {
   Sidebar,
@@ -77,25 +77,44 @@ export function AppSidebar() {
   const [libraryOpen, setLibraryOpen] = useState(true);
   const [aiOpen, setAiOpen] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  
+  const [userProfile, setUserProfile] = useState<{ name?: string; avatar?: string }>({});
+
   useEffect(() => {
     // Check if user is authenticated on mount
     const authStatus = localStorage.getItem('isAuthenticated');
     setIsAuthenticated(authStatus === 'true');
   }, []);
 
-  //  Updated Sign Out handler to call backend API
+  // Fetch user profile when authenticated
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      try {
+        const data = await getUserProfile();
+        setUserProfile({
+          name: data?.name,
+          avatar: data?.avatar,
+        });
+      } catch (error) {
+        console.error("Failed to fetch user profile:", error);
+      }
+    };
+
+    if (isAuthenticated) {
+      fetchUserProfile();
+    }
+  }, [isAuthenticated]);
+
+  // Sign Out handler
   const handleSignOut = async () => {
     try {
-      await logoutUser(); // call backend logout API
+      await logoutUser();
     } catch (error) {
       console.error("Logout API failed:", error);
     } finally {
-      // Clear frontend auth info no matter what
       localStorage.removeItem('isAuthenticated');
       localStorage.removeItem('authToken'); 
       setIsAuthenticated(false);
-      navigate('/signin'); // redirect to login
+      navigate('/signin');
     }
   };
 
@@ -141,13 +160,13 @@ export function AppSidebar() {
               {mainNavItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild className={isCollapsed ? "w-full flex justify-center" : ""}>
-                      <NavLink 
-                        to={item.url} 
-                        className={`${getNavClass(item.url)} flex items-center ${isCollapsed ? 'justify-center w-full h-10 px-0' : 'px-3'}`}
-                      >
-                        <item.icon className={`h-4 w-4 ${isCollapsed ? '' : 'mr-2'}`} />
-                        {!isCollapsed && <span>{item.title}</span>}
-                      </NavLink>
+                    <NavLink 
+                      to={item.url} 
+                      className={`${getNavClass(item.url)} flex items-center ${isCollapsed ? 'justify-center w-full h-10 px-0' : 'px-3'}`}
+                    >
+                      <item.icon className={`h-4 w-4 ${isCollapsed ? '' : 'mr-2'}`} />
+                      {!isCollapsed && <span>{item.title}</span>}
+                    </NavLink>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -267,6 +286,7 @@ export function AppSidebar() {
           </div>
         )}
         
+        {/* Sign In / Sign Out Buttons */}
         {!isAuthenticated ? (
           <div className={`flex flex-col gap-2 ${isCollapsed ? 'w-full items-center' : ''}`}>
             {isCollapsed ? (
@@ -333,13 +353,25 @@ export function AppSidebar() {
           </div>
         )}
 
+        {/* Dynamic Profile Section */}
         {!isCollapsed && isAuthenticated && (
-          <NavLink to="/profile" className="flex items-center gap-2 mt-4 p-2 text-xs text-sidebar-foreground/60 hover:bg-sidebar-accent rounded-md transition-colors">
-            <div className="w-6 h-6 bg-sidebar-primary rounded-full flex items-center justify-center text-sidebar-primary-foreground font-medium">
-              P
-            </div>
+          <NavLink 
+            to="/profile" 
+            className="flex items-center gap-2 mt-4 p-2 text-xs text-sidebar-foreground/60 hover:bg-sidebar-accent rounded-md transition-colors"
+          >
+            {userProfile?.avatar ? (
+              <img
+                src={userProfile.avatar}
+                alt={userProfile.name || "User Avatar"}
+                className="w-6 h-6 rounded-full object-cover"
+              />
+            ) : (
+              <div className="w-6 h-6 bg-sidebar-primary rounded-full flex items-center justify-center text-sidebar-primary-foreground font-medium">
+                {userProfile?.name ? userProfile.name.charAt(0).toUpperCase() : "P"}
+              </div>
+            )}
             <div className="flex-1 truncate">
-              <p className="truncate">Profile</p>
+              <p className="truncate">{userProfile?.name || "Profile"}</p>
             </div>
             <Settings className="h-3 w-3" />
           </NavLink>
@@ -350,13 +382,20 @@ export function AppSidebar() {
             to="/profile" 
             className="flex items-center justify-center w-10 h-10 hover:bg-sidebar-accent rounded-md transition-colors"
           >
-            <div className="w-8 h-8 bg-sidebar-primary rounded-full flex items-center justify-center text-sidebar-primary-foreground font-medium text-xs">
-              A
-            </div>
+            {userProfile?.avatar ? (
+              <img
+                src={userProfile.avatar}
+                alt={userProfile.name || "User Avatar"}
+                className="w-8 h-8 rounded-full object-cover"
+              />
+            ) : (
+              <div className="w-8 h-8 bg-sidebar-primary rounded-full flex items-center justify-center text-sidebar-primary-foreground font-medium text-xs">
+                {userProfile?.name ? userProfile.name.charAt(0).toUpperCase() : "A"}
+              </div>
+            )}
           </NavLink>
         )}
       </div>
-
     </Sidebar>
   );
 }
