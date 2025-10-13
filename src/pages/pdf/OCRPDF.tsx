@@ -56,23 +56,34 @@ const OCRPDF = () => {
     }
   };
 
-const handleDownload = () => {
-  if (downloadInfo?.pdfUrl) {
+const handleDownload = async () => {
+  if (!downloadInfo?.pdfUrl) return;
+
+  try {
+    // Fetch the PDF file as a blob
+    const response = await fetch(downloadInfo.pdfUrl, {
+      method: "GET",
+    });
+    const blob = await response.blob();
+
+    // Create a temporary URL for the blob
+    const blobUrl = window.URL.createObjectURL(blob);
+
+    // Create a link and trigger download
     const link = document.createElement("a");
-    link.href = downloadInfo.pdfUrl;
-    link.download = downloadInfo.fileName; // ✅ this forces download
-    link.target = "_blank"; // ✅ important to prevent React navigation
-    link.rel = "noopener noreferrer"; // safety
+    link.href = blobUrl;
+    link.download = downloadInfo.fileName; // file name from API
     link.click();
+
+    // Cleanup
+    window.URL.revokeObjectURL(blobUrl);
+  } catch (error) {
+    console.error("Download error:", error);
+    toast.error("Failed to download PDF.");
   }
 };
 
-  // 👇 Auto-download when OCR completes
-  if (downloadInfo) {
-    setTimeout(() => {
-      handleDownload();
-    }, 1000);
-  }
+
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
