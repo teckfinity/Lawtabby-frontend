@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
-import { logoutUser } from "@/api"; 
+import { logoutUser } from "@/api/user";
 
 import {
   Sidebar,
