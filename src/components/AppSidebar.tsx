@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
+import { logoutUser } from "@/api/user";
 
 import {
   Sidebar,
@@ -83,10 +84,19 @@ export function AppSidebar() {
     setIsAuthenticated(authStatus === 'true');
   }, []);
 
-  const handleSignOut = () => {
-    localStorage.removeItem('isAuthenticated');
-    setIsAuthenticated(false);
-    navigate('/signin');
+  //  Updated Sign Out handler to call backend API
+  const handleSignOut = async () => {
+    try {
+      await logoutUser(); // call backend logout API
+    } catch (error) {
+      console.error("Logout API failed:", error);
+    } finally {
+      // Clear frontend auth info no matter what
+      localStorage.removeItem('isAuthenticated');
+      localStorage.removeItem('authToken'); 
+      setIsAuthenticated(false);
+      navigate('/signin'); // redirect to login
+    }
   };
 
   const isActive = (path: string) => {
@@ -334,7 +344,7 @@ export function AppSidebar() {
             <Settings className="h-3 w-3" />
           </NavLink>
         )}
-        
+
         {isCollapsed && isAuthenticated && (
           <NavLink 
             to="/profile" 
