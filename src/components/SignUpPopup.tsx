@@ -6,6 +6,7 @@ import { Separator } from '@/components/ui/separator';
 import { Checkbox } from '@/components/ui/checkbox';
 import { X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { registerUser } from '@/api';
 
 interface SignUpPopupProps {
   isOpen: boolean;
@@ -15,8 +16,6 @@ interface SignUpPopupProps {
 
 const SignUpPopup = ({ isOpen, onClose, onSwitchToSignIn }: SignUpPopupProps) => {
   const [formData, setFormData] = useState({
-    firstName: '',
-    lastName: '',
     email: '',
     password: '',
     confirmPassword: '',
@@ -25,20 +24,8 @@ const SignUpPopup = ({ isOpen, onClose, onSwitchToSignIn }: SignUpPopupProps) =>
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
 
-  const handleSocialSignUp = (provider: string) => {
-    setIsLoading(true);
-    // Simulate loading
-    setTimeout(() => {
-      setIsLoading(false);
-      toast({
-        title: "Sign Up Simulation",
-        description: `Would sign up with ${provider}`,
-      });
-    }, 1000);
-  };
-
-  const handleSignUp = () => {
-    if (!formData.firstName || !formData.lastName || !formData.email || !formData.password) {
+  const handleSignUp = async () => {
+    if (!formData.email || !formData.password || !formData.confirmPassword) {
       toast({
         title: "Missing Information",
         description: "Please fill in all required fields",
@@ -65,15 +52,23 @@ const SignUpPopup = ({ isOpen, onClose, onSwitchToSignIn }: SignUpPopupProps) =>
       return;
     }
     
-    setIsLoading(true);
-    // Simulate loading
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      setIsLoading(true);
+      await registerUser({ email: formData.email, password: formData.password });
       toast({
-        title: "Sign Up Simulation",
-        description: `Would create account for ${formData.email}`,
+        title: "Account Created!",
+        description: `Welcome to LegalAI Pro`,
       });
-    }, 1000);
+      onClose();
+    } catch (error: any) {
+      toast({
+        title: "Registration Failed",
+        description: error.response?.data?.message || "Something went wrong",
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const updateFormData = (field: string, value: string | boolean) => {
@@ -83,7 +78,6 @@ const SignUpPopup = ({ isOpen, onClose, onSwitchToSignIn }: SignUpPopupProps) =>
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-md p-0 overflow-hidden max-h-[90vh] overflow-y-auto">
-        {/* Header */}
         <DialogHeader className="relative p-6 pb-4">
           <Button
             variant="ghost"
@@ -149,21 +143,6 @@ const SignUpPopup = ({ isOpen, onClose, onSwitchToSignIn }: SignUpPopupProps) =>
 
           {/* Form Fields */}
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <Input
-                placeholder="First name"
-                value={formData.firstName}
-                onChange={(e) => updateFormData('firstName', e.target.value)}
-                className="h-12"
-              />
-              <Input
-                placeholder="Last name"
-                value={formData.lastName}
-                onChange={(e) => updateFormData('lastName', e.target.value)}
-                className="h-12"
-              />
-            </div>
-
             <Input
               type="email"
               placeholder="Email address"

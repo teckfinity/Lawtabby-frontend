@@ -40,7 +40,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
 const mainNavItems = [
-  { title: "Home", url: "/", icon: Home },
+  { title: "Home", url: "/dashboard", icon: Home },
   { title: "AI Chat", url: "/chat", icon: MessageSquare },
   { title: "PDF Management Tools", url: "/pdf-tools", icon: FileText },
 ];
@@ -326,10 +326,10 @@ export function AppSidebar() {
         {!isCollapsed && isAuthenticated && (
           <NavLink to="/profile" className="flex items-center gap-2 mt-4 p-2 text-xs text-sidebar-foreground/60 hover:bg-sidebar-accent rounded-md transition-colors">
             <div className="w-6 h-6 bg-sidebar-primary rounded-full flex items-center justify-center text-sidebar-primary-foreground font-medium">
-              A
+              P
             </div>
             <div className="flex-1 truncate">
-              <p className="truncate">angelahenry054...</p>
+              <p className="truncate">Profile</p>
             </div>
             <Settings className="h-3 w-3" />
           </NavLink>

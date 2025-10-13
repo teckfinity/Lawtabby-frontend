@@ -4,10 +4,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ArrowLeft, Upload, Download, Shield, Lock, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Upload, Lock, Eye, EyeOff, Shield } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { PDFDocument } from 'pdf-lib';
+import { protectPDF as protectPDFApi } from "@/api"; 
 
 const ProtectPDF = () => {
   const navigate = useNavigate();
@@ -23,7 +23,7 @@ const ProtectPDF = () => {
     commenting: true,
     filling: true,
     assembly: false,
-    degradedPrinting: false
+    degradedPrinting: false,
   });
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -34,58 +34,67 @@ const ProtectPDF = () => {
     }
   };
 
-  const protectPDF = async () => {
-    if (!file) {
-      toast.error("Please upload a PDF file first");
-      return;
-    }
-    
-    if (!password) {
-      toast.error("Please enter a password");
-      return;
-    }
-    
-    if (password !== confirmPassword) {
-      toast.error("Passwords do not match");
-      return;
-    }
-    
-    if (password.length < 6) {
-      toast.error("Password must be at least 6 characters long");
-      return;
+  // ✅ Only backend API version
+ const protectPDF = async () => {
+  if (!file) {
+    toast.error("Please upload a PDF file first");
+    return;
+  }
+
+  if (!password) {
+    toast.error("Please enter a password");
+    return;
+  }
+
+  if (password !== confirmPassword) {
+    toast.error("Passwords do not match");
+    return;
+  }
+
+  if (password.length < 6) {
+    toast.error("Password must be at least 6 characters long");
+    return;
+  }
+
+  setIsProcessing(true);
+
+  try {
+    // ✅ Call backend protect PDF API
+    const response = await protectPDFApi(file, password);
+
+    //  Correct field from your backend response
+    const fileUrl = response.data?.split_pdf?.protected_file;
+
+    if (!fileUrl) {
+      throw new Error("No file URL returned from server");
     }
 
-    setIsProcessing(true);
-    
-    try {
-      // Read the PDF file
-      const arrayBuffer = await file.arrayBuffer();
-      const pdfDoc = await PDFDocument.load(arrayBuffer);
-      
-      // Note: Full PDF encryption requires server-side processing
-      // For now, we'll create a modified version with metadata
-      pdfDoc.setTitle(`Protected: ${file.name}`);
-      pdfDoc.setSubject('Password Protected Document');
-      pdfDoc.setKeywords(['protected', 'encrypted']);
-      
-      // Save the PDF
-      const pdfBytes = await pdfDoc.save();
-      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-      const url = URL.createObjectURL(blob);
-      
-      // Navigate to download page with the protected PDF
-      navigate('/pdf/download-protected', {
-        state: {
-          pdfUrl: url,
-          fileName: file.name
-        }
-      });
-    } catch (error) {
-      console.error('Error processing PDF:', error);
-      toast.error("Failed to process PDF. Please try again.");
-      setIsProcessing(false);
-    }
-  };
+    // Fetch file as Blob
+    const downloadResponse = await fetch(fileUrl, {
+      headers: {
+        Authorization: `Token ${localStorage.getItem("authToken")}`,
+      },
+    });
+    const blob = await downloadResponse.blob();
+
+    // Create a link and trigger download
+    const downloadUrl = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = downloadUrl;
+    a.download = `protected-${file.name}`; 
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(downloadUrl);
+
+    toast.success("PDF protected and downloaded successfully ✅");
+  } catch (error) {
+    console.error("Error protecting PDF:", error);
+    toast.error("Failed to protect PDF. Please try again.");
+  } finally {
+    setIsProcessing(false);
+  }
+};
 
   const getPasswordStrength = (pwd: string) => {
     if (pwd.length === 0) return { strength: 0, label: "" };
@@ -101,36 +110,12 @@ const ProtectPDF = () => {
   const passwordStrength = getPasswordStrength(password);
 
   const permissionOptions = [
-    {
-      key: "printing" as keyof typeof permissions,
-      label: "Allow Printing",
-      description: "Users can print the document"
-    },
-    {
-      key: "copying" as keyof typeof permissions,
-      label: "Allow Copying Text",
-      description: "Users can copy and extract text"
-    },
-    {
-      key: "editing" as keyof typeof permissions,
-      label: "Allow Editing",
-      description: "Users can modify the document content"
-    },
-    {
-      key: "commenting" as keyof typeof permissions,
-      label: "Allow Comments",
-      description: "Users can add comments and annotations"
-    },
-    {
-      key: "filling" as keyof typeof permissions,
-      label: "Allow Form Filling",
-      description: "Users can fill out form fields"
-    },
-    {
-      key: "assembly" as keyof typeof permissions,
-      label: "Allow Document Assembly",
-      description: "Users can insert, delete, or rotate pages"
-    }
+    { key: "printing" as const, label: "Allow Printing", description: "Users can print the document" },
+    { key: "copying" as const, label: "Allow Copying Text", description: "Users can copy and extract text" },
+    { key: "editing" as const, label: "Allow Editing", description: "Users can modify the document content" },
+    { key: "commenting" as const, label: "Allow Comments", description: "Users can add comments and annotations" },
+    { key: "filling" as const, label: "Allow Form Filling", description: "Users can fill out form fields" },
+    { key: "assembly" as const, label: "Allow Document Assembly", description: "Users can insert, delete, or rotate pages" },
   ];
 
   return (
@@ -149,7 +134,9 @@ const ProtectPDF = () => {
           </Button>
           <div>
             <h1 className="text-3xl font-bold text-foreground">Protect PDF</h1>
-            <p className="text-muted-foreground">Protect PDF files with a password. Encrypt PDF documents to prevent unauthorized access.</p>
+            <p className="text-muted-foreground">
+              Protect PDF files with a password. Encrypt PDF documents to prevent unauthorized access.
+            </p>
           </div>
         </div>
 
@@ -173,11 +160,7 @@ const ProtectPDF = () => {
                     <Button 
                       type="button"
                       className="bg-primary hover:bg-primary/90"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        const input = document.getElementById('pdf-upload') as HTMLInputElement;
-                        input?.click();
-                      }}
+                      onClick={() => (document.getElementById("pdf-upload") as HTMLInputElement)?.click()}
                     >
                       <Upload className="h-4 w-4 mr-2" />
                       Select PDF File
@@ -240,22 +223,30 @@ const ProtectPDF = () => {
                       <div className="space-y-2">
                         <div className="flex justify-between text-sm">
                           <span>Password Strength:</span>
-                          <span className={`font-medium ${
-                            passwordStrength.strength === 1 ? 'text-red-600' :
-                            passwordStrength.strength === 2 ? 'text-yellow-600' :
-                            passwordStrength.strength === 3 ? 'text-blue-600' :
-                            'text-green-600'
-                          }`}>
+                          <span
+                            className={`font-medium ${
+                              passwordStrength.strength === 1
+                                ? "text-red-600"
+                                : passwordStrength.strength === 2
+                                ? "text-yellow-600"
+                                : passwordStrength.strength === 3
+                                ? "text-blue-600"
+                                : "text-green-600"
+                            }`}
+                          >
                             {passwordStrength.label}
                           </span>
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-2">
                           <div
                             className={`h-2 rounded-full transition-all ${
-                              passwordStrength.strength === 1 ? 'bg-red-500 w-1/4' :
-                              passwordStrength.strength === 2 ? 'bg-yellow-500 w-2/4' :
-                              passwordStrength.strength === 3 ? 'bg-blue-500 w-3/4' :
-                              'bg-green-500 w-full'
+                              passwordStrength.strength === 1
+                                ? "bg-red-500 w-1/4"
+                                : passwordStrength.strength === 2
+                                ? "bg-yellow-500 w-2/4"
+                                : passwordStrength.strength === 3
+                                ? "bg-blue-500 w-3/4"
+                                : "bg-green-500 w-full"
                             }`}
                           ></div>
                         </div>
@@ -289,7 +280,6 @@ const ProtectPDF = () => {
                 <p className="text-sm text-muted-foreground mb-4">
                   Control what users can do with the protected PDF document
                 </p>
-                
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {permissionOptions.map((option) => (
                     <div key={option.key} className="flex items-start space-x-3 p-3 border rounded-lg">
@@ -297,22 +287,17 @@ const ProtectPDF = () => {
                         id={option.key}
                         checked={permissions[option.key]}
                         onCheckedChange={(checked) =>
-                          setPermissions(prev => ({
+                          setPermissions((prev) => ({
                             ...prev,
-                            [option.key]: checked === true
+                            [option.key]: checked === true,
                           }))
                         }
                       />
                       <div className="grid gap-1.5 leading-none">
-                        <Label
-                          htmlFor={option.key}
-                          className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-                        >
+                        <Label htmlFor={option.key} className="text-sm font-medium leading-none">
                           {option.label}
                         </Label>
-                        <p className="text-xs text-muted-foreground">
-                          {option.description}
-                        </p>
+                        <p className="text-xs text-muted-foreground">{option.description}</p>
                       </div>
                     </div>
                   ))}
@@ -326,10 +311,7 @@ const ProtectPDF = () => {
             <div className="flex justify-center">
               <Button
                 type="button"
-                onClick={(e) => {
-                  e.preventDefault();
-                  protectPDF();
-                }}
+                onClick={protectPDF}
                 disabled={!password || password !== confirmPassword || password.length < 6 || isProcessing}
                 className="bg-primary hover:bg-primary/90 px-8"
               >
@@ -348,7 +330,7 @@ const ProtectPDF = () => {
             </div>
           )}
 
-          {/* Security Information */}
+          {/* Security Info */}
           <Card className="bg-muted/50">
             <CardContent className="p-6">
               <h3 className="font-semibold mb-3">Security Features</h3>

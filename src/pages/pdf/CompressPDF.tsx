@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
+import { compressPDF as compressPDFApi } from "@/api"; // import your API function
 
 type ProcessStep = "upload" | "processing" | "download";
 
@@ -15,6 +16,7 @@ const CompressPDF = () => {
   const [currentStep, setCurrentStep] = useState<ProcessStep>("upload");
   const [progress, setProgress] = useState(0);
   const [compressionLevel, setCompressionLevel] = useState("medium");
+  const [compressedFileUrl, setCompressedFileUrl] = useState<string | null>(null);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
@@ -22,52 +24,84 @@ const CompressPDF = () => {
       setFile(selectedFile);
       toast.success("PDF file uploaded successfully");
     }
-    // Reset input value to allow selecting the same file again
     event.target.value = '';
   };
 
-  const compressPDF = () => {
+  const compressPDF = async () => {
     if (!file) {
       toast.error("Please upload a PDF file first");
       return;
     }
-    
+
     setCurrentStep("processing");
-    
+    setProgress(0);
+
+    // Optional: fake progress animation
     let currentProgress = 0;
     const interval = setInterval(() => {
       currentProgress += Math.random() * 15;
-      if (currentProgress >= 100) {
-        currentProgress = 100;
-        setProgress(100);
+      if (currentProgress >= 80) {
+        currentProgress = 80; // leave some progress for API call
         clearInterval(interval);
-        setTimeout(() => {
-          setCurrentStep("download");
-        }, 500);
       }
       setProgress(currentProgress);
     }, 150);
+
+    try {
+      // Map compressionLevel to quality number (example: low=80, medium=60, high=40)
+      const qualityMap: Record<string, number> = { low: 80, medium: 60, high: 40 };
+      const response = await compressPDFApi(file, qualityMap[compressionLevel]);
+
+      // Use split_pdf.compressed_file instead of file_url
+      if (response.data && response.data.split_pdf?.compressed_file) {
+        setCompressedFileUrl(response.data.split_pdf.compressed_file);
+        setProgress(100);
+        setTimeout(() => setCurrentStep("download"), 500);
+        toast.success("PDF compressed successfully!");
+      } else {
+        throw new Error("No file URL returned from server");
+      }
+    } catch (error: any) {
+      console.error(error);
+      toast.error(error.message || "Failed to compress PDF");
+      setCurrentStep("upload");
+      setProgress(0);
+    }
   };
 
-  const downloadFile = () => {
+  const downloadFile = async () => {
+    if (!compressedFileUrl) return;
+
     toast.success("Download started!");
-    setTimeout(() => {
-      toast.success("Compressed file downloaded successfully!");
-    }, 1000);
-  };
 
-  const printFile = () => {
-    toast.success("Opening print dialog...");
-    setTimeout(() => {
-      window.print();
-    }, 500);
+    try {
+      // fetch the file as blob
+      const res = await fetch(compressedFileUrl);
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `compressed_${file?.name}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      window.URL.revokeObjectURL(url);
+
+      toast.success("Compressed file downloaded successfully!");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to download file");
+    }
   };
 
   const resetProcess = () => {
     setFile(null);
     setCurrentStep("upload");
     setProgress(0);
-  };
+    setCompressedFileUrl(null);
+    };
 
   const getCompressionInfo = () => {
     const originalSize = file ? file.size / 1024 / 1024 : 0;
