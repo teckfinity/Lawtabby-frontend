@@ -114,39 +114,37 @@ const Profile = () => {
   };
 
   // ------------------- Update avatar -------------------
-  const handleAvatarUpload = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = 'image/*';
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) {
-        const reader = new FileReader();
-        reader.onload = async (event) => {
-          const base64Image = event.target?.result as string;
+const handleAvatarUpload = () => {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.onchange = async (e) => {
+    const file = (e.target as HTMLInputElement).files?.[0];
+    if (!file) return;
 
-          try {
-            const payload = { id: profile.id, avatar: base64Image };
-            const updatedData = await updateUserProfile(payload);
+    try {
+      const payload = { id: profile.id, avatar: file };
+      const updatedData = await updateUserProfile(payload);
 
-            setProfile((prev) => ({ ...prev, avatar: updatedData.avatar }));
-            toast({
-              title: 'Avatar updated',
-              description: 'Your profile picture has been updated.'
-            });
-          } catch (error) {
-            toast({
-              title: 'Upload failed',
-              description: 'Could not update avatar. Please try again.',
-              variant: 'destructive'
-            });
-          }
-        };
-        reader.readAsDataURL(file);
-      }
-    };
-    input.click();
+      setProfile((prev) => ({ ...prev, avatar: updatedData.avatar }));
+      toast({
+        title: "Avatar updated",
+        description: "Your profile picture has been updated.",
+      });
+    } catch (error: any) {
+      console.error("Upload error:", error?.response?.data || error);
+      toast({
+        title: "Upload failed",
+        description:
+          error?.response?.data?.detail ||
+          "Could not update avatar. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
+  input.click();
+};
+
 
   // ------------------- Update email (local only) -------------------
   const handleSaveEmail = () => {
