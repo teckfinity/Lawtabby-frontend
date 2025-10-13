@@ -39,3 +39,20 @@ export const updateUserProfile = async (data: UpdateProfileData) => {
 
   return response.data;
 };
+
+
+//  Logout user (POST method)
+export const logoutUser = async () => {
+  const token = getAuthToken();
+  if (!token) throw new Error("No authentication token found. Please log in.");
+
+  const response = await apiClient.post(
+    "/accounts/logout/",
+    {},
+    {
+      headers: { Authorization: `Token ${token}` },
+    }
+  );
+
+  return response.data;
+};
