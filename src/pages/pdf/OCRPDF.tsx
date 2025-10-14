@@ -39,9 +39,9 @@ const OCRPDF = () => {
         toast.success(message || "OCR completed successfully!");
 
         const pdfFileName = data?.pdf || "";
-        const pdfUrl = `${
-          import.meta.env.VITE_API_URL || ""
-        }/media/orc/${pdfFileName}`;
+const pdfUrl = data?.pdf || "";
+const fileName = pdfUrl.split("/").pop() || "ocr_output.pdf";
+setDownloadInfo({ pdfUrl, fileName });
 
         //  Set download info to show the download screen
         setDownloadInfo({ pdfUrl, fileName: pdfFileName });
