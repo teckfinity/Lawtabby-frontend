@@ -189,7 +189,7 @@ const saveOrganizedPDF = async () => {
     const reorderedPages = Array.from(pages);
     const [removed] = reorderedPages.splice(result.source.index, 1);
     reorderedPages.splice(result.destination.index, 0, removed);
-    setPages(reorderedPages.map((page, index) => ({ ...page, pageNumber: index + 1 })));
+    setPages(reorderedPages);
   };
 
   return (
