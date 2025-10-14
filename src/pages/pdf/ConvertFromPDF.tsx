@@ -17,7 +17,7 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import axios from "axios";
-import { convertPDFToImage } from "@/api";
+import { convertPDFToImage, convertPDFTOText } from "@/api";
 
 type ProcessStep = "upload" | "processing" | "download";
 
@@ -73,12 +73,33 @@ const ConvertFromPDF = () => {
     setCurrentStep("processing");
     setProgress(0);
 
+    // ✅ Handle text extraction separately (no auto download)
+    if (selectedFormat === "txt") {
+      try {
+        const response = await convertPDFTOText(file);
+        console.log("PDF to Text response:", response);
+
+        // store blob for later download
+        const blob = new Blob([response.data], { type: "text/plain" });
+        const blobUrl = URL.createObjectURL(blob);
+        setConvertedZip(blobUrl);
+
+        toast.success("Text extracted successfully!");
+        setProgress(100);
+        setTimeout(() => setCurrentStep("download"), 700);
+      } catch (error) {
+        console.error("Error converting PDF to text:", error);
+        toast.error("Failed to extract text from PDF.");
+        setCurrentStep("upload");
+      }
+      return;
+    }
+
     // ✅ Handle JPG or PNG conversion via backend
     if (selectedFormat === "jpg" || selectedFormat === "png") {
       try {
         setProgress(0);
 
-        // Use the shared API function
         const response = await convertPDFToImage(file, selectedFormat.toUpperCase());
         console.log("PDF to Image response:", response.data);
 
@@ -119,17 +140,32 @@ const ConvertFromPDF = () => {
     }, 180);
   };
 
-  // ✅ Now downloads the ZIP directly (no extraction)
+  // ✅ Modified downloadFile function for text + image
   const downloadFile = async () => {
-    if (convertedZip) {
-      const fullUrl =
-        convertedZip.startsWith("http") || convertedZip.startsWith("/")
-          ? convertedZip
-          : `${API_BASE_URL}/media/pdf_images/${convertedZip}`;
-      await downloadZipFile(fullUrl);
-    } else {
+    if (!convertedZip) {
       toast.info("No converted file available for download.");
+      return;
     }
+
+    // Handle text file blob download
+    if (selectedFormat === "txt" && convertedZip.startsWith("blob:")) {
+      const link = document.createElement("a");
+      link.href = convertedZip;
+      link.download = file?.name?.replace(".pdf", ".txt") || "converted.txt";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(convertedZip);
+      toast.success("Text file downloaded successfully!");
+      return;
+    }
+
+    // Handle image zip download
+    const fullUrl =
+      convertedZip.startsWith("http") || convertedZip.startsWith("/")
+        ? convertedZip
+        : `${API_BASE_URL}/media/pdf_images/${convertedZip}`;
+    await downloadZipFile(fullUrl);
   };
 
   const printFile = () => {

@@ -20,3 +20,14 @@ export const convertWordToPDF = (file: File) => {
     responseType: "blob",
   });
 };
+
+
+export const convertPDFTOText = (file: File) => {
+  if (!file) throw new Error("pdf file required.");
+  const formData = new FormData();
+  formData.append("input_pdf", file, file.name);
+  return apiClient.post("/pdf/extract_text/", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+    responseType: "blob",
+  });
+};
