@@ -61,17 +61,30 @@ if (stampType === "text") {
   const lightRed = rgb(1, 0.9, 0.9);
   const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
 
+  const commonOpacity = opacity / 100; // unified opacity
+
   for (const page of pages) {
     const width = page.getWidth();
     const height = page.getHeight();
 
-    // smaller, more balanced rectangle
-    const stampWidth = 150;
-    const stampHeight = 45;
-    const rotation = degrees(15); // less rotation (looks more elegant)
+    const text = stampText.toUpperCase();
+    const textSize = 20;
 
+    // measure text width and height
+    const textWidth = font.widthOfTextAtSize(text, textSize);
+    const textHeight = textSize * 1.2;
+
+    // rectangle size based on text + padding
+    const paddingX = 40;
+    const paddingY = 25;
+    const stampWidth = textWidth + paddingX;
+    const stampHeight = textHeight + paddingY;
+    const rotation = degrees(15);
+
+    // ✅ adjustY fixes visual imbalance caused by rotation
+    const adjustY = 20; // move slightly upward (tweak as needed)
     const centerX = width / 2 - stampWidth / 2;
-    const centerY = height / 2 - stampHeight / 2;
+    const centerY = height / 2 - stampHeight / 2 + adjustY;
 
     // background rectangle
     page.drawRectangle({
@@ -82,23 +95,21 @@ if (stampType === "text") {
       borderColor: red,
       borderWidth: 3,
       color: lightRed,
-      opacity: opacity / 100,
+      opacity: commonOpacity,
       rotate: rotation,
     });
 
     // perfectly centered text
-    const textSize = 20;
-    const textWidth = font.widthOfTextAtSize(stampText.toUpperCase(), textSize);
     const textX = centerX + (stampWidth - textWidth) / 2;
-    const textY = centerY + stampHeight / 2 - textSize / 3;
+    const textY = centerY + (stampHeight - textHeight) / 2 + 6;
 
-    page.drawText(stampText.toUpperCase(), {
+    page.drawText(text, {
       x: textX,
       y: textY,
       size: textSize,
       font,
       color: red,
-      opacity: opacity / 100,
+      opacity: commonOpacity,
       rotate: rotation,
     });
   }
