@@ -310,52 +310,19 @@ const handleAvatarUpload = () => {
               </div>
             </div>
 
-            {/* Email */}
+            {/* Email (read-only) */}
             <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-base font-medium">Email</Label>
-                <p className="text-sm text-muted-foreground">
-                  Your email address
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                {isEditingEmail ? (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="email"
-                      value={tempEmail}
-                      onChange={(e) => setTempEmail(e.target.value)}
-                      className="w-48"
-                      placeholder="Enter email"
-                    />
-                    <Button size="sm" onClick={handleSaveEmail}>
-                      <Save className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setIsEditingEmail(false);
-                        setTempEmail(profile.email);
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm">{profile.email}</span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setIsEditingEmail(true)}
-                    >
-                      <Edit2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )}
-              </div>
+            <div>
+              <Label className="text-base font-medium">Email</Label>
+              <p className="text-sm text-muted-foreground">
+                Your email address (cannot be changed)
+              </p>
             </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm">{profile.email}</span>
+            </div>
+            </div>
+
 
             {/* Plan */}
             <div className="flex items-center justify-between">
