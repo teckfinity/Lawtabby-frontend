@@ -55,10 +55,14 @@ const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
             if (response.data?.unlocked_pdf?.unlock_pdf) {
               const unlockedFilePath = response.data.unlocked_pdf.unlock_pdf;
 
-              // Use full URL directly if backend already sends it
-              const fullUrl = unlockedFilePath.startsWith("http")
-                ? unlockedFilePath
-                : `${import.meta.env.VITE_API_BASE_URL}/media/${unlockedFilePath}`;
+              // Ensure HTTPS version of URL
+              let fullUrl = unlockedFilePath;
+
+              if (!unlockedFilePath.startsWith("http")) {
+                fullUrl = `${import.meta.env.VITE_API_BASE_URL}/media/${unlockedFilePath}`;
+              } else if (unlockedFilePath.startsWith("http://")) {
+                fullUrl = unlockedFilePath.replace("http://", "https://");
+              }
 
               setUnlockedFileUrl(fullUrl);
               setIsUnlocked(true);
