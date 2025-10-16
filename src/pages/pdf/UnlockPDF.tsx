@@ -66,11 +66,11 @@ const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
             } else {
          toast.error("Failed to unlock PDF. Please try again.");
        }
-    } catch (error: any) {
-      toast.error(
-        error.response?.data?.message || "Error unlocking PDF. Please try again."
-      );
-    } finally {
+      } catch (error: any) {
+        const backendMessage =
+          error.response?.data?.message || error.response?.data?.error;
+        toast.error(backendMessage || "Error unlocking PDF. Please try again.");
+      } finally {
       setIsUnlocking(false);
     }
   };
