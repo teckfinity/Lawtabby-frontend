@@ -35,7 +35,7 @@ const ProtectPDF = () => {
   };
 
   // ✅ Only backend API version
- const protectPDF = async () => {
+const protectPDF = async () => {
   if (!file) {
     toast.error("Please upload a PDF file first");
     return;
@@ -59,29 +59,25 @@ const ProtectPDF = () => {
   setIsProcessing(true);
 
   try {
-    // ✅ Call backend protect PDF API
     const response = await protectPDFApi(file, password);
 
-    //  Correct field from your backend response
-    const fileUrl = response.data?.split_pdf?.protected_file;
+    let fileUrl = response?.data?.split_pdf?.protected_file;
+    if (!fileUrl) throw new Error("No protected file URL returned from server");
 
-    if (!fileUrl) {
-      throw new Error("No file URL returned from server");
+    // ✅ Force HTTPS to avoid 301 redirect or mixed-content issues
+    if (fileUrl.startsWith("http://")) {
+      fileUrl = fileUrl.replace("http://", "https://");
     }
 
-    // Fetch file as Blob
-    const downloadResponse = await fetch(fileUrl, {
-      headers: {
-        Authorization: `Token ${localStorage.getItem("authToken")}`,
-      },
-    });
-    const blob = await downloadResponse.blob();
+    const downloadResponse = await fetch(fileUrl);
+    if (!downloadResponse.ok) throw new Error("Failed to fetch protected PDF");
 
-    // Create a link and trigger download
+    const blob = await downloadResponse.blob();
     const downloadUrl = URL.createObjectURL(blob);
+
     const a = document.createElement("a");
     a.href = downloadUrl;
-    a.download = `protected-${file.name}`; 
+    a.download = file.name.replace(".pdf", "") + "-protected.pdf";
     document.body.appendChild(a);
     a.click();
     a.remove();
@@ -95,6 +91,9 @@ const ProtectPDF = () => {
     setIsProcessing(false);
   }
 };
+
+
+
 
   const getPasswordStrength = (pwd: string) => {
     if (pwd.length === 0) return { strength: 0, label: "" };
