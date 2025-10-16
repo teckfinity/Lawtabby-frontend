@@ -542,22 +542,24 @@ const EditPDF = () => {
   const renderUploadStep = () => (
     <div className="w-full">
       {!file ? (
-        <Card className="h-96">
-          <CardContent className="p-8 h-full flex items-center justify-center">
-            <div className="text-center">
-              <Upload className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
-              <h3 className="text-xl font-semibold mb-2">Upload PDF to Edit</h3>
-              <p className="text-muted-foreground mb-4">Choose a PDF file from your device to start editing</p>
-              <Button 
-                onClick={() => document.getElementById('pdf-upload')?.click()}
-                className="bg-primary hover:bg-primary/90"
-              >
-                <Upload className="h-4 w-4 mr-2" />
-                Select PDF File
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
+<Card className="shadow-lg rounded-2xl h-96">
+      <CardContent className="p-10 h-full flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <Upload className="h-16 w-16 mx-auto text-muted-foreground" />
+          <h3 className="text-xl font-semibold">Upload PDF to Edit</h3>
+          <p className="text-muted-foreground">
+            Choose a PDF file from your device to start editing
+          </p>
+          <Button
+            onClick={() => document.getElementById("pdf-upload")?.click()}
+            className="bg-primary hover:bg-primary/90"
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Select PDF File
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
           <div className="lg:col-span-2 space-y-4">
@@ -891,23 +893,31 @@ const EditPDF = () => {
   );
 
   return (
-    <div className="w-full p-4 md:p-6 lg:p-8 bg-background min-h-screen">
-      <div className="max-w-[1600px] mx-auto">
-        <div className="flex items-center gap-4 mb-6">
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            onClick={() => currentStep === "upload" ? window.history.back() : setCurrentStep("upload")}
-            className="flex items-center gap-2"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </Button>
-          <div>
-            <h1 className="text-3xl font-bold text-foreground">Edit PDF</h1>
-            <p className="text-muted-foreground">Add text, shapes, or draw on your PDF document</p>
-          </div>
-        </div>
+<div className="w-full p-4 md:p-6 lg:p-8 bg-background min-h-screen">
+  {/* This container controls both header + card alignment */}
+  <div className="max-w-5xl mx-auto"> 
+    {/* Header */}
+    <div className="flex items-center gap-4 mb-6">
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() =>
+          currentStep === "upload"
+            ? window.history.back()
+            : setCurrentStep("upload")
+        }
+        className="flex items-center gap-2"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        Back
+      </Button>
+      <div>
+        <h1 className="text-3xl font-bold text-foreground">Edit PDF</h1>
+        <p className="text-muted-foreground">
+          Add text, shapes, or draw on your PDF document
+        </p>
+      </div>
+    </div>
 
         <input
           id="pdf-upload"
