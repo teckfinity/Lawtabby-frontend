@@ -69,32 +69,39 @@ const CompressPDF = () => {
     }
   };
 
-  const downloadFile = async () => {
-    if (!compressedFileUrl) return;
+const downloadFile = async () => {
+  if (!compressedFileUrl) return;
 
-    toast.success("Download started!");
+  toast.success("Download started!");
 
-    try {
-      // fetch the file as blob
-      const res = await fetch(compressedFileUrl);
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `compressed_${file?.name}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-
-      window.URL.revokeObjectURL(url);
-
-      toast.success("Compressed file downloaded successfully!");
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to download file");
+  try {
+    // 🧩 Fix Mixed Content issue: force HTTPS if frontend is served over HTTPS
+    let downloadUrl = compressedFileUrl;
+    if (window.location.protocol === "https:" && downloadUrl.startsWith("http://")) {
+      downloadUrl = downloadUrl.replace("http://", "https://");
     }
-  };
+
+    // fetch the file as blob
+    const res = await fetch(downloadUrl);
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `compressed_${file?.name}`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    window.URL.revokeObjectURL(url);
+
+    toast.success("Compressed file downloaded successfully!");
+  } catch (err) {
+    console.error(err);
+    toast.error("Failed to download file");
+  }
+};
+
 
   const resetProcess = () => {
     setFile(null);
