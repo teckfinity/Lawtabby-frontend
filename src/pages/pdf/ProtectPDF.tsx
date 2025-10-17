@@ -34,79 +34,79 @@ const ProtectPDF = () => {
     }
   };
 
-  // ✅ Only backend API version
-const protectPDF = async () => {
-  if (!file) {
-    toast.error("Please upload a PDF file first");
-    return;
-  }
-
-  if (!password) {
-    toast.error("Please enter a password");
-    return;
-  }
-
-  if (password !== confirmPassword) {
-    toast.error("Passwords do not match");
-    return;
-  }
-
-  if (password.length < 6) {
-    toast.error("Password must be at least 6 characters long");
-    return;
-  }
-
-  setIsProcessing(true);
-
-  try {
-    const response = await protectPDFApi(file, password);
-
-    let fileUrl = response?.data?.split_pdf?.protected_file;
-    if (!fileUrl) throw new Error("No protected file URL returned from server");
-
-    // ✅ Force HTTPS to avoid 301 redirect or mixed-content issues
-    if (fileUrl.startsWith("http://")) {
-      fileUrl = fileUrl.replace("http://", "https://");
+  // ✅ Simplified version — no password strength or minimum length restriction
+  const protectPDF = async () => {
+    if (!file) {
+      toast.error("Please upload a PDF file first");
+      return;
     }
 
-    const downloadResponse = await fetch(fileUrl);
-    if (!downloadResponse.ok) throw new Error("Failed to fetch protected PDF");
-
-    const blob = await downloadResponse.blob();
-    const downloadUrl = URL.createObjectURL(blob);
-
-    const a = document.createElement("a");
-    a.href = downloadUrl;
-    a.download = file.name.replace(".pdf", "") + "-protected.pdf";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(downloadUrl);
-
-    toast.success("PDF protected and downloaded successfully ✅");
-  } catch (error) {
-    console.error("Error protecting PDF:", error);
-    toast.error("Failed to protect PDF. Please try again.");
-  } finally {
-    setIsProcessing(false);
-  }
-};
-
-
-
-
-  const getPasswordStrength = (pwd: string) => {
-    if (pwd.length === 0) return { strength: 0, label: "" };
-    if (pwd.length < 6) return { strength: 1, label: "Weak" };
-    if (pwd.length < 10) return { strength: 2, label: "Medium" };
-    if (pwd.length >= 10 && /[A-Z]/.test(pwd) && /[0-9]/.test(pwd) && /[^A-Za-z0-9]/.test(pwd)) {
-      return { strength: 4, label: "Very Strong" };
+    if (!password) {
+      toast.error("Please enter a password");
+      return;
     }
-    if (pwd.length >= 10) return { strength: 3, label: "Strong" };
-    return { strength: 2, label: "Medium" };
+
+    if (password !== confirmPassword) {
+      toast.error("Passwords do not match");
+      return;
+    }
+
+  // if (password.length < 6) {
+  //   toast.error("Password must be at least 6 characters long");
+  //   return;
+  // }
+
+    setIsProcessing(true);
+
+    try {
+      const response = await protectPDFApi(file, password);
+
+      let fileUrl = response?.data?.split_pdf?.protected_file;
+      if (!fileUrl) throw new Error("No protected file URL returned from server");
+
+      // ✅ Force HTTPS to avoid 301 redirect or mixed-content issues
+      if (fileUrl.startsWith("http://")) {
+        fileUrl = fileUrl.replace("http://", "https://");
+      }
+
+      const downloadResponse = await fetch(fileUrl);
+      if (!downloadResponse.ok) throw new Error("Failed to fetch protected PDF");
+
+      const blob = await downloadResponse.blob();
+      const downloadUrl = URL.createObjectURL(blob);
+
+      const a = document.createElement("a");
+      a.href = downloadUrl;
+      a.download = file.name.replace(".pdf", "") + "-protected.pdf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(downloadUrl);
+
+      toast.success("PDF protected and downloaded successfully ✅");
+    } catch (error) {
+      console.error("Error protecting PDF:", error);
+      toast.error("Failed to protect PDF. Please try again.");
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
-  const passwordStrength = getPasswordStrength(password);
+
+
+
+  // const getPasswordStrength = (pwd: string) => {
+  //   if (pwd.length === 0) return { strength: 0, label: "" };
+  //   if (pwd.length < 6) return { strength: 1, label: "Weak" };
+  //   if (pwd.length < 10) return { strength: 2, label: "Medium" };
+  //   if (pwd.length >= 10 && /[A-Z]/.test(pwd) && /[0-9]/.test(pwd) && /[^A-Za-z0-9]/.test(pwd)) {
+  //     return { strength: 4, label: "Very Strong" };
+  //   }
+  //   if (pwd.length >= 10) return { strength: 3, label: "Strong" };
+  //   return { strength: 2, label: "Medium" };
+  // };
+
+  // const passwordStrength = getPasswordStrength(password);
 
   const permissionOptions = [
     { key: "printing" as const, label: "Allow Printing", description: "Users can print the document" },
@@ -204,7 +204,7 @@ const protectPDF = async () => {
                         type={showPassword ? "text" : "password"}
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
-                        placeholder="Enter a strong password"
+                        placeholder="Enter password"
                       />
                       <Button
                         type="button"
@@ -218,7 +218,7 @@ const protectPDF = async () => {
                     </div>
                     
                     {/* Password Strength Indicator */}
-                    {password && (
+                    {/* {password && (
                       <div className="space-y-2">
                         <div className="flex justify-between text-sm">
                           <span>Password Strength:</span>
@@ -250,7 +250,7 @@ const protectPDF = async () => {
                           ></div>
                         </div>
                       </div>
-                    )}
+                    )} */}
                   </div>
 
                   <div className="space-y-2">
@@ -311,7 +311,7 @@ const protectPDF = async () => {
               <Button
                 type="button"
                 onClick={protectPDF}
-                disabled={!password || password !== confirmPassword || password.length < 6 || isProcessing}
+                disabled={!password || password !== confirmPassword || isProcessing}
                 className="bg-primary hover:bg-primary/90 px-8"
               >
                 {isProcessing ? (
@@ -346,10 +346,10 @@ const protectPDF = async () => {
                 <div>
                   <h4 className="font-medium text-foreground mb-2">Best Practices</h4>
                   <ul className="space-y-1">
-                    <li>• Use strong passwords (10+ characters)</li>
-                    <li>• Include numbers and special characters</li>
-                    <li>• Don't share passwords via email</li>
+                    <li>• Use strong passwords (recommended but optional)</li>
+                    <li>• Include numbers and special characters for better safety</li>
                     <li>• Store passwords securely</li>
+                    <li>• Don't share passwords publicly</li>
                   </ul>
                 </div>
               </div>
