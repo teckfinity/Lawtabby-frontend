@@ -1,58 +1,110 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Send, 
-  Plus, 
-  Paperclip, 
-  MessageSquare, 
-  Bot, 
+import {
+  Send,
+  Paperclip,
+  Bot,
   User,
-  FileText,
-  Upload,
   Sparkles,
-  RefreshCw
+  RefreshCw,
+  FileText,
 } from "lucide-react";
+import { sendLegalChat } from "@/api/ai_chat";
+
+// ✅ Define message type
+interface ChatMessage {
+  id: number;
+  type: "user" | "ai";
+  content: string;
+  timestamp: string;
+  file?: {
+    name: string;
+    type: string;
+  } | null;
+}
 
 const Chat = () => {
-  const [messages, setMessages] = useState([
+  const [messages, setMessages] = useState<ChatMessage[]>([
     {
       id: 1,
       type: "ai",
-      content: "Hello! I'm your AI legal assistant. I can help you analyze documents, summarize cases, research legal precedents, and answer questions about legal matters. How can I assist you today?",
-      timestamp: "Just now"
-    }
+      content:
+        "Hello! I'm your AI legal assistant. I can help you analyze documents, summarize cases, research legal precedents, and answer questions about legal matters. How can I assist you today?",
+      timestamp: "Just now",
+    },
   ]);
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
-  const handleSendMessage = () => {
-    if (!inputValue.trim()) return;
+  // ✅ Clear chat handler
+  const handleClearChat = () => {
+    setMessages([
+      {
+        id: 1,
+        type: "ai",
+        content:
+          "Hello! I'm your AI legal assistant. How can I assist you today?",
+        timestamp: "Just now",
+      },
+    ]);
+  };
 
-    const newMessage = {
+  // ✅ File select handler
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) setSelectedFile(file);
+  };
+
+  // ✅ Send message handler (now supports file display)
+  const handleSendMessage = async () => {
+    if (!inputValue.trim() && !selectedFile) return; // must have message or file
+
+    const hasFile = !!selectedFile;
+
+    // Create a combined user message (includes file info)
+    const newMessage: ChatMessage = {
       id: messages.length + 1,
       type: "user",
-      content: inputValue,
-      timestamp: "Just now"
+      content: inputValue || (hasFile ? "📎 Uploaded a file" : ""),
+      file: hasFile ? { name: selectedFile!.name, type: selectedFile!.type } : null,
+      timestamp: "Just now",
     };
 
-    setMessages([...messages, newMessage]);
+    setMessages((prev) => [...prev, newMessage]);
     setInputValue("");
     setIsTyping(true);
 
-    // Simulate AI response
-    setTimeout(() => {
-      const aiResponse = {
+    try {
+      const response = await sendLegalChat(inputValue, selectedFile || undefined);
+      const aiReply =
+        response.data?.response ||
+        response.data?.message ||
+        "AI responded, but no detailed message was returned.";
+
+      const aiMessage: ChatMessage = {
         id: messages.length + 2,
         type: "ai",
-        content: "I understand you're asking about legal documentation. Let me analyze this request and provide you with relevant information based on current legal standards and practices.",
-        timestamp: "Just now"
+        content: aiReply,
+        timestamp: "Just now",
       };
-      setMessages(prev => [...prev, aiResponse]);
+
+      setMessages((prev) => [...prev, aiMessage]);
+    } catch (error: any) {
+      const aiError: ChatMessage = {
+        id: messages.length + 2,
+        type: "ai",
+        content: "Sorry, there was an issue contacting the legal assistant.",
+        timestamp: "Just now",
+      };
+      setMessages((prev) => [...prev, aiError]);
+    } finally {
       setIsTyping(false);
-    }, 2000);
+      setSelectedFile(null);
+    }
   };
 
   const quickPrompts = [
@@ -60,7 +112,7 @@ const Chat = () => {
     "Analyze contract terms",
     "Research case precedents",
     "Draft legal memo",
-    "Review compliance issues"
+    "Review compliance issues",
   ];
 
   return (
@@ -68,19 +120,10 @@ const Chat = () => {
       {/* Header */}
       <div className="border-b border-border p-4">
         <div className="flex items-center justify-between max-w-4xl mx-auto">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Button size="sm" variant="default" className="bg-legal-primary hover:bg-legal-primary/90">
-                Default
-              </Button>
-              <Button size="sm" variant="outline">
-                Summarizer
-              </Button>
-            </div>
-          </div>
+          <div className="flex items-center gap-3"></div>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="ghost">
-              <RefreshCw className="h-4 w-4" />
+            <Button size="sm" variant="ghost" onClick={handleClearChat}>
+              <RefreshCw className="h-4 w-4 mr-1" />
               Clear Chat
             </Button>
           </div>
@@ -93,23 +136,54 @@ const Chat = () => {
           {messages.map((message) => (
             <div
               key={message.id}
-              className={`flex gap-4 ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
+              className={`flex gap-4 ${
+                message.type === "user" ? "justify-end" : "justify-start"
+              }`}
             >
-              {message.type === 'ai' && (
+              {message.type === "ai" && (
                 <div className="w-8 h-8 bg-legal-primary rounded-full flex items-center justify-center flex-shrink-0">
                   <Bot className="h-4 w-4 text-white" />
                 </div>
               )}
-              
-              <div className={`max-w-2xl ${message.type === 'user' ? 'order-first' : ''}`}>
-                <Card className={`${message.type === 'user' ? 'bg-legal-primary text-white' : 'bg-card'} shadow-sm`}>
+
+              <div
+                className={`max-w-2xl ${
+                  message.type === "user" ? "order-first" : ""
+                }`}
+              >
+                <Card
+                  className={`${
+                    message.type === "user"
+                      ? "bg-legal-primary text-white"
+                      : "bg-card"
+                  } shadow-sm`}
+                >
                   <CardContent className="p-4">
-                    <p className="text-sm leading-relaxed">{message.content}</p>
+                    <div className="text-sm leading-relaxed space-y-2">
+                      <p>{message.content}</p>
+
+                      {/* ✅ Show file preview if exists */}
+                      {message.file && (
+                        <div className="flex items-center gap-2 p-2 border rounded-md bg-background/50">
+                          <FileText className="h-4 w-4 text-legal-primary" />
+                          <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                            {message.file.name}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="flex items-center gap-2 mt-2">
-                      <span className={`text-xs ${message.type === 'user' ? 'text-white/70' : 'text-muted-foreground'}`}>
+                      <span
+                        className={`text-xs ${
+                          message.type === "user"
+                            ? "text-white/70"
+                            : "text-muted-foreground"
+                        }`}
+                      >
                         {message.timestamp}
                       </span>
-                      {message.type === 'ai' && (
+                      {message.type === "ai" && (
                         <Badge variant="secondary" className="text-xs">
                           <Sparkles className="h-3 w-3 mr-1" />
                           AI
@@ -120,7 +194,7 @@ const Chat = () => {
                 </Card>
               </div>
 
-              {message.type === 'user' && (
+              {message.type === "user" && (
                 <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center flex-shrink-0">
                   <User className="h-4 w-4 text-muted-foreground" />
                 </div>
@@ -138,10 +212,18 @@ const Chat = () => {
                   <div className="flex items-center gap-2">
                     <div className="flex gap-1">
                       <div className="w-2 h-2 bg-legal-primary rounded-full animate-bounce" />
-                      <div className="w-2 h-2 bg-legal-primary rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                      <div className="w-2 h-2 bg-legal-primary rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
+                      <div
+                        className="w-2 h-2 bg-legal-primary rounded-full animate-bounce"
+                        style={{ animationDelay: "0.1s" }}
+                      />
+                      <div
+                        className="w-2 h-2 bg-legal-primary rounded-full animate-bounce"
+                        style={{ animationDelay: "0.2s" }}
+                      />
                     </div>
-                    <span className="text-sm text-muted-foreground">AI is typing...</span>
+                    <span className="text-sm text-muted-foreground">
+                      AI is typing...
+                    </span>
                   </div>
                 </CardContent>
               </Card>
@@ -150,11 +232,13 @@ const Chat = () => {
         </div>
       </div>
 
-      {/* Quick Actions */}
+      {/* Quick Prompts */}
       {messages.length === 1 && (
         <div className="p-4 border-t border-border">
           <div className="max-w-4xl mx-auto">
-            <p className="text-sm text-muted-foreground mb-3">Try these quick prompts:</p>
+            <p className="text-sm text-muted-foreground mb-3">
+              Try these quick prompts:
+            </p>
             <div className="flex flex-wrap gap-2 mb-4">
               {quickPrompts.map((prompt, index) => (
                 <Button
@@ -176,28 +260,39 @@ const Chat = () => {
       <div className="border-t border-border p-4 bg-background">
         <div className="max-w-4xl mx-auto">
           <div className="flex items-center gap-3 p-3 border border-border rounded-lg bg-card">
-            <Button size="sm" variant="ghost" className="flex-shrink-0">
+            <label className="flex items-center gap-2 cursor-pointer">
               <Paperclip className="h-4 w-4" />
-              File
-            </Button>
+              <span className="text-sm">File</span>
+              <input
+                type="file"
+                className="hidden"
+                accept=".pdf,.docx,.txt"
+                onChange={handleFileChange}
+              />
+            </label>
+            {selectedFile && (
+              <span className="text-xs text-muted-foreground truncate max-w-[120px]">
+                {selectedFile.name}
+              </span>
+            )}
             <Input
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              placeholder="Write a note"
+              placeholder="Write a message..."
               className="flex-1 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
-              onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
+              onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
             />
-            <Button 
-              size="sm" 
+            <Button
+              size="sm"
               onClick={handleSendMessage}
               className="bg-legal-primary hover:bg-legal-primary/90 flex-shrink-0"
-              disabled={!inputValue.trim()}
+              disabled={!inputValue.trim() && !selectedFile}
             >
               <Send className="h-4 w-4" />
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-2 text-center">
-            0 of 1 file upload left today
+            {selectedFile ? "File selected for upload" : "File upload optional"}
           </p>
         </div>
       </div>
