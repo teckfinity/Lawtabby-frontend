@@ -59,7 +59,16 @@ const ProtectPDF = () => {
     setIsProcessing(true);
 
     try {
-      const response = await protectPDFApi(file, password);
+      const response = await protectPDFApi({
+        file,
+        password,
+        allow_printing: permissions.printing,
+        allow_copying: permissions.copying,
+        allow_editing: permissions.editing,
+        allow_comments: permissions.commenting,
+        allow_form_filling: permissions.filling,
+        allow_document_assembly: permissions.assembly,
+      });
 
       let fileUrl = response?.data?.split_pdf?.protected_file;
       if (!fileUrl) throw new Error("No protected file URL returned from server");
