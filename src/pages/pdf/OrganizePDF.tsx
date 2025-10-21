@@ -28,6 +28,7 @@ const OrganizePDF = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [pages, setPages] = useState<PDFPage[]>([]);
+  const [deletedPages, setDeletedPages] = useState<number[]>([]); // ✅ New state
 
  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
   const selectedFile = event.target.files?.[0];
@@ -59,11 +60,10 @@ const OrganizePDF = () => {
         canvas.width = viewport.width;
         canvas.height = viewport.height;
 
-        // ✅ FIX: Explicitly cast the parameters for TypeScript
         const renderContext = {
           canvasContext: context,
           viewport: viewport,
-        } as unknown as pdfjsLib.PDFRenderParams;
+        } as any; // ✅ FIX: use any to avoid PDFRenderParams issue
 
         await page.render(renderContext).promise;
 
@@ -98,20 +98,26 @@ const OrganizePDF = () => {
     ));
   };
 
-  const deleteSelectedPages = () => {
-    const selectedCount = pages.filter(p => p.selected).length;
-    if (selectedCount === 0) {
-      toast.error("Please select pages to delete");
-      return;
-    }
-    
-    const remainingPages = pages.filter(p => !p.selected);
-    setPages(remainingPages.map((page, index) => ({
-      ...page,
-      pageNumber: index + 1
-    })));
-    toast.success(`Deleted ${selectedCount} page(s)`);
-  };
+const deleteSelectedPages = () => {
+  const selectedPages = pages.filter(p => p.selected);
+  const selectedCount = selectedPages.length;
+
+  if (selectedCount === 0) {
+    toast.error("Please select pages to delete");
+    return;
+  }
+
+  // Track deleted page numbers
+  const deleted = selectedPages.map(p => p.pageNumber);
+  setDeletedPages(prev => [...prev, ...deleted]);
+
+  // Remove selected pages, keep original page numbers
+  const remainingPages = pages.filter(p => !p.selected);
+  setPages(remainingPages);
+
+  toast.success(`Deleted ${selectedCount} page(s)`);
+};
+
 
   const duplicateSelectedPages = () => {
     const selectedPages = pages.filter(p => p.selected);
@@ -153,7 +159,7 @@ const saveOrganizedPDF = async () => {
 
   try {
     const userOrder = pages.map(page => page.pageNumber);
-    const response = await organizePDF(file, userOrder);
+    const response = await organizePDF(file, userOrder, deletedPages); // ✅ send deleted pages
 
     // Get file URL from backend
     const organizedPDFUrl = response.data.organized_data.organize_pdf;
