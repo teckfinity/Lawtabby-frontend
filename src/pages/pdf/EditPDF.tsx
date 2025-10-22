@@ -65,6 +65,8 @@ interface TextAnnotation {
   spans: TextSpans;
   x: number;
   y: number;
+  width: number;   // ← NEW
+  height: number;  // ← NEW
   pageNumber: number;
   backgroundColor: string;
   opacity: number; // 0-1
@@ -131,7 +133,7 @@ const EditPDF = () => {
   /* ----------  HELPERS ---------- */
   const hexToRgb = (hex: string) => {
     const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return m
+return m
       ? {
           r: parseInt(m[1], 16),
           g: parseInt(m[2], 16),
@@ -191,7 +193,7 @@ const EditPDF = () => {
 
   const updateSelectedSpan = () => {
     if (!selectedSpanId || !selectedAnnotationId) return;
-    
+
     const sel = annotations.find(
       (a): a is TextAnnotation => a.type === "text" && a.id === selectedAnnotationId
     );
@@ -219,14 +221,14 @@ const EditPDF = () => {
 
   const deleteSelectedSpan = () => {
     if (!selectedSpanId || !selectedAnnotationId) return;
-    
+
     const sel = annotations.find(
       (a): a is TextAnnotation => a.type === "text" && a.id === selectedAnnotationId
     );
     if (!sel) return;
 
     const updatedSpans = sel.spans.filter((span) => span.id !== selectedSpanId);
-    
+
     if (updatedSpans.length === 0) {
       setAnnotations((prev) => prev.filter((a) => a.id !== sel.id));
       setSelectedAnnotationId(null);
@@ -235,15 +237,14 @@ const EditPDF = () => {
         prev.map((a) => (a.id === sel.id ? { ...sel, spans: updatedSpans } : a))
       );
     }
-    
+
     setSelectedSpanId(null);
     toast.success("Word deleted");
   };
 
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>, pageNum: number) => {
-    // Prevent action if clicking on a draggable element
     const target = e.target as HTMLElement;
-    if (target.closest('.drag-handle') || target.closest('[class*="group"]')) {
+    if (target.closest('.drag-handle') || target.classList.contains('draggable-annotation')) {
       return;
     }
 
@@ -272,8 +273,8 @@ const EditPDF = () => {
           pageNumber: pageNum,
         };
         setAnnotations((a) => [...a, ann]);
-        toast.success(`${selectedShapeType} added - Click the shape to move/resize`);
-        setSelectedTool(""); // Deselect tool after placing shape
+        toast.success(`${selectedShapeType} added`);
+        setSelectedTool("");
         return;
       }
       return;
@@ -291,19 +292,30 @@ const EditPDF = () => {
     const y = (e.clientY - rect.top) / scale;
 
     if (pendingTextSpans.length) {
+      // Estimate width based on text length
+      const avgCharWidth = fontSize * 0.6;
+      const totalTextWidth = pendingTextSpans.reduce(
+        (sum, s) => sum + s.text.length * avgCharWidth,
+        0
+      );
+      const lineHeight = fontSize * 1.2;
+      const padding = 16;
+
       const ann: TextAnnotation = {
         id: `text-${Date.now()}`,
         type: "text",
         spans: pendingTextSpans,
         x,
         y,
+        width: Math.max(80, totalTextWidth + padding),
+        height: lineHeight + padding,
         pageNumber: pageNum,
         backgroundColor: bgColor,
         opacity: opacity / 100,
       };
       setAnnotations((a) => [...a, ann]);
       setPendingTextSpans([]);
-      toast.success("Text placed");
+      toast.success("Text box placed – drag to move, resize with handles");
       return;
     }
 
@@ -334,18 +346,18 @@ const EditPDF = () => {
   const smoothPoints = (points: { x: number; y: number }[]) => {
     if (points.length < 3) return points;
     const smoothed: { x: number; y: number }[] = [points[0]];
-    
+
     for (let i = 1; i < points.length - 1; i++) {
       const prev = points[i - 1];
       const curr = points[i];
       const next = points[i + 1];
-      
+
       smoothed.push({
         x: (prev.x + curr.x + next.x) / 3,
         y: (prev.y + curr.y + next.y) / 3,
       });
     }
-    
+
     smoothed.push(points[points.length - 1]);
     return smoothed;
   };
@@ -398,6 +410,28 @@ const EditPDF = () => {
       prev.map((a) =>
         a.id === id && a.type === "text"
           ? { ...a, x: a.x + deltaX / scale, y: a.y + deltaY / scale }
+          : a
+      )
+    );
+  };
+
+  const updateTextSize = (
+    id: string,
+    newWidth: number,
+    newHeight: number,
+    newX?: number,
+    newY?: number
+  ) => {
+    setAnnotations((prev) =>
+      prev.map((a) =>
+        a.id === id && a.type === "text"
+          ? {
+              ...a,
+              width: Math.max(50, newWidth),
+              height: Math.max(20, newHeight),
+              ...(newX !== undefined && { x: newX }),
+              ...(newY !== undefined && { y: newY }),
+            }
           : a
       )
     );
@@ -513,28 +547,22 @@ const EditPDF = () => {
         const { height } = page.getSize();
 
         if (ann.type === "text") {
-          const lineHeight = ann.spans[0].fontSize * 1.2;
-          const totalWidth =
-            ann.spans.reduce(
-              (sum, s) => sum + helvetica.widthOfTextAtSize(s.text, s.fontSize),
-              0
-            ) + 8;
-
-          /* ---- Background rectangle (pdf-lib) ---- */
+          const bgPadding = 6;
           if (ann.backgroundColor !== "#ffffff00") {
             const bg = hexToRgb(ann.backgroundColor);
             page.drawRectangle({
-              x: ann.x,
-              y: height - ann.y - lineHeight,
-              width: totalWidth,
-              height: lineHeight + 4,
+              x: ann.x - bgPadding / 2,
+              y: height - ann.y - ann.height + bgPadding / 2,
+              width: ann.width + bgPadding,
+              height: ann.height - bgPadding,
               color: rgb(bg.r / 255, bg.g / 255, bg.b / 255),
               opacity: ann.opacity,
             });
           }
 
-          /* ---- Text (full opacity) ---- */
-          let cursorX = ann.x;
+          let cursorX = ann.x + 8;
+          const textY = height - ann.y - ann.height / 2 - ann.spans[0].fontSize / 2 + ann.spans[0].fontSize * 0.15;
+
           for (const span of ann.spans) {
             let font = helvetica;
             if (span.fontFamily === "Times New Roman") font = times;
@@ -544,7 +572,7 @@ const EditPDF = () => {
             const col = hexToRgb(span.color);
             page.drawText(span.text, {
               x: cursorX,
-              y: height - ann.y,
+              y: textY,
               size: span.fontSize,
               font,
               color: rgb(col.r / 255, col.g / 255, col.b / 255),
@@ -552,14 +580,15 @@ const EditPDF = () => {
 
             if (span.underline) {
               const w = font.widthOfTextAtSize(span.text, span.fontSize);
+              const underlineY = textY - 2;
               page.drawLine({
-                start: { x: cursorX, y: height - ann.y - 2 },
-                end: { x: cursorX + w, y: height - ann.y - 2 },
+                start: { x: cursorX, y: underlineY },
+                end: { x: cursorX + w, y: underlineY },
                 thickness: 1,
                 color: rgb(col.r / 255, col.g / 255, col.b / 255),
               });
             }
-            cursorX += font.widthOfTextAtSize(span.text, span.fontSize);
+            cursorX += font.widthOfTextAtSize(span.text, span.fontSize) + 2;
           }
         } else if (ann.type === "shape") {
           const col = hexToRgb(ann.color);
@@ -593,15 +622,38 @@ const EditPDF = () => {
         } else if (ann.type === "draw") {
           const col = hexToRgb(ann.color);
           const rgbCol = rgb(col.r / 255, col.g / 255, col.b / 255);
-          for (let i = 0; i < ann.points.length - 1; i++) {
-            const p1 = ann.points[i];
-            const p2 = ann.points[i + 1];
-            page.drawLine({
-              start: { x: p1.x, y: height - p1.y },
-              end: { x: p2.x, y: height - p2.y },
-              thickness: ann.strokeWidth,
-              color: rgbCol,
-            });
+
+          if (ann.points.length > 0) {
+            for (let i = 0; i < ann.points.length - 1; i++) {
+              const curr = ann.points[i];
+              const next = ann.points[i + 1];
+              const steps = 3;
+              for (let step = 0; step < steps; step++) {
+                const t1 = step / steps;
+                const t2 = (step + 1) / steps;
+                const x1 = curr.x + (next.x - curr.x) * t1;
+                const y1 = curr.y + (next.y - curr.y) * t1;
+                const x2 = curr.x + (next.x - curr.x) * t2;
+                const y2 = curr.y + (next.y - curr.y) * t2;
+
+                page.drawLine({
+                  start: { x: x1, y: height - y1 },
+                  end: { x: x2, y: height - y2 },
+                  thickness: ann.strokeWidth,
+                  color: rgbCol,
+                  opacity: 1,
+                });
+              }
+            }
+            for (const point of ann.points) {
+              page.drawCircle({
+                x: point.x,
+                y: height - point.y,
+                size: ann.strokeWidth / 2,
+                color: rgbCol,
+                opacity: 1,
+              });
+            }
           }
         }
       }
@@ -845,7 +897,7 @@ const EditPDF = () => {
                       Add
                     </Button>
                   </div>
-                  
+
                   {selectedAnnotationId && selectedSpanId && (
                     <div className="flex items-center gap-2 p-2 bg-accent rounded">
                       <span className="text-xs font-medium">Editing word:</span>
@@ -868,7 +920,7 @@ const EditPDF = () => {
                       </Button>
                     </div>
                   )}
-                  
+
                   <p className="text-xs text-muted-foreground">
                     {selectedSpanId
                       ? "Adjust formatting above, then Update Style"
@@ -1027,97 +1079,159 @@ const EditPDF = () => {
                                 onMouseUp={() => handleMouseUp(pn)}
                                 onMouseLeave={() => isDrawing && handleMouseUp(pn)}
                               >
+                                {/* TEXT ANNOTATIONS WITH RESIZE */}
                                 {annotations
                                   .filter(
                                     (a): a is TextAnnotation =>
                                       a.type === "text" && a.pageNumber === pn
                                   )
-                                   .map((ann) => (
-                                     <Draggable
-                                       key={ann.id}
-                                       position={{ x: ann.x * scale, y: ann.y * scale }}
-                                       onDrag={(_, d) =>
-                                         updateTextPosition(ann.id, d.deltaX, d.deltaY)
-                                       }
-                                       handle=".drag-handle"
-                                     >
-                                       <div className="absolute flex items-center group">
-                                        {ann.backgroundColor !== "#ffffff00" && (
-                                          <div
-                                            className="absolute inset-0 rounded pointer-events-none"
-                                            style={{
-                                              backgroundColor: ann.backgroundColor,
-                                              opacity: ann.opacity,
-                                              padding: "2px 4px",
-                                            }}
-                                          />
-                                        )}
+                                  .map((ann) => {
+                                    const TextResizeHandle = ({ position }: { position: string }) => {
+                                      const handleResize = (e: React.MouseEvent<HTMLDivElement>) => {
+                                        e.stopPropagation();
+                                        const startX = e.clientX;
+                                        const startY = e.clientY;
+                                        const startWidth = ann.width;
+                                        const startHeight = ann.height;
+                                        const startXPos = ann.x;
+                                        const startYPos = ann.y;
 
-                                        <GripVertical className="drag-handle h-4 w-4 text-primary/50 hover:text-primary mr-1 cursor-grab active:cursor-grabbing z-10 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                        
-                                        <Button
-                                          variant="destructive"
-                                          size="icon"
-                                          className="absolute -top-2 -right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity z-20"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            removeAnnotation(ann.id);
+                                        const onMouseMove = (moveEvent: MouseEvent) => {
+                                          const deltaX = (moveEvent.clientX - startX) / scale;
+                                          const deltaY = (moveEvent.clientY - startY) / scale;
+
+                                          let newWidth = startWidth;
+                                          let newHeight = startHeight;
+                                          let newX = startXPos;
+                                          let newY = startYPos;
+
+                                          if (position.includes("right")) newWidth = startWidth + deltaX;
+                                          if (position.includes("left")) { newWidth = startWidth - deltaX; newX = startXPos + deltaX; }
+                                          if (position.includes("bottom")) newHeight = startHeight + deltaY;
+                                          if (position.includes("top")) { newHeight = startHeight - deltaY; newY = startYPos + deltaY; }
+
+                                          updateTextSize(ann.id, newWidth, newHeight, newX, newY);
+                                        };
+
+                                        const onMouseUp = () => {
+                                          document.removeEventListener("mousemove", onMouseMove);
+                                          document.removeEventListener("mouseup", onMouseUp);
+                                        };
+
+                                        document.addEventListener("mousemove", onMouseMove);
+                                        document.addEventListener("mouseup", onMouseUp);
+                                      };
+
+                                      const classes = {
+                                        "top-left": "-top-1 -left-1 cursor-nw-resize",
+                                        "top-right": "-top-1 -right-1 cursor-ne-resize",
+                                        "bottom-left": "-bottom-1 -left-1 cursor-sw-resize",
+                                        "bottom-right": "-bottom-1 -right-1 cursor-se-resize",
+                                        top: "-top-1 left-1/2 -translate-x-1/2 cursor-n-resize",
+                                        bottom: "-bottom-1 left-1/2 -translate-x-1/2 cursor-s-resize",
+                                        left: "top-1/2 -left-1 -translate-y-1/2 cursor-w-resize",
+                                        right: "top-1/2 -right-1 -translate-y-1/2 cursor-e-resize",
+                                      };
+
+                                      return (
+                                        <div
+                                          className={`absolute w-2 h-2 bg-primary border border-background rounded-sm opacity-0 group-hover:opacity-100 transition-opacity ${classes[position as keyof typeof classes]}`}
+                                          onMouseDown={handleResize}
+                                        />
+                                      );
+                                    };
+
+                                    return (
+                                   <Draggable
+                                      key={ann.id}
+                                      position={{ x: ann.x * scale, y: ann.y * scale }}
+                                      onDrag={(_, d) => updateTextPosition(ann.id, d.deltaX, d.deltaY)}
+                                    >
+                                        <div
+                                          className="absolute group"
+                                          style={{
+                                            width: ann.width * scale,
+                                            height: ann.height * scale,
                                           }}
                                         >
-                                          <Trash2 className="h-3 w-3" />
-                                        </Button>
-
-                                        <div
-                                          className="select-none z-10 cursor-pointer"
-                                          onClick={() => selectAnnotation(ann.id)}
-                                        >
-                                          {ann.spans.map((sp, idx) => (
-                                            <span
-                                              key={sp.id}
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                selectAnnotation(ann.id);
-                                                selectSpan(sp.id);
-                                              }}
-                                              className={`hover:bg-accent/30 rounded px-0.5 ${
-                                                selectedSpanId === sp.id
-                                                  ? "bg-accent/50"
-                                                  : ""
-                                              }`}
+                                          {ann.backgroundColor !== "#ffffff00" && (
+                                            <div
+                                              className="absolute inset-0 rounded pointer-events-none"
                                               style={{
-                                                fontFamily: sp.fontFamily,
-                                                fontSize: `${sp.fontSize * scale}px`,
-                                                color: sp.color,
-                                                fontWeight: sp.bold ? "bold" : "normal",
-                                                fontStyle: sp.italic ? "italic" : "normal",
-                                                textDecoration: sp.underline
-                                                  ? "underline"
-                                                  : "none",
+                                                backgroundColor: ann.backgroundColor,
+                                                opacity: ann.opacity,
                                               }}
-                                            >
-                                              {sp.text}
-                                              {idx < ann.spans.length - 1 && " "}
-                                            </span>
-                                          ))}
+                                            />
+                                          )}
+
+                                          <div className="absolute inset-0 border-2 border-transparent rounded group-hover:border-primary/30 transition-colors" />
+
+                                          <GripVertical className="drag-handle absolute left-1 top-1/2 -translate-y-1/2 h-4 w-4 text-primary/50 hover:text-primary cursor-grab active:cursor-grabbing z-10 opacity-0 group-hover:opacity-100 transition-opacity" />
+
+                                          <Button
+                                            variant="destructive"
+                                            size="icon"
+                                            className="absolute -top-2 -right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              removeAnnotation(ann.id);
+                                            }}
+                                          >
+                                            <Trash2 className="h-3 w-3" />
+                                          </Button>
+
+                                          <div
+                                            className="relative z-10 p-2 cursor-pointer flex items-center justify-start h-full overflow-hidden"
+                                            onClick={() => selectAnnotation(ann.id)}
+                                          >
+                                            {ann.spans.map((sp, idx) => (
+                                              <span
+                                                key={sp.id}
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  selectAnnotation(ann.id);
+                                                  selectSpan(sp.id);
+                                                }}
+                                                className={`hover:bg-accent/30 rounded px-0.5 ${
+                                                  selectedSpanId === sp.id ? "bg-accent/50" : ""
+                                                }`}
+                                                style={{
+                                                  fontFamily: sp.fontFamily,
+                                                  fontSize: `${sp.fontSize}px`,
+                                                  color: sp.color,
+                                                  fontWeight: sp.bold ? "bold" : "normal",
+                                                  fontStyle: sp.italic ? "italic" : "normal",
+                                                  textDecoration: sp.underline ? "underline" : "none",
+                                                }}
+                                              >
+                                                {sp.text}
+                                                {idx < ann.spans.length - 1 && " "}
+                                              </span>
+                                            ))}
+                                          </div>
+
+                                          <TextResizeHandle position="top-left" />
+                                          <TextResizeHandle position="top-right" />
+                                          <TextResizeHandle position="bottom-left" />
+                                          <TextResizeHandle position="bottom-right" />
+                                          <TextResizeHandle position="top" />
+                                          <TextResizeHandle position="bottom" />
+                                          <TextResizeHandle position="left" />
+                                          <TextResizeHandle position="right" />
                                         </div>
-                                      </div>
-                                    </Draggable>
-                                  ))}
-                                
+                                      </Draggable>
+                                    );
+                                  })}
+
+                                {/* SHAPES (unchanged) */}
                                 {annotations
                                   .filter(
                                     (a): a is ShapeAnnotation =>
                                       a.type === "shape" && a.pageNumber === pn
                                   )
                                   .map((ann) => {
-                                    const ResizeHandle = ({
-                                      position,
-                                    }: {
-                                      position: string;
-                                    }) => {
-                                      const handleResize = (
-                                        e: React.MouseEvent<HTMLDivElement>
-                                      ) => {
+                                    const ResizeHandle = ({ position }: { position: string }) => {
+                                      const handleResize = (e: React.MouseEvent<HTMLDivElement>) => {
                                         e.stopPropagation();
                                         const startX = e.clientX;
                                         const startY = e.clientY;
@@ -1126,13 +1240,9 @@ const EditPDF = () => {
                                         const startPosX = ann.x;
                                         const startPosY = ann.y;
 
-                                        const handleMouseMove = (
-                                          moveEvent: MouseEvent
-                                        ) => {
-                                          const deltaX =
-                                            (moveEvent.clientX - startX) / scale;
-                                          const deltaY =
-                                            (moveEvent.clientY - startY) / scale;
+                                        const handleMouseMove = (moveEvent: MouseEvent) => {
+                                          const deltaX = (moveEvent.clientX - startX) / scale;
+                                          const deltaY = (moveEvent.clientY - startY) / scale;
 
                                           if (position.includes("right")) {
                                             updateShapeSize(
@@ -1151,10 +1261,7 @@ const EditPDF = () => {
                                                 : startPosY
                                             );
                                           } else if (position.includes("left")) {
-                                            const newWidth = Math.max(
-                                              20,
-                                              startWidth - deltaX
-                                            );
+                                            const newWidth = Math.max(20, startWidth - deltaX);
                                             updateShapeSize(
                                               ann.id,
                                               newWidth,
@@ -1169,10 +1276,7 @@ const EditPDF = () => {
                                                 : startPosY
                                             );
                                           } else if (position.includes("top")) {
-                                            const newHeight = Math.max(
-                                              20,
-                                              startHeight - deltaY
-                                            );
+                                            const newHeight = Math.max(20, startHeight - deltaY);
                                             updateShapeSize(
                                               ann.id,
                                               startWidth,
@@ -1192,101 +1296,73 @@ const EditPDF = () => {
                                         };
 
                                         const handleMouseUp = () => {
-                                          document.removeEventListener(
-                                            "mousemove",
-                                            handleMouseMove
-                                          );
-                                          document.removeEventListener(
-                                            "mouseup",
-                                            handleMouseUp
-                                          );
+                                          document.removeEventListener("mousemove", handleMouseMove);
+                                          document.removeEventListener("mouseup", handleMouseUp);
                                         };
 
-                                        document.addEventListener(
-                                          "mousemove",
-                                          handleMouseMove
-                                        );
-                                        document.addEventListener(
-                                          "mouseup",
-                                          handleMouseUp
-                                        );
+                                        document.addEventListener("mousemove", handleMouseMove);
+                                        document.addEventListener("mouseup", handleMouseUp);
                                       };
 
                                       const positionClasses = {
-                                        "top-left":
-                                          "-top-1 -left-1 cursor-nw-resize",
-                                        "top-right":
-                                          "-top-1 -right-1 cursor-ne-resize",
-                                        "bottom-left":
-                                          "-bottom-1 -left-1 cursor-sw-resize",
-                                        "bottom-right":
-                                          "-bottom-1 -right-1 cursor-se-resize",
+                                        "top-left": "-top-1 -left-1 cursor-nw-resize",
+                                        "top-right": "-top-1 -right-1 cursor-ne-resize",
+                                        "bottom-left": "-bottom-1 -left-1 cursor-sw-resize",
+                                        "bottom-right": "-bottom-1 -right-1 cursor-se-resize",
                                         top: "-top-1 left-1/2 -translate-x-1/2 cursor-n-resize",
-                                        bottom:
-                                          "-bottom-1 left-1/2 -translate-x-1/2 cursor-s-resize",
+                                        bottom: "-bottom-1 left-1/2 -translate-x-1/2 cursor-s-resize",
                                         left: "top-1/2 -translate-y-1/2 -left-1 cursor-w-resize",
-                                        right:
-                                          "top-1/2 -translate-y-1/2 -right-1 cursor-e-resize",
+                                        right: "top-1/2 -translate-y-1/2 -right-1 cursor-e-resize",
                                       };
 
                                       return (
                                         <div
                                           className={`absolute w-2 h-2 bg-primary border border-background rounded-sm opacity-0 group-hover:opacity-100 transition-opacity ${
-                                            positionClasses[
-                                              position as keyof typeof positionClasses
-                                            ]
+                                            positionClasses[position as keyof typeof positionClasses]
                                           }`}
                                           onMouseDown={handleResize}
                                         />
                                       );
                                     };
 
-                                     return (
-                                       <Draggable
-                                         key={ann.id}
-                                         position={{
-                                           x: ann.x * scale,
-                                           y: ann.y * scale,
-                                         }}
-                                         onDrag={(_, d) =>
-                                           updateShapePosition(
-                                             ann.id,
-                                             d.deltaX,
-                                             d.deltaY
-                                           )
-                                         }
-                                       >
-                                         <div
-                                           className="absolute group cursor-move"
+                                    return (
+                                      <Draggable
+                                        key={ann.id}
+                                        position={{
+                                          x: ann.x * scale,
+                                          y: ann.y * scale,
+                                        }}
+                                        onDrag={(_, d) =>
+                                          updateShapePosition(ann.id, d.deltaX, d.deltaY)
+                                        }
+                                      >
+                                        <div
+                                          className="absolute group cursor-move"
                                           style={{
                                             width: ann.width * scale,
-                                            height:
-                                              ann.shapeType === "line"
-                                                ? 2
-                                                : ann.height * scale,
+                                            height: ann.shapeType === "line" ? 2 : ann.height * scale,
                                           }}
                                         >
-                                           <div
-                                             className="absolute inset-0 border-2 border-dashed border-transparent group-hover:border-primary/30 transition-colors rounded"
-                                             style={{
-                                               borderRadius:
-                                                 ann.shapeType === "circle" ? "50%" : "4px",
-                                             }}
-                                           />
-                                           
-                                           <Move className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-4 w-4 text-primary/50 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
-                                           
-                                           <Button
-                                             variant="destructive"
-                                             size="icon"
-                                             className="absolute -top-2 -right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity z-20"
-                                             onClick={(e) => {
-                                               e.stopPropagation();
-                                               removeAnnotation(ann.id);
-                                             }}
-                                           >
-                                             <Trash2 className="h-3 w-3" />
-                                           </Button>
+                                          <div
+                                            className="absolute inset-0 border-2 border-dashed border-transparent group-hover:border-primary/30 transition-colors rounded"
+                                            style={{
+                                              borderRadius: ann.shapeType === "circle" ? "50%" : "4px",
+                                            }}
+                                          />
+
+                                          <Move className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-4 w-4 text-primary/50 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+
+                                          <Button
+                                            variant="destructive"
+                                            size="icon"
+                                            className="absolute -top-2 -right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              removeAnnotation(ann.id);
+                                            }}
+                                          >
+                                            <Trash2 className="h-3 w-3" />
+                                          </Button>
 
                                           {ann.shapeType !== "line" && (
                                             <>
@@ -1304,17 +1380,13 @@ const EditPDF = () => {
                                           {ann.shapeType === "rectangle" && (
                                             <div
                                               className="absolute inset-0 border-2 pointer-events-none"
-                                              style={{
-                                                borderColor: ann.color,
-                                              }}
+                                              style={{ borderColor: ann.color }}
                                             />
                                           )}
                                           {ann.shapeType === "circle" && (
                                             <div
                                               className="absolute inset-0 border-2 rounded-full pointer-events-none"
-                                              style={{
-                                                borderColor: ann.color,
-                                              }}
+                                              style={{ borderColor: ann.color }}
                                             />
                                           )}
                                           {ann.shapeType === "line" && (
@@ -1519,7 +1591,7 @@ const EditPDF = () => {
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 bg-background min-h-screen">
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-6xl mx-auto pt-6 pb-10 px-6 lg:px-8">
         <div className="flex items-center gap-4 mb-6">
           <Button
             variant="ghost"
