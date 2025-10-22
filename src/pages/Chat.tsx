@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { sendLegalChat } from "@/api/ai_chat";
 
-// ✅ Define message type
+// Define message type
 interface ChatMessage {
   id: number;
   type: "user" | "ai";
@@ -40,7 +40,20 @@ const Chat = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
-  // ✅ Clear chat handler
+  // Ref to track the bottom of the chat
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to bottom function
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  // Auto-scroll whenever messages or typing state changes
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isTyping]);
+
+  // Clear chat handler
   const handleClearChat = () => {
     setMessages([
       {
@@ -53,23 +66,23 @@ const Chat = () => {
     ]);
   };
 
-  // ✅ File select handler
+  // File select handler
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) setSelectedFile(file);
   };
 
-  // ✅ Send message handler (now supports file display)
+  // Send message handler (supports file display)
   const handleSendMessage = async () => {
-    if (!inputValue.trim() && !selectedFile) return; // must have message or file
+    if (!inputValue.trim() && !selectedFile) return;
 
     const hasFile = !!selectedFile;
 
-    // Create a combined user message (includes file info)
+    // Create user message (includes file if uploaded)
     const newMessage: ChatMessage = {
       id: messages.length + 1,
       type: "user",
-      content: inputValue || (hasFile ? "📎 Uploaded a file" : ""),
+      content: inputValue || (hasFile ? "Uploaded a file" : ""),
       file: hasFile ? { name: selectedFile!.name, type: selectedFile!.type } : null,
       timestamp: "Just now",
     };
@@ -162,7 +175,7 @@ const Chat = () => {
                     <div className="text-sm leading-relaxed space-y-2">
                       <p>{message.content}</p>
 
-                      {/* ✅ Show file preview if exists */}
+                      {/* Show file preview if exists */}
                       {message.file && (
                         <div className="flex items-center gap-2 p-2 border rounded-md bg-background/50">
                           <FileText className="h-4 w-4 text-legal-primary" />
@@ -229,6 +242,9 @@ const Chat = () => {
               </Card>
             </div>
           )}
+
+          {/* Invisible anchor to scroll to */}
+          <div ref={messagesEndRef} />
         </div>
       </div>
 
@@ -280,7 +296,7 @@ const Chat = () => {
               onChange={(e) => setInputValue(e.target.value)}
               placeholder="Write a message..."
               className="flex-1 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
-              onKeyPress={(e) => e.key === "Enter" && handleSendMessage()}
+              onKeyPress={(e) => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
             />
             <Button
               size="sm"
