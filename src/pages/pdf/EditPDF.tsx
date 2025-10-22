@@ -243,7 +243,7 @@ const EditPDF = () => {
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>, pageNum: number) => {
     // Prevent action if clicking on a draggable element
     const target = e.target as HTMLElement;
-    if (target.closest('.drag-handle') || target.closest('[class*="group"]')) {
+    if (target.closest('.drag-handle') || target.classList.contains('draggable-annotation')) {
       return;
     }
 
@@ -521,19 +521,20 @@ const EditPDF = () => {
             ) + 8;
 
           /* ---- Background rectangle (pdf-lib) ---- */
+          const bgPadding = 6;
           if (ann.backgroundColor !== "#ffffff00") {
             const bg = hexToRgb(ann.backgroundColor);
             page.drawRectangle({
-              x: ann.x,
-              y: height - ann.y - lineHeight,
-              width: totalWidth,
-              height: lineHeight + 4,
+              x: ann.x - bgPadding / 2,
+              y: height - ann.y - lineHeight - bgPadding / 2,
+              width: totalWidth + bgPadding,
+              height: lineHeight + bgPadding,
               color: rgb(bg.r / 255, bg.g / 255, bg.b / 255),
               opacity: ann.opacity,
             });
           }
 
-          /* ---- Text (full opacity) ---- */
+          /* ---- Text (full opacity) - centered in background ---- */
           let cursorX = ann.x;
           for (const span of ann.spans) {
             let font = helvetica;
@@ -542,9 +543,11 @@ const EditPDF = () => {
             if (span.bold) font = helveticaBold;
 
             const col = hexToRgb(span.color);
+            // Center text vertically within the background box
+            const textY = height - ann.y - lineHeight / 2 - span.fontSize / 2 + span.fontSize * 0.15;
             page.drawText(span.text, {
               x: cursorX,
-              y: height - ann.y,
+              y: textY,
               size: span.fontSize,
               font,
               color: rgb(col.r / 255, col.g / 255, col.b / 255),
@@ -552,9 +555,10 @@ const EditPDF = () => {
 
             if (span.underline) {
               const w = font.widthOfTextAtSize(span.text, span.fontSize);
+              const underlineY = height - ann.y - lineHeight / 2 - span.fontSize / 2 + span.fontSize * 0.15 - 2;
               page.drawLine({
-                start: { x: cursorX, y: height - ann.y - 2 },
-                end: { x: cursorX + w, y: height - ann.y - 2 },
+                start: { x: cursorX, y: underlineY },
+                end: { x: cursorX + w, y: underlineY },
                 thickness: 1,
                 color: rgb(col.r / 255, col.g / 255, col.b / 255),
               });
@@ -593,15 +597,45 @@ const EditPDF = () => {
         } else if (ann.type === "draw") {
           const col = hexToRgb(ann.color);
           const rgbCol = rgb(col.r / 255, col.g / 255, col.b / 255);
-          for (let i = 0; i < ann.points.length - 1; i++) {
-            const p1 = ann.points[i];
-            const p2 = ann.points[i + 1];
-            page.drawLine({
-              start: { x: p1.x, y: height - p1.y },
-              end: { x: p2.x, y: height - p2.y },
-              thickness: ann.strokeWidth,
-              color: rgbCol,
-            });
+          
+          // Use smooth curve rendering like canvas
+          if (ann.points.length > 0) {
+            // Draw with quadratic curves for smoothness
+            for (let i = 0; i < ann.points.length - 1; i++) {
+              const curr = ann.points[i];
+              const next = ann.points[i + 1];
+              
+              // Draw multiple small segments to simulate quadratic curve
+              const steps = 3;
+              for (let step = 0; step < steps; step++) {
+                const t1 = step / steps;
+                const t2 = (step + 1) / steps;
+                
+                const x1 = curr.x + (next.x - curr.x) * t1;
+                const y1 = curr.y + (next.y - curr.y) * t1;
+                const x2 = curr.x + (next.x - curr.x) * t2;
+                const y2 = curr.y + (next.y - curr.y) * t2;
+                
+                page.drawLine({
+                  start: { x: x1, y: height - y1 },
+                  end: { x: x2, y: height - y2 },
+                  thickness: ann.strokeWidth,
+                  color: rgbCol,
+                  opacity: 1,
+                });
+              }
+            }
+            
+            // Add round caps at each point for thickness consistency
+            for (const point of ann.points) {
+              page.drawCircle({
+                x: point.x,
+                y: height - point.y,
+                size: ann.strokeWidth / 2,
+                color: rgbCol,
+                opacity: 1,
+              });
+            }
           }
         }
       }
@@ -1033,25 +1067,29 @@ const EditPDF = () => {
                                       a.type === "text" && a.pageNumber === pn
                                   )
                                    .map((ann) => (
-                                     <Draggable
-                                       key={ann.id}
-                                       position={{ x: ann.x * scale, y: ann.y * scale }}
-                                       onDrag={(_, d) =>
-                                         updateTextPosition(ann.id, d.deltaX, d.deltaY)
-                                       }
-                                       handle=".drag-handle"
-                                     >
-                                       <div className="absolute flex items-center group">
-                                        {ann.backgroundColor !== "#ffffff00" && (
-                                          <div
-                                            className="absolute inset-0 rounded pointer-events-none"
-                                            style={{
-                                              backgroundColor: ann.backgroundColor,
-                                              opacity: ann.opacity,
-                                              padding: "2px 4px",
-                                            }}
-                                          />
-                                        )}
+                                       <Draggable
+                                        key={ann.id}
+                                        position={{ x: ann.x * scale, y: ann.y * scale }}
+                                        onDrag={(_, d) =>
+                                          updateTextPosition(ann.id, d.deltaX, d.deltaY)
+                                        }
+                                        handle=".drag-handle"
+                                      >
+                                        <div className="absolute flex items-center group draggable-annotation">
+                                         {ann.backgroundColor !== "#ffffff00" && (
+                                           <div
+                                             className="absolute rounded pointer-events-none"
+                                             style={{
+                                               backgroundColor: ann.backgroundColor,
+                                               opacity: ann.opacity,
+                                               padding: "3px 3px",
+                                               left: '-3px',
+                                               top: '-3px',
+                                               right: '-3px',
+                                               bottom: '-3px',
+                                             }}
+                                           />
+                                         )}
 
                                         <GripVertical className="drag-handle h-4 w-4 text-primary/50 hover:text-primary mr-1 cursor-grab active:cursor-grabbing z-10 opacity-0 group-hover:opacity-100 transition-opacity" />
                                         
