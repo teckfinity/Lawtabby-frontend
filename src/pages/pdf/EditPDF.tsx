@@ -30,6 +30,8 @@ import {
   Underline,
   GripVertical,
   Edit3,
+  Move,
+  Maximize2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Document, Page, pdfjs } from "react-pdf";
@@ -111,6 +113,7 @@ const EditPDF = () => {
   const [isUnderline, setIsUnderline] = useState(false);
   const [bgColor, setBgColor] = useState("#ffffff00"); // transparent
   const [opacity, setOpacity] = useState(100); // 0-100
+  const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
 
   /* draw / shape */
   const [drawColor, setDrawColor] = useState("#000000");
@@ -186,7 +189,64 @@ const EditPDF = () => {
     setRawTextInput("");
   };
 
+  const updateSelectedSpan = () => {
+    if (!selectedSpanId || !selectedAnnotationId) return;
+    
+    const sel = annotations.find(
+      (a): a is TextAnnotation => a.type === "text" && a.id === selectedAnnotationId
+    );
+    if (!sel) return;
+
+    const updatedSpans = sel.spans.map((span) =>
+      span.id === selectedSpanId
+        ? {
+            ...span,
+            fontSize,
+            color: textColor,
+            fontFamily,
+            bold: isBold,
+            italic: isItalic,
+            underline: isUnderline,
+          }
+        : span
+    );
+
+    setAnnotations((prev) =>
+      prev.map((a) => (a.id === sel.id ? { ...sel, spans: updatedSpans } : a))
+    );
+    toast.success("Word style updated");
+  };
+
+  const deleteSelectedSpan = () => {
+    if (!selectedSpanId || !selectedAnnotationId) return;
+    
+    const sel = annotations.find(
+      (a): a is TextAnnotation => a.type === "text" && a.id === selectedAnnotationId
+    );
+    if (!sel) return;
+
+    const updatedSpans = sel.spans.filter((span) => span.id !== selectedSpanId);
+    
+    if (updatedSpans.length === 0) {
+      setAnnotations((prev) => prev.filter((a) => a.id !== sel.id));
+      setSelectedAnnotationId(null);
+    } else {
+      setAnnotations((prev) =>
+        prev.map((a) => (a.id === sel.id ? { ...sel, spans: updatedSpans } : a))
+      );
+    }
+    
+    setSelectedSpanId(null);
+    toast.success("Word deleted");
+  };
+
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>, pageNum: number) => {
+    // Prevent action if clicking on a draggable element
+    const target = e.target as HTMLElement;
+    if (target.closest('.drag-handle') || target.closest('[class*="group"]')) {
+      return;
+    }
+
     if (selectedTool !== "text") {
       if (selectedTool === "shapes") {
         const canvas = canvasRefs.current[pageNum];
@@ -212,7 +272,8 @@ const EditPDF = () => {
           pageNumber: pageNum,
         };
         setAnnotations((a) => [...a, ann]);
-        toast.success(`${selectedShapeType} added`);
+        toast.success(`${selectedShapeType} added - Click the shape to move/resize`);
+        setSelectedTool(""); // Deselect tool after placing shape
         return;
       }
       return;
@@ -269,7 +330,26 @@ const EditPDF = () => {
     }
   };
 
-  /* ----------  DRAWING ---------- */
+  /* ----------  DRAWING (with smoothing) ---------- */
+  const smoothPoints = (points: { x: number; y: number }[]) => {
+    if (points.length < 3) return points;
+    const smoothed: { x: number; y: number }[] = [points[0]];
+    
+    for (let i = 1; i < points.length - 1; i++) {
+      const prev = points[i - 1];
+      const curr = points[i];
+      const next = points[i + 1];
+      
+      smoothed.push({
+        x: (prev.x + curr.x + next.x) / 3,
+        y: (prev.y + curr.y + next.y) / 3,
+      });
+    }
+    
+    smoothed.push(points[points.length - 1]);
+    return smoothed;
+  };
+
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>, pageNum: number) => {
     if (selectedTool !== "draw") return;
     setIsDrawing(true);
@@ -297,10 +377,11 @@ const EditPDF = () => {
       setDrawPoints([]);
       return;
     }
+    const smoothed = smoothPoints(drawPoints);
     const ann: DrawAnnotation = {
       id: `draw-${Date.now()}`,
       type: "draw",
-      points: drawPoints,
+      points: smoothed,
       color: drawColor,
       strokeWidth,
       pageNumber: pageNum,
@@ -311,7 +392,7 @@ const EditPDF = () => {
     toast.success("Drawing saved");
   };
 
-  /* ----------  DRAG TEXT ---------- */
+  /* ----------  DRAG & RESIZE ---------- */
   const updateTextPosition = (id: string, deltaX: number, deltaY: number) => {
     setAnnotations((prev) =>
       prev.map((a) =>
@@ -322,9 +403,42 @@ const EditPDF = () => {
     );
   };
 
+  const updateShapePosition = (id: string, deltaX: number, deltaY: number) => {
+    setAnnotations((prev) =>
+      prev.map((a) =>
+        a.id === id && a.type === "shape"
+          ? { ...a, x: a.x + deltaX / scale, y: a.y + deltaY / scale }
+          : a
+      )
+    );
+  };
+
+  const updateShapeSize = (
+    id: string,
+    newWidth: number,
+    newHeight: number,
+    newX?: number,
+    newY?: number
+  ) => {
+    setAnnotations((prev) =>
+      prev.map((a) =>
+        a.id === id && a.type === "shape"
+          ? {
+              ...a,
+              width: newWidth,
+              height: newHeight,
+              ...(newX !== undefined && { x: newX }),
+              ...(newY !== undefined && { y: newY }),
+            }
+          : a
+      )
+    );
+  };
+
   /* ----------  ANNOTATION PANEL ---------- */
   const selectAnnotation = (id: string) => {
     setSelectedAnnotationId(id);
+    setSelectedSpanId(null);
     const ann = annotations.find((a) => a.id === id) as TextAnnotation | undefined;
     if (ann?.type === "text") {
       const s = ann.spans[0];
@@ -338,6 +452,24 @@ const EditPDF = () => {
         setBgColor(ann.backgroundColor);
         setOpacity(Math.round(ann.opacity * 100));
       }
+    }
+  };
+
+  const selectSpan = (spanId: string) => {
+    setSelectedSpanId(spanId);
+    const sel = annotations.find(
+      (a): a is TextAnnotation => a.type === "text" && a.id === selectedAnnotationId
+    );
+    if (!sel) return;
+
+    const span = sel.spans.find((s) => s.id === spanId);
+    if (span) {
+      setFontFamily(span.fontFamily);
+      setFontSize(span.fontSize);
+      setTextColor(span.color);
+      setIsBold(span.bold);
+      setIsItalic(span.italic);
+      setIsUnderline(span.underline);
     }
   };
 
@@ -487,7 +619,7 @@ const EditPDF = () => {
     }
   };
 
-  /* ----------  RENDER CANVAS (annotations + drag) ---------- */
+  /* ----------  RENDER CANVAS (annotations only, no drag UI) ---------- */
   useEffect(() => {
     Object.entries(canvasRefs.current).forEach(([pnStr, canvas]) => {
       if (!canvas) return;
@@ -498,83 +630,30 @@ const EditPDF = () => {
       const pn = Number(pnStr);
       const pageAnns = annotations.filter((a) => a.pageNumber === pn);
       pageAnns.forEach((ann) => {
-        if (ann.type === "text") {
-          /* ---- 1. Background (with its own opacity) ---- */
-          if (ann.backgroundColor !== "#ffffff00") {
-            const lineHeight = ann.spans[0].fontSize * 1.2;
-            const totalText = ann.spans.map((s) => s.text).join("");
-            const bgWidth = ctx.measureText(totalText).width + 8;
-
-            ctx.globalAlpha = ann.opacity;
-            ctx.fillStyle = ann.backgroundColor;
-            ctx.fillRect(
-              ann.x * scale,
-              ann.y * scale - lineHeight,
-              bgWidth,
-              lineHeight + 4
-            );
-            ctx.globalAlpha = 1;
-          }
-
-          /* ---- 2. Text (always 100% opaque) ---- */
-          let curX = ann.x * scale;
-          ann.spans.forEach((span) => {
-            ctx.font = `${span.bold ? "bold" : ""} ${span.italic ? "italic" : ""
-              } ${span.fontSize * scale}px ${span.fontFamily}`;
-            ctx.fillStyle = span.color;
-            ctx.fillText(span.text, curX, ann.y * scale);
-
-            if (span.underline) {
-              const w = ctx.measureText(span.text).width;
-              ctx.strokeStyle = span.color;
-              ctx.lineWidth = 1;
-              ctx.beginPath();
-              ctx.moveTo(curX, ann.y * scale + 2);
-              ctx.lineTo(curX + w, ann.y * scale + 2);
-              ctx.stroke();
-            }
-            curX += ctx.measureText(span.text).width;
-          });
-        } else if (ann.type === "shape") {
-          ctx.strokeStyle = ann.color;
-          ctx.lineWidth = 2;
-          if (ann.shapeType === "rectangle") {
-            ctx.strokeRect(
-              ann.x * scale,
-              ann.y * scale,
-              ann.width * scale,
-              ann.height * scale
-            );
-          } else if (ann.shapeType === "circle") {
-            ctx.beginPath();
-            ctx.ellipse(
-              (ann.x + ann.width / 2) * scale,
-              (ann.y + ann.height / 2) * scale,
-              (ann.width / 2) * scale,
-              (ann.height / 2) * scale,
-              0,
-              0,
-              Math.PI * 2
-            );
-            ctx.stroke();
-          } else if (ann.shapeType === "line") {
-            ctx.beginPath();
-            ctx.moveTo(ann.x * scale, ann.y * scale);
-            ctx.lineTo(
-              (ann.x + ann.width) * scale,
-              (ann.y + ann.height) * scale
-            );
-            ctx.stroke();
-          }
-        } else if (ann.type === "draw") {
+        if (ann.type === "draw") {
           ctx.strokeStyle = ann.color;
           ctx.lineWidth = ann.strokeWidth;
           ctx.lineCap = "round";
           ctx.lineJoin = "round";
           ctx.beginPath();
-          ctx.moveTo(ann.points[0].x * scale, ann.points[0].y * scale);
-          for (let i = 1; i < ann.points.length; i++) {
-            ctx.lineTo(ann.points[i].x * scale, ann.points[i].y * scale);
+          if (ann.points.length > 0) {
+            ctx.moveTo(ann.points[0].x * scale, ann.points[0].y * scale);
+            for (let i = 1; i < ann.points.length; i++) {
+              const prev = ann.points[i - 1];
+              const curr = ann.points[i];
+              const cpX = (prev.x + curr.x) / 2;
+              const cpY = (prev.y + curr.y) / 2;
+              ctx.quadraticCurveTo(
+                prev.x * scale,
+                prev.y * scale,
+                cpX * scale,
+                cpY * scale
+              );
+            }
+            ctx.lineTo(
+              ann.points[ann.points.length - 1].x * scale,
+              ann.points[ann.points.length - 1].y * scale
+            );
           }
           ctx.stroke();
         }
@@ -591,9 +670,24 @@ const EditPDF = () => {
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       ctx.beginPath();
-      ctx.moveTo(drawPoints[0].x * scale, drawPoints[0].y * scale);
-      for (let i = 1; i < drawPoints.length; i++) {
-        ctx.lineTo(drawPoints[i].x * scale, drawPoints[i].y * scale);
+      if (drawPoints.length > 0) {
+        ctx.moveTo(drawPoints[0].x * scale, drawPoints[0].y * scale);
+        for (let i = 1; i < drawPoints.length; i++) {
+          const prev = drawPoints[i - 1];
+          const curr = drawPoints[i];
+          const cpX = (prev.x + curr.x) / 2;
+          const cpY = (prev.y + curr.y) / 2;
+          ctx.quadraticCurveTo(
+            prev.x * scale,
+            prev.y * scale,
+            cpX * scale,
+            cpY * scale
+          );
+        }
+        ctx.lineTo(
+          drawPoints[drawPoints.length - 1].x * scale,
+          drawPoints[drawPoints.length - 1].y * scale
+        );
       }
       ctx.stroke();
     }
@@ -652,7 +746,7 @@ const EditPDF = () => {
           <div className="lg:col-span-7 space-y-4">
             {selectedTool === "text" && (
               <Card>
-                <CardContent className="p-3">
+                <CardContent className="p-3 space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <Select value={fontFamily} onValueChange={setFontFamily}>
                       <SelectTrigger className="w-[140px] h-9">
@@ -703,7 +797,6 @@ const EditPDF = () => {
 
                     <Separator orientation="vertical" className="h-6" />
 
-                    {/* ---- Foreground colour (text) ---- */}
                     <input
                       type="color"
                       value={textColor}
@@ -712,7 +805,6 @@ const EditPDF = () => {
                       title="Text colour"
                     />
 
-                    {/* ---- Background colour ---- */}
                     <input
                       type="color"
                       value={bgColor}
@@ -753,8 +845,34 @@ const EditPDF = () => {
                       Add
                     </Button>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Click on the PDF to place text. Drag the grip to move.
+                  
+                  {selectedAnnotationId && selectedSpanId && (
+                    <div className="flex items-center gap-2 p-2 bg-accent rounded">
+                      <span className="text-xs font-medium">Editing word:</span>
+                      <Button size="sm" onClick={updateSelectedSpan}>
+                        Update Style
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={deleteSelectedSpan}
+                      >
+                        Delete Word
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setSelectedSpanId(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
+                  
+                  <p className="text-xs text-muted-foreground">
+                    {selectedSpanId
+                      ? "Adjust formatting above, then Update Style"
+                      : "Click on the PDF to place text. Click words to edit individually. Drag grip to move."}
                   </p>
                 </CardContent>
               </Card>
@@ -786,7 +904,7 @@ const EditPDF = () => {
                     ))}
                   </div>
                   <p className="text-xs text-muted-foreground mt-2">
-                    Click on the PDF to place a shape
+                    Click on the PDF to place a shape. Drag to move, resize with handles.
                   </p>
                 </CardContent>
               </Card>
@@ -814,7 +932,7 @@ const EditPDF = () => {
                     />
                   </div>
                   <p className="text-xs text-muted-foreground mt-2">
-                    Click and drag to draw
+                    Click and drag to draw smooth lines
                   </p>
                 </CardContent>
               </Card>
@@ -887,74 +1005,341 @@ const EditPDF = () => {
 
                               <canvas
                                 ref={(el) => (canvasRefs.current[pn] = el)}
+                                className="absolute top-0 left-0 cursor-crosshair pointer-events-none"
+                                style={{
+                                  width: pageWidth * scale,
+                                  height: pageHeight * scale,
+                                }}
+                              />
+
+                              <div
                                 className="absolute top-0 left-0 cursor-crosshair"
                                 style={{
                                   width: pageWidth * scale,
                                   height: pageHeight * scale,
                                 }}
-                                onClick={(e) => handleCanvasClick(e, pn)}
+                                onClick={(e) => handleCanvasClick(e as any, pn)}
                                 onMouseDown={(e) => {
                                   setCurrentPage(pn);
-                                  handleMouseDown(e, pn);
+                                  handleMouseDown(e as any, pn);
                                 }}
-                                onMouseMove={(e) => handleMouseMove(e, pn)}
+                                onMouseMove={(e) => handleMouseMove(e as any, pn)}
                                 onMouseUp={() => handleMouseUp(pn)}
                                 onMouseLeave={() => isDrawing && handleMouseUp(pn)}
-                              />
-
-                              {annotations
-                                .filter(
-                                  (a): a is TextAnnotation =>
-                                    a.type === "text" && a.pageNumber === pn
-                                )
-                                .map((ann) => (
-                                  <Draggable
-                                    key={ann.id}
-                                    defaultPosition={{ x: 0, y: 0 }}
-                                    position={{ x: ann.x * scale, y: ann.y * scale }}
-                                    onDrag={(_, d) =>
-                                      updateTextPosition(ann.id, d.deltaX, d.deltaY)
-                                    }
-                                    handle=".drag-handle"
-                                  >
-                                    <div className="absolute flex items-center">
-                                      {/* Background layer – respects opacity */}
-                                      {ann.backgroundColor !== "#ffffff00" && (
-                                        <div
-                                          className="absolute inset-0 rounded pointer-events-none"
-                                          style={{
-                                            backgroundColor: ann.backgroundColor,
-                                            opacity: ann.opacity,
-                                            padding: "2px 4px",
-                                          }}
-                                        />
-                                      )}
-
-                                      <GripVertical className="drag-handle h-4 w-4 text-gray-500 mr-1 cursor-grab z-10" />
-
-                                      {/* Text layer – always 100% opaque */}
-                                      <div className="select-none z-10">
-                                        {ann.spans.map((sp) => (
-                                          <span
-                                            key={sp.id}
+                              >
+                                {annotations
+                                  .filter(
+                                    (a): a is TextAnnotation =>
+                                      a.type === "text" && a.pageNumber === pn
+                                  )
+                                   .map((ann) => (
+                                     <Draggable
+                                       key={ann.id}
+                                       position={{ x: ann.x * scale, y: ann.y * scale }}
+                                       onDrag={(_, d) =>
+                                         updateTextPosition(ann.id, d.deltaX, d.deltaY)
+                                       }
+                                       handle=".drag-handle"
+                                     >
+                                       <div className="absolute flex items-center group">
+                                        {ann.backgroundColor !== "#ffffff00" && (
+                                          <div
+                                            className="absolute inset-0 rounded pointer-events-none"
                                             style={{
-                                              fontFamily: sp.fontFamily,
-                                              fontSize: `${sp.fontSize * scale}px`,
-                                              color: sp.color,
-                                              fontWeight: sp.bold ? "bold" : "normal",
-                                              fontStyle: sp.italic ? "italic" : "normal",
-                                              textDecoration: sp.underline
-                                                ? "underline"
-                                                : "none",
+                                              backgroundColor: ann.backgroundColor,
+                                              opacity: ann.opacity,
+                                              padding: "2px 4px",
                                             }}
-                                          >
-                                            {sp.text}
-                                          </span>
-                                        ))}
+                                          />
+                                        )}
+
+                                        <GripVertical className="drag-handle h-4 w-4 text-primary/50 hover:text-primary mr-1 cursor-grab active:cursor-grabbing z-10 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                        
+                                        <Button
+                                          variant="destructive"
+                                          size="icon"
+                                          className="absolute -top-2 -right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            removeAnnotation(ann.id);
+                                          }}
+                                        >
+                                          <Trash2 className="h-3 w-3" />
+                                        </Button>
+
+                                        <div
+                                          className="select-none z-10 cursor-pointer"
+                                          onClick={() => selectAnnotation(ann.id)}
+                                        >
+                                          {ann.spans.map((sp, idx) => (
+                                            <span
+                                              key={sp.id}
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                selectAnnotation(ann.id);
+                                                selectSpan(sp.id);
+                                              }}
+                                              className={`hover:bg-accent/30 rounded px-0.5 ${
+                                                selectedSpanId === sp.id
+                                                  ? "bg-accent/50"
+                                                  : ""
+                                              }`}
+                                              style={{
+                                                fontFamily: sp.fontFamily,
+                                                fontSize: `${sp.fontSize * scale}px`,
+                                                color: sp.color,
+                                                fontWeight: sp.bold ? "bold" : "normal",
+                                                fontStyle: sp.italic ? "italic" : "normal",
+                                                textDecoration: sp.underline
+                                                  ? "underline"
+                                                  : "none",
+                                              }}
+                                            >
+                                              {sp.text}
+                                              {idx < ann.spans.length - 1 && " "}
+                                            </span>
+                                          ))}
+                                        </div>
                                       </div>
-                                    </div>
-                                  </Draggable>
-                                ))}
+                                    </Draggable>
+                                  ))}
+                                
+                                {annotations
+                                  .filter(
+                                    (a): a is ShapeAnnotation =>
+                                      a.type === "shape" && a.pageNumber === pn
+                                  )
+                                  .map((ann) => {
+                                    const ResizeHandle = ({
+                                      position,
+                                    }: {
+                                      position: string;
+                                    }) => {
+                                      const handleResize = (
+                                        e: React.MouseEvent<HTMLDivElement>
+                                      ) => {
+                                        e.stopPropagation();
+                                        const startX = e.clientX;
+                                        const startY = e.clientY;
+                                        const startWidth = ann.width;
+                                        const startHeight = ann.height;
+                                        const startPosX = ann.x;
+                                        const startPosY = ann.y;
+
+                                        const handleMouseMove = (
+                                          moveEvent: MouseEvent
+                                        ) => {
+                                          const deltaX =
+                                            (moveEvent.clientX - startX) / scale;
+                                          const deltaY =
+                                            (moveEvent.clientY - startY) / scale;
+
+                                          if (position.includes("right")) {
+                                            updateShapeSize(
+                                              ann.id,
+                                              Math.max(20, startWidth + deltaX),
+                                              position.includes("bottom")
+                                                ? Math.max(20, startHeight + deltaY)
+                                                : position.includes("top")
+                                                ? Math.max(20, startHeight - deltaY)
+                                                : startHeight,
+                                              position.includes("left")
+                                                ? startPosX + deltaX
+                                                : startPosX,
+                                              position.includes("top")
+                                                ? startPosY + deltaY
+                                                : startPosY
+                                            );
+                                          } else if (position.includes("left")) {
+                                            const newWidth = Math.max(
+                                              20,
+                                              startWidth - deltaX
+                                            );
+                                            updateShapeSize(
+                                              ann.id,
+                                              newWidth,
+                                              position.includes("bottom")
+                                                ? Math.max(20, startHeight + deltaY)
+                                                : position.includes("top")
+                                                ? Math.max(20, startHeight - deltaY)
+                                                : startHeight,
+                                              startPosX + deltaX,
+                                              position.includes("top")
+                                                ? startPosY + deltaY
+                                                : startPosY
+                                            );
+                                          } else if (position.includes("top")) {
+                                            const newHeight = Math.max(
+                                              20,
+                                              startHeight - deltaY
+                                            );
+                                            updateShapeSize(
+                                              ann.id,
+                                              startWidth,
+                                              newHeight,
+                                              startPosX,
+                                              startPosY + deltaY
+                                            );
+                                          } else if (position.includes("bottom")) {
+                                            updateShapeSize(
+                                              ann.id,
+                                              startWidth,
+                                              Math.max(20, startHeight + deltaY),
+                                              startPosX,
+                                              startPosY
+                                            );
+                                          }
+                                        };
+
+                                        const handleMouseUp = () => {
+                                          document.removeEventListener(
+                                            "mousemove",
+                                            handleMouseMove
+                                          );
+                                          document.removeEventListener(
+                                            "mouseup",
+                                            handleMouseUp
+                                          );
+                                        };
+
+                                        document.addEventListener(
+                                          "mousemove",
+                                          handleMouseMove
+                                        );
+                                        document.addEventListener(
+                                          "mouseup",
+                                          handleMouseUp
+                                        );
+                                      };
+
+                                      const positionClasses = {
+                                        "top-left":
+                                          "-top-1 -left-1 cursor-nw-resize",
+                                        "top-right":
+                                          "-top-1 -right-1 cursor-ne-resize",
+                                        "bottom-left":
+                                          "-bottom-1 -left-1 cursor-sw-resize",
+                                        "bottom-right":
+                                          "-bottom-1 -right-1 cursor-se-resize",
+                                        top: "-top-1 left-1/2 -translate-x-1/2 cursor-n-resize",
+                                        bottom:
+                                          "-bottom-1 left-1/2 -translate-x-1/2 cursor-s-resize",
+                                        left: "top-1/2 -translate-y-1/2 -left-1 cursor-w-resize",
+                                        right:
+                                          "top-1/2 -translate-y-1/2 -right-1 cursor-e-resize",
+                                      };
+
+                                      return (
+                                        <div
+                                          className={`absolute w-2 h-2 bg-primary border border-background rounded-sm opacity-0 group-hover:opacity-100 transition-opacity ${
+                                            positionClasses[
+                                              position as keyof typeof positionClasses
+                                            ]
+                                          }`}
+                                          onMouseDown={handleResize}
+                                        />
+                                      );
+                                    };
+
+                                     return (
+                                       <Draggable
+                                         key={ann.id}
+                                         position={{
+                                           x: ann.x * scale,
+                                           y: ann.y * scale,
+                                         }}
+                                         onDrag={(_, d) =>
+                                           updateShapePosition(
+                                             ann.id,
+                                             d.deltaX,
+                                             d.deltaY
+                                           )
+                                         }
+                                       >
+                                         <div
+                                           className="absolute group cursor-move"
+                                          style={{
+                                            width: ann.width * scale,
+                                            height:
+                                              ann.shapeType === "line"
+                                                ? 2
+                                                : ann.height * scale,
+                                          }}
+                                        >
+                                           <div
+                                             className="absolute inset-0 border-2 border-dashed border-transparent group-hover:border-primary/30 transition-colors rounded"
+                                             style={{
+                                               borderRadius:
+                                                 ann.shapeType === "circle" ? "50%" : "4px",
+                                             }}
+                                           />
+                                           
+                                           <Move className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-4 w-4 text-primary/50 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
+                                           
+                                           <Button
+                                             variant="destructive"
+                                             size="icon"
+                                             className="absolute -top-2 -right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                                             onClick={(e) => {
+                                               e.stopPropagation();
+                                               removeAnnotation(ann.id);
+                                             }}
+                                           >
+                                             <Trash2 className="h-3 w-3" />
+                                           </Button>
+
+                                          {ann.shapeType !== "line" && (
+                                            <>
+                                              <ResizeHandle position="top-left" />
+                                              <ResizeHandle position="top-right" />
+                                              <ResizeHandle position="bottom-left" />
+                                              <ResizeHandle position="bottom-right" />
+                                              <ResizeHandle position="top" />
+                                              <ResizeHandle position="bottom" />
+                                              <ResizeHandle position="left" />
+                                              <ResizeHandle position="right" />
+                                            </>
+                                          )}
+
+                                          {ann.shapeType === "rectangle" && (
+                                            <div
+                                              className="absolute inset-0 border-2 pointer-events-none"
+                                              style={{
+                                                borderColor: ann.color,
+                                              }}
+                                            />
+                                          )}
+                                          {ann.shapeType === "circle" && (
+                                            <div
+                                              className="absolute inset-0 border-2 rounded-full pointer-events-none"
+                                              style={{
+                                                borderColor: ann.color,
+                                              }}
+                                            />
+                                          )}
+                                          {ann.shapeType === "line" && (
+                                            <svg
+                                              className="absolute inset-0 pointer-events-none"
+                                              style={{
+                                                width: ann.width * scale,
+                                                height: Math.abs(ann.height * scale) + 20,
+                                              }}
+                                            >
+                                              <line
+                                                x1="0"
+                                                y1="10"
+                                                x2={ann.width * scale}
+                                                y2={(ann.height * scale) + 10}
+                                                stroke={ann.color}
+                                                strokeWidth="2"
+                                              />
+                                            </svg>
+                                          )}
+                                        </div>
+                                      </Draggable>
+                                    );
+                                  })}
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -996,42 +1381,66 @@ const EditPDF = () => {
                 ) : (
                   <div className="space-y-2 max-h-[600px] overflow-y-auto">
                     {annotations.map((a) => (
-                      <div
-                        key={a.id}
-                        className={`flex items-center gap-2 p-2 border rounded hover:bg-accent group ${
-                          selectedAnnotationId === a.id ? "bg-accent" : ""
-                        }`}
-                        onClick={() => selectAnnotation(a.id)}
-                      >
-                        {a.type === "text" && (
-                          <Type className="h-4 w-4 text-muted-foreground" />
-                        )}
-                        {a.type === "shape" && (
-                          <Square className="h-4 w-4 text-muted-foreground" />
-                        )}
-                        {a.type === "draw" && (
-                          <Pencil className="h-4 w-4 text-muted-foreground" />
-                        )}
-                        <span className="flex-1 text-sm truncate">
-                          {a.type === "text" &&
-                            (a as TextAnnotation).spans
-                              .map((s) => s.text)
-                              .join(" ")}
-                          {a.type === "shape" &&
-                            `${(a as ShapeAnnotation).shapeType} (p${a.pageNumber})`}
-                          {a.type === "draw" && `Draw (p${a.pageNumber})`}
-                        </span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 opacity-0 group-hover:opacity-100"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeAnnotation(a.id);
-                          }}
+                      <div key={a.id} className="space-y-1">
+                        <div
+                          className={`flex items-center gap-2 p-2 border rounded hover:bg-accent group ${
+                            selectedAnnotationId === a.id ? "bg-accent" : ""
+                          }`}
+                          onClick={() => selectAnnotation(a.id)}
                         >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
+                          {a.type === "text" && (
+                            <Type className="h-4 w-4 text-muted-foreground" />
+                          )}
+                          {a.type === "shape" && (
+                            <Square className="h-4 w-4 text-muted-foreground" />
+                          )}
+                          {a.type === "draw" && (
+                            <Pencil className="h-4 w-4 text-muted-foreground" />
+                          )}
+                          <span className="flex-1 text-sm truncate">
+                            {a.type === "text" &&
+                              (a as TextAnnotation).spans
+                                .map((s) => s.text)
+                                .join(" ")}
+                            {a.type === "shape" &&
+                              `${(a as ShapeAnnotation).shapeType} (p${a.pageNumber})`}
+                            {a.type === "draw" && `Draw (p${a.pageNumber})`}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 opacity-0 group-hover:opacity-100"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeAnnotation(a.id);
+                            }}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+
+                        {a.type === "text" &&
+                          selectedAnnotationId === a.id &&
+                          (a as TextAnnotation).spans.length > 1 && (
+                            <div className="ml-6 pl-2 border-l-2 border-muted space-y-1">
+                              {(a as TextAnnotation).spans.map((span) => (
+                                <div
+                                  key={span.id}
+                                  className={`text-xs p-1.5 rounded cursor-pointer hover:bg-accent/50 ${
+                                    selectedSpanId === span.id
+                                      ? "bg-accent font-medium"
+                                      : "text-muted-foreground"
+                                  }`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    selectSpan(span.id);
+                                  }}
+                                >
+                                  &ldquo;{span.text}&rdquo;
+                                </div>
+                              ))}
+                            </div>
+                          )}
                       </div>
                     ))}
                   </div>
@@ -1110,7 +1519,7 @@ const EditPDF = () => {
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 bg-background min-h-screen">
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         <div className="flex items-center gap-4 mb-6">
           <Button
             variant="ghost"
