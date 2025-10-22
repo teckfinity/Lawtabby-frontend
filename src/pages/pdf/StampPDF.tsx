@@ -22,8 +22,9 @@ const StampPDF = () => {
   const [opacity, setOpacity] = useState(50);
   const [stampedPdf, setStampedPdf] = useState<Uint8Array | null>(null);
   const [imageStamp, setImageStamp] = useState<File | null>(null);
+  const [mosaicLayout, setMosaicLayout] = useState<boolean>(false);
+  const [manualPositions, setManualPositions] = useState<number[]>([]);
 
-  // ✅ refs for file pickers
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -43,6 +44,12 @@ const StampPDF = () => {
     }
   };
 
+  const togglePosition = (index: number) => {
+    setManualPositions((prev) =>
+      prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index]
+    );
+  };
+
   const addStamp = async () => {
     if (!file) {
       toast.error("Please upload a PDF file first");
@@ -55,64 +62,72 @@ const StampPDF = () => {
       const arrayBuffer = await file.arrayBuffer();
       const pdfDoc = await PDFDocument.load(arrayBuffer);
 
-if (stampType === "text") {
-  const pages = pdfDoc.getPages();
-  const red = rgb(0.8, 0, 0);
-  const lightRed = rgb(1, 0.9, 0.9);
-  const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+      const pages = pdfDoc.getPages();
+      const positions = [
+        [0.17, 0.83], [0.5, 0.83], [0.83, 0.83],
+        [0.17, 0.5], [0.5, 0.5], [0.83, 0.5],
+        [0.17, 0.17], [0.5, 0.17], [0.83, 0.17],
+      ];
 
-  const commonOpacity = opacity / 100; // unified opacity
+      // Determine grid indices based on layout choice
+      const gridIndices = mosaicLayout
+        ? manualPositions.length > 0
+          ? manualPositions
+          : [...Array(9).keys()] // all 9 if none manually chosen
+        : [4]; // center only when mosaic disabled
 
-  for (const page of pages) {
-    const width = page.getWidth();
-    const height = page.getHeight();
+      if (stampType === "text") {
+        const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+        const text = stampText.toUpperCase();
+        const textSize = 22;
+        const textWidth = font.widthOfTextAtSize(text, textSize);
+        const textHeight = textSize * 1.2;
+        const paddingX = 40;
+        const paddingY = 25;
+        const stampWidth = textWidth + paddingX;
+        const stampHeight = textHeight + paddingY;
+        const rotation = degrees(15);
+        const red = rgb(0.8, 0, 0);
+        const lightRed = rgb(1, 0.9, 0.9);
+        const commonOpacity = opacity / 100;
 
-    const text = stampText.toUpperCase();
-    const textSize = 20;
+        for (const page of pages) {
+          const width = page.getWidth();
+          const height = page.getHeight();
 
-    // measure text width and height
-    const textWidth = font.widthOfTextAtSize(text, textSize);
-    const textHeight = textSize * 1.2;
+          for (const i of gridIndices) {
+            const [xRatio, yRatio] = positions[i];
+            const centerX = width * xRatio - stampWidth / 2;
+            const centerY = height * yRatio - stampHeight / 2;
 
-    // rectangle size based on text + padding
-    const paddingX = 40;
-    const paddingY = 25;
-    const stampWidth = textWidth + paddingX;
-    const stampHeight = textHeight + paddingY;
-    const rotation = degrees(15);
+            // Light watermark background box
+            page.drawRectangle({
+              x: centerX,
+              y: centerY,
+              width: stampWidth,
+              height: stampHeight,
+              borderColor: red,
+              borderWidth: 2,
+              color: lightRed,
+              opacity: commonOpacity,
+              rotate: rotation,
+            });
 
-    // ✅ adjustY fixes visual imbalance caused by rotation
-    const adjustY = 20; // move slightly upward (tweak as needed)
-    const centerX = width / 2 - stampWidth / 2;
-    const centerY = height / 2 - stampHeight / 2 + adjustY;
+            // Text watermark
+            const textX = centerX + (stampWidth - textWidth) / 2;
+            const textY = centerY + (stampHeight - textHeight) / 2 + 6;
 
-    // background rectangle
-    page.drawRectangle({
-      x: centerX,
-      y: centerY,
-      width: stampWidth,
-      height: stampHeight,
-      borderColor: red,
-      borderWidth: 3,
-      color: lightRed,
-      opacity: commonOpacity,
-      rotate: rotation,
-    });
-
-    // perfectly centered text
-    const textX = centerX + (stampWidth - textWidth) / 2;
-    const textY = centerY + (stampHeight - textHeight) / 2 + 6;
-
-    page.drawText(text, {
-      x: textX,
-      y: textY,
-      size: textSize,
-      font,
-      color: red,
-      opacity: commonOpacity,
-      rotate: rotation,
-    });
-  }
+            page.drawText(text, {
+              x: textX,
+              y: textY,
+              size: textSize,
+              font,
+              color: red,
+              opacity: commonOpacity,
+              rotate: rotation,
+            });
+          }
+        }
       } else if (stampType === "image" && imageStamp) {
         const imgBytes = await imageStamp.arrayBuffer();
         const ext = imageStamp.name.split(".").pop()?.toLowerCase();
@@ -122,22 +137,29 @@ if (stampType === "text") {
         } else {
           image = await pdfDoc.embedJpg(imgBytes);
         }
-        const pages = pdfDoc.getPages();
-        pages.forEach((page) => {
-          const { width, height } = image.scale(0.5);
-          page.drawImage(image, {
-            x: page.getWidth() / 2 - width / 2,
-            y: page.getHeight() / 2 - height / 2,
-            width,
-            height,
-            opacity: opacity / 100,
-          });
-        });
+
+        for (const page of pages) {
+          const { width: imgW, height: imgH } = image.scale(0.3);
+
+          for (const i of gridIndices) {
+            const [xRatio, yRatio] = positions[i];
+            const x = page.getWidth() * xRatio - imgW / 2;
+            const y = page.getHeight() * yRatio - imgH / 2;
+            page.drawImage(image, {
+              x,
+              y,
+              width: imgW,
+              height: imgH,
+              opacity: opacity / 100,
+            });
+          }
+        }
       }
 
       const pdfBytes = await pdfDoc.save();
       setStampedPdf(pdfBytes);
 
+      // fake progress for smooth UI
       let currentProgress = 20;
       const interval = setInterval(() => {
         currentProgress += Math.random() * 20;
@@ -156,33 +178,33 @@ if (stampType === "text") {
     }
   };
 
-  const downloadFile = () => {
-    if (!stampedPdf) return;
-    const blob = new Blob([stampedPdf], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `stamped_${file?.name}`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success("Stamped PDF downloaded successfully!");
-  };
+const downloadFile = () => {
+  if (!stampedPdf) return;
+  const blob = new Blob([stampedPdf.buffer as ArrayBuffer], { type: "application/pdf" }); // ✅ force ArrayBuffer type
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `stamped_${file?.name}`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast.success("Stamped PDF downloaded successfully!");
+};
 
-  const printFile = () => {
-    if (!stampedPdf) return;
-    const blob = new Blob([stampedPdf], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    const win = window.open(url);
-    if (win) {
-      win.print();
-    }
-  };
+const printFile = () => {
+  if (!stampedPdf) return;
+  const blob = new Blob([stampedPdf.buffer as ArrayBuffer], { type: "application/pdf" }); // ✅ same fix
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url);
+  if (win) win.print();
+};
 
   const resetProcess = () => {
     setFile(null);
     setStampedPdf(null);
     setCurrentStep("upload");
     setProgress(0);
+    setManualPositions([]);
+    setMosaicLayout(false);
   };
 
   const predefinedStamps = [
@@ -190,7 +212,6 @@ if (stampType === "text") {
     "URGENT", "COPY", "ORIGINAL", "REVIEWED"
   ];
 
-  // ---------------- UI Steps -----------------
   const renderUploadStep = () => (
     <div className="space-y-6">
       <Card>
@@ -201,9 +222,7 @@ if (stampType === "text") {
                 <Upload className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <h3 className="text-lg font-semibold mb-2">Upload PDF to Stamp</h3>
                 <p className="text-muted-foreground mb-4">Choose a PDF file from your device</p>
-                
-                {/* ✅ Button opens file input via ref */}
-                <Button 
+                <Button
                   className="bg-primary hover:bg-primary/90"
                   onClick={() => fileInputRef.current?.click()}
                 >
@@ -243,6 +262,7 @@ if (stampType === "text") {
           <CardContent className="p-6">
             <h3 className="text-lg font-semibold mb-4">Stamp Settings</h3>
             <div className="space-y-4">
+              {/* Stamp Type */}
               <div className="flex gap-2">
                 <Button
                   variant={stampType === "text" ? "default" : "outline"}
@@ -262,6 +282,37 @@ if (stampType === "text") {
                 </Button>
               </div>
 
+              {/* Mosaic toggle */}
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium">Mosaic Layout</label>
+                <Button
+                  variant={mosaicLayout ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => {
+                    setMosaicLayout(!mosaicLayout);
+                    setManualPositions([]);
+                  }}
+                >
+                  {mosaicLayout ? "Enabled" : "Disabled"}
+                </Button>
+              </div>
+
+              {mosaicLayout && (
+                <div className="grid grid-cols-3 gap-2">
+                  {[...Array(9).keys()].map((i) => (
+                    <Button
+                      key={i}
+                      variant={manualPositions.includes(i) ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => togglePosition(i)}
+                    >
+                      {i + 1}
+                    </Button>
+                  ))}
+                </div>
+              )}
+
+              {/* Text stamp settings */}
               {stampType === "text" && (
                 <div className="space-y-4">
                   <div className="space-y-2">
@@ -302,11 +353,12 @@ if (stampType === "text") {
                 </div>
               )}
 
+              {/* Image stamp upload */}
               {stampType === "image" && (
                 <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8 text-center">
                   <ImageIcon className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                   <p className="text-muted-foreground mb-4">Upload an image for your stamp</p>
-                  <Button 
+                  <Button
                     variant="outline"
                     onClick={() => imageInputRef.current?.click()}
                   >
@@ -385,14 +437,20 @@ if (stampType === "text") {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => currentStep === "upload" ? navigate("/pdf-tools") : setCurrentStep("upload")}
+            onClick={() =>
+              currentStep === "upload"
+                ? navigate("/pdf-tools")
+                : setCurrentStep("upload")
+            }
           >
             <ArrowLeft className="h-4 w-4" />
             Back
           </Button>
           <div>
             <h1 className="text-3xl font-bold text-foreground">Stamp PDF</h1>
-            <p className="text-muted-foreground">Add text or image stamps/watermarks to your PDF documents.</p>
+            <p className="text-muted-foreground">
+              Add text or image stamps/watermarks to your PDF documents.
+            </p>
           </div>
         </div>
 
