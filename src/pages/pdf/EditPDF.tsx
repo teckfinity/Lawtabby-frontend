@@ -778,7 +778,7 @@ const EditPDF = () => {
 
           {/* CENTER – Canvas + Controls */}
           <div className="lg:col-span-7 space-y-4">
-            {selectedTool === "text" && (
+              {selectedTool === "text" && (
               <Card>
                 <CardContent className="p-3 space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
@@ -1557,8 +1557,8 @@ const EditPDF = () => {
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 bg-background min-h-screen">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex items-center gap-4 mb-6">
+<div className="max-w-6xl mx-auto pt-6 pb-10 px-6 lg:px-8">
+            <div className="flex items-center gap-4 mb-6">
           <Button
             variant="ghost"
             size="sm"
