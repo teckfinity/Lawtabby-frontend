@@ -159,31 +159,26 @@ const saveOrganizedPDF = async () => {
 
   try {
     const userOrder = pages.map(page => page.pageNumber);
-    const response = await organizePDF(file, userOrder, deletedPages); // ✅ send deleted pages
+    const response = await organizePDF(file, userOrder, deletedPages);
 
-    // Get file URL from backend
     const organizedPDFUrl = response.data.organized_data.organize_pdf;
 
     toast.success("PDF organized successfully!");
 
-    // Fetch file as Blob and trigger local download
-    const fileResponse = await fetch(organizedPDFUrl);
-    const blob = await fileResponse.blob();
-    const blobUrl = window.URL.createObjectURL(blob);
-
+    // ✅ Directly download the backend file
     const link = document.createElement("a");
-    link.href = blobUrl;
+    link.href = organizedPDFUrl;
     link.download = `organized_${file.name}`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    window.URL.revokeObjectURL(blobUrl);
 
   } catch (error: any) {
     console.error(error);
     toast.error(error.response?.data?.error || "Failed to organize PDF");
   }
 };
+
 
 
   const selectAll = () => setPages(pages.map(page => ({ ...page, selected: true })));
