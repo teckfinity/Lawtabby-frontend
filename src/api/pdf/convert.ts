@@ -1,32 +1,28 @@
 import { apiClient } from "../config";
 
-export const convertPDFToImage = (file: File, outputFormat: string) => {
-  if (!file) throw new Error("File required.");
-  if (!outputFormat) throw new Error("Output format required (JPG or PNG).");
+export const convertPDF = async (file: File, outputFormat: string) => {
+  if (!file) throw new Error("PDF file is required.");
+  if (!outputFormat)
+    throw new Error(
+      "Output format is required (word, excel, powerpoint, jpeg, png, text)."
+    );
+
   const formData = new FormData();
   formData.append("input_pdf", file, file.name);
-  formData.append("output_format", outputFormat.toUpperCase());
-  return apiClient.post("/pdf/pdf_to_image/", formData, {
+  formData.append("output_format", outputFormat.toLowerCase());
+
+  // ✅ Always return full response (not just .data)
+  return await apiClient.post("/pdf/pdf_to_format/", formData, {
     headers: { "Content-Type": "multipart/form-data" },
   });
 };
+
 
 export const convertWordToPDF = (file: File) => {
   if (!file) throw new Error("Word file required.");
   const formData = new FormData();
-  formData.append("input_files", file, file.name);
-  return apiClient.post("/pdf/word_to_pdf/", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
-    responseType: "blob",
-  });
-};
-
-
-export const convertPDFTOText = (file: File) => {
-  if (!file) throw new Error("pdf file required.");
-  const formData = new FormData();
-  formData.append("input_pdf", file, file.name);
-  return apiClient.post("/pdf/extract_text/", formData, {
+  formData.append("input_file", file, file.name);
+  return apiClient.post("/pdf/format_to_pdf/", formData, {
     headers: { "Content-Type": "multipart/form-data" },
     responseType: "blob",
   });
