@@ -65,47 +65,84 @@ const SplitPDF = () => {
   };
 
   // ✅ Fixed API call to use backend's response format
-  const splitPDF = async () => {
-    if (!file) {
-      toast.error("Please upload a PDF file first");
-      return;
+const splitPDF = async () => {
+  if (!file) {
+    toast.error("Please upload a PDF file first");
+    return;
+  }
+
+  setCurrentStep("processing");
+  setProgress(15);
+
+  try {
+    // 🔹 Prepare dynamic formData
+    const formData = new FormData();
+    formData.append("input_pdf", file);
+
+    // basic modes
+    formData.append("split_mode", splitMode);
+    formData.append("range_mode", rangeMode);
+    formData.append("extract_mode", extractMode);
+    formData.append("merge_ranges", String(mergeRanges));
+    formData.append("merge_extracted", String(mergeExtracted));
+    formData.append("size_unit", sizeUnit);
+
+    // add extra fields conditionally
+    if (splitMode === "range" && rangeMode === "custom") {
+      const formattedRanges = JSON.stringify(ranges.map(r => ({ from: r.from, to: r.to })));
+      formData.append("ranges", formattedRanges);
+    }
+    if (splitMode === "pages" && extractMode === "select" && pagesToExtract.trim()) {
+      formData.append("pages_to_extract", pagesToExtract);
+    }
+    if (splitMode === "size") {
+      formData.append("max_file_size", String(maxFileSize));
+      formData.append("allow_compression", String(allowCompression));
     }
 
-    setCurrentStep("processing");
-    setProgress(20);
+    // 🔹 Call the backend API (matches Swagger endpoint)
+    const response = await splitPDFApi({
+      file,
+      split_mode: splitMode,
+      range_mode: rangeMode,
+      ranges: splitMode === "range" ? JSON.stringify(ranges.map(r => ({ from: r.from, to: r.to }))) : undefined,
+      merge_ranges: mergeRanges,
+      extract_mode: extractMode,
+      pages_to_extract: extractMode === "select" ? pagesToExtract : undefined,
+      merge_extracted: mergeExtracted,
+      max_file_size: splitMode === "size" ? String(maxFileSize) : undefined,
+      size_unit: sizeUnit,
+    });
 
-    try {
-      const response = await splitPDFApi(file);
-      const fileUrl: string | undefined = response.data?.split_pdf?.split_pdf;
-      if (fileUrl) {
-        setSplitFiles([fileUrl]);
+    // 🔹 Extract URL from response
+    const fileUrl = response.data?.split_pdf?.split_pdf;
+    if (fileUrl) {
+      setSplitFiles([fileUrl]);
+    }
+
+    // 🔹 Progress animation
+    let currentProgress = 15;
+    const interval = setInterval(() => {
+      currentProgress += Math.random() * 20;
+      if (currentProgress >= 100) {
+        currentProgress = 100;
+        setProgress(100);
+        clearInterval(interval);
+        setTimeout(() => setCurrentStep("download"), 500);
       }
+      setProgress(currentProgress);
+    }, 200);
 
-      let currentProgress = 20;
-      const interval = setInterval(() => {
-        currentProgress += Math.random() * 20;
-        if (currentProgress >= 100) {
-          currentProgress = 100;
-          setProgress(100);
-          clearInterval(interval);
+    console.log("✅ Split PDF response:", response.data);
+    toast.success(response.data?.message || "PDF split successfully!");
+  } catch (error: any) {
+    console.error("❌ Error splitting PDF:", error);
+    toast.error("Failed to split PDF. Please try again.");
+    setCurrentStep("upload");
+    setProgress(0);
+  }
+};
 
-          // ✅ after API success → go to download step
-          setTimeout(() => {
-            setCurrentStep("download");
-          }, 500);
-        }
-        setProgress(currentProgress);
-      }, 200);
-
-      console.log("Split PDF response:", response.data);
-      toast.success("PDF split successfully!");
-    } catch (error: any) {
-      console.error(error);
-      toast.error("Failed to split PDF");
-      setCurrentStep("upload");
-      setProgress(0);
-    }
-  };
 
   // ✅ Proper file download
   const downloadFiles = async () => {
