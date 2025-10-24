@@ -17,11 +17,9 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import axios from "axios";
-import { convertPDFToImage, convertPDFTOText } from "@/api";
+import { convertPDF } from "@/api";
 
 type ProcessStep = "upload" | "processing" | "download";
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
 
 const ConvertFromPDF = () => {
   const navigate = useNavigate();
@@ -30,33 +28,13 @@ const ConvertFromPDF = () => {
   const [selectedFormat, setSelectedFormat] = useState<string>("");
   const [currentStep, setCurrentStep] = useState<ProcessStep>("upload");
   const [progress, setProgress] = useState(0);
-  const [convertedZip, setConvertedZip] = useState<string | null>(null);
+  const [convertedFileUrl, setConvertedFileUrl] = useState<string | null>(null);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
     if (selectedFile) {
       setFile(selectedFile);
       toast.success("PDF file uploaded successfully");
-    }
-  };
-
-  // ✅ Direct ZIP download (no extraction)
-  const downloadZipFile = async (zipFileUrl: string) => {
-    try {
-      const response = await axios.get(zipFileUrl, { responseType: "blob" });
-      const blob = new Blob([response.data], { type: "application/zip" });
-      const downloadUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = downloadUrl;
-      link.download = "converted_files.zip";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(downloadUrl);
-      toast.success("ZIP file downloaded successfully!");
-    } catch (error) {
-      console.error("Error downloading ZIP file:", error);
-      toast.error("Failed to download ZIP file.");
     }
   };
 
@@ -73,99 +51,87 @@ const ConvertFromPDF = () => {
     setCurrentStep("processing");
     setProgress(0);
 
-    // ✅ Handle text extraction separately (no auto download)
-    if (selectedFormat === "txt") {
-      try {
-        const response = await convertPDFTOText(file);
-        console.log("PDF to Text response:", response);
-
-        // store blob for later download
-        const blob = new Blob([response.data], { type: "text/plain" });
-        const blobUrl = URL.createObjectURL(blob);
-        setConvertedZip(blobUrl);
-
-        toast.success("Text extracted successfully!");
-        setProgress(100);
-        setTimeout(() => setCurrentStep("download"), 700);
-      } catch (error) {
-        console.error("Error converting PDF to text:", error);
-        toast.error("Failed to extract text from PDF.");
-        setCurrentStep("upload");
-      }
-      return;
-    }
-
-    // ✅ Handle JPG or PNG conversion via backend
-    if (selectedFormat === "jpg" || selectedFormat === "png") {
-      try {
-        setProgress(0);
-
-        const response = await convertPDFToImage(file, selectedFormat.toUpperCase());
-        console.log("PDF to Image response:", response.data);
-
-        if (
-          response.data &&
-          response.data.conversion_data &&
-          response.data.conversion_data.zip_file
-        ) {
-          toast.success("Conversion successful!");
-          setConvertedZip(response.data.conversion_data.zip_file);
-          setProgress(100);
-          setTimeout(() => setCurrentStep("download"), 700);
-        } else {
-          toast.error("Invalid response from server.");
-          setCurrentStep("upload");
+    try {
+      // Simulate fake progress bar
+      let progressValue = 0;
+      const progressInterval = setInterval(() => {
+        progressValue += Math.random() * 10;
+        if (progressValue >= 95) {
+          progressValue = 95;
+          clearInterval(progressInterval);
         }
-      } catch (error) {
-        console.error("Error converting PDF:", error);
-        toast.error("PDF to image conversion failed.");
+        setProgress(progressValue);
+      }, 300);
+
+      // Call unified API endpoint
+      const response = await convertPDF(file, mapFormat(selectedFormat));
+
+      clearInterval(progressInterval);
+      setProgress(100);
+
+      // Fix response handling
+      const data = response?.data || response;
+      const convertedFile = data?.conversion_data?.converted_file;
+
+      if (convertedFile) {
+        setConvertedFileUrl(convertedFile);
+        toast.success(data?.message || "Conversion completed!");
+        setTimeout(() => setCurrentStep("download"), 700);
+      } else {
+        toast.error("Invalid response from server.");
         setCurrentStep("upload");
       }
-      return;
+    } catch (error) {
+      console.error("Error converting PDF:", error);
+      toast.error("Conversion failed. Please try again.");
+      setCurrentStep("upload");
     }
-
-    // ✅ Simulated progress for non-image formats
-    let currentProgress = 0;
-    const interval = setInterval(() => {
-      currentProgress += Math.random() * 12;
-      if (currentProgress >= 100) {
-        currentProgress = 100;
-        setProgress(100);
-        clearInterval(interval);
-        setTimeout(() => {
-          setCurrentStep("download");
-        }, 500);
-      }
-      setProgress(currentProgress);
-    }, 180);
   };
 
-  // ✅ Modified downloadFile function for text + image
+  const mapFormat = (format: string) => {
+    switch (format) {
+      case "docx":
+        return "word";
+      case "xlsx":
+        return "excel";
+      case "pptx":
+        return "powerpoint";
+      case "jpg":
+        return "jpeg";
+      case "png":
+        return "png";
+      case "txt":
+        return "text";
+      default:
+        return format;
+    }
+  };
+
   const downloadFile = async () => {
-    if (!convertedZip) {
+    if (!convertedFileUrl) {
       toast.info("No converted file available for download.");
       return;
     }
 
-    // Handle text file blob download
-    if (selectedFormat === "txt" && convertedZip.startsWith("blob:")) {
+    try {
+      const response = await axios.get(convertedFileUrl, { responseType: "blob" });
+
+      // Extract real filename & extension from backend URL
+      const fileNameFromUrl = convertedFileUrl.split("/").pop() || "converted_file";
+      const blob = new Blob([response.data]);
       const link = document.createElement("a");
-      link.href = convertedZip;
-      link.download = file?.name?.replace(".pdf", ".txt") || "converted.txt";
+
+      link.href = URL.createObjectURL(blob);
+      link.download = fileNameFromUrl; //  keeps .xlsx, .pptx, etc. exactly as in response
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(convertedZip);
-      toast.success("Text file downloaded successfully!");
-      return;
-    }
 
-    // Handle image zip download
-    const fullUrl =
-      convertedZip.startsWith("http") || convertedZip.startsWith("/")
-        ? convertedZip
-        : `${API_BASE_URL}/media/pdf_images/${convertedZip}`;
-    await downloadZipFile(fullUrl);
+      toast.success("File downloaded successfully!");
+    } catch (error) {
+      console.error("Error downloading file:", error);
+      toast.error("Failed to download the converted file.");
+    }
   };
 
   const printFile = () => {
@@ -178,7 +144,7 @@ const ConvertFromPDF = () => {
   const resetProcess = () => {
     setFile(null);
     setSelectedFormat("");
-    setConvertedZip(null);
+    setConvertedFileUrl(null);
     setCurrentStep("upload");
     setProgress(0);
   };
@@ -239,21 +205,21 @@ const ConvertFromPDF = () => {
                 <h3 className="text-lg font-semibold mb-2">Upload PDF to Convert</h3>
                 <p className="text-muted-foreground mb-4">
                   Choose a PDF file from your device
-                </p>
+                  </p>
                 <Button
-                  className="bg-primary hover:bg-primary/90"
-                  onClick={() => fileInputRef.current?.click()}
-                >
+                 className="bg-primary hover:bg-primary/90" 
+                 onClick={() => fileInputRef.current?.click()}
+                 >
                   <Upload className="h-4 w-4 mr-2" />
                   Select PDF File
                 </Button>
                 <input
-                  ref={fileInputRef}
-                  type="file"
+                 ref={fileInputRef} 
+                 type="file"
                   accept=".pdf"
-                  className="hidden"
+                  className="hidden" 
                   onChange={handleFileUpload}
-                />
+                   />
               </div>
             </div>
           ) : (
@@ -265,7 +231,7 @@ const ConvertFromPDF = () => {
                 <h4 className="font-medium">{file.name}</h4>
                 <p className="text-sm text-muted-foreground">
                   {(file.size / 1024 / 1024).toFixed(2)} MB
-                </p>
+                  </p>
               </div>
               <Button variant="outline" size="sm" onClick={() => setFile(null)}>
                 Remove
@@ -284,24 +250,24 @@ const ConvertFromPDF = () => {
                 <Card
                   key={option.format}
                   className={`cursor-pointer transition-all hover:shadow-md ${
-                    selectedFormat === option.format
-                      ? "ring-2 ring-primary bg-primary/5"
-                      : "hover:bg-muted/50"
+                    selectedFormat === option.format 
+                    ? "ring-2 ring-primary bg-primary/5" 
+                    : "hover:bg-muted/50"
                   }`}
                   onClick={() => setSelectedFormat(option.format)}
                 >
                   <CardContent className="p-4">
                     <div className="flex items-start gap-3">
                       <div
-                        className={`w-12 h-12 rounded-lg flex items-center justify-center ${option.color}`}
-                      >
+                       className={`w-12 h-12 rounded-lg flex items-center justify-center ${option.color}`}
+                       >
                         <option.icon className="h-6 w-6" />
                       </div>
                       <div className="flex-1 min-w-0">
                         <h4 className="font-medium">{option.name}</h4>
                         <p className="text-sm text-muted-foreground mt-1">
                           {option.description}
-                        </p>
+                          </p>
                       </div>
                     </div>
                   </CardContent>
@@ -310,10 +276,10 @@ const ConvertFromPDF = () => {
             </div>
             <div className="flex justify-center mt-6">
               <Button
-                onClick={convertFile}
-                disabled={!selectedFormat}
-                className="bg-primary hover:bg-primary/90 px-8"
-              >
+               onClick={convertFile} 
+               disabled={!selectedFormat} 
+               className="bg-primary hover:bg-primary/90 px-8"
+               >
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Convert
               </Button>
@@ -371,23 +337,23 @@ const ConvertFromPDF = () => {
               <div>
                 <h3 className="text-xl font-semibold mb-2">
                   Conversion Complete!
-                </h3>
+                  </h3>
                 <p className="text-muted-foreground">
                   Your PDF has been converted to {selectedOption?.name}
                 </p>
               </div>
               <div className="bg-muted rounded-lg p-4">
                 <div className="flex items-center gap-3">
-                  <div
-                    className={`w-12 h-12 rounded-lg flex items-center justify-center ${selectedOption?.color}`}
+                  <div 
+                  className={`w-12 h-12 rounded-lg flex items-center justify-center ${selectedOption?.color}`}
                   >
-                    {selectedOption?.icon && (
-                      <selectedOption.icon className="h-6 w-6" />
+                    {selectedOption?.icon && ( 
+                    <selectedOption.icon className="h-6 w-6" />
                     )}
                   </div>
                   <div className="flex-1 text-left">
                     <h4 className="font-medium">
-                      {file?.name?.replace(".pdf", `.${selectedFormat}`)}
+                      {convertedFileUrl?.split("/").pop()}
                     </h4>
                     <p className="text-sm text-muted-foreground">
                       {(file?.size / 1024 / 1024)?.toFixed(2)} MB
@@ -395,13 +361,13 @@ const ConvertFromPDF = () => {
                   </div>
                   <div className="text-green-600 font-medium text-sm">
                     ✓ Converted
-                  </div>
+                    </div>
                 </div>
               </div>
               <div className="flex gap-4 justify-center">
-                <Button
-                  onClick={downloadFile}
-                  className="bg-primary hover:bg-primary/90"
+                <Button 
+                onClick={downloadFile} 
+                className="bg-primary hover:bg-primary/90"
                 >
                   <Download className="h-4 w-4 mr-2" />
                   Download {selectedOption?.name}
@@ -430,8 +396,8 @@ const ConvertFromPDF = () => {
             size="sm"
             onClick={() =>
               currentStep === "upload"
-                ? navigate("/pdf-tools")
-                : setCurrentStep("upload")
+               ? navigate("/pdf-tools") 
+               : setCurrentStep("upload")
             }
             className="flex items-center gap-2"
           >
@@ -441,10 +407,10 @@ const ConvertFromPDF = () => {
           <div>
             <h1 className="text-3xl font-bold text-foreground">
               PDF to other Formats
-            </h1>
+              </h1>
             <p className="text-muted-foreground">
               Easily convert your PDF files into DOC, PPT, EXCEL, JPG, PNG and
-              DOCX documents.
+               DOCX documents.
             </p>
           </div>
         </div>
