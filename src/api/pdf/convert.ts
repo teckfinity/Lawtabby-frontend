@@ -16,3 +16,14 @@ export const convertPDF = async (file: File, outputFormat: string) => {
     headers: { "Content-Type": "multipart/form-data" },
   });
 };
+
+
+export const convertWordToPDF = (file: File) => {
+  if (!file) throw new Error("Word file required.");
+  const formData = new FormData();
+  formData.append("input_file", file, file.name);
+  return apiClient.post("/pdf/format_to_pdf/", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+    responseType: "blob",
+  });
+};
