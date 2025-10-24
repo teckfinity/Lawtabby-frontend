@@ -144,7 +144,7 @@ const MergePDF = () => {
       if (progressInterval) clearInterval(progressInterval);
       setProgress(100);
 
-      const mergedFileUrl = response.data?.split_pdf?.merged_file;
+      const mergedFileUrl = response.data?.merged_data?.merged_file;
       if (!mergedFileUrl) throw new Error("No merged file URL received from server");
 
       setFiles(prevFiles =>
