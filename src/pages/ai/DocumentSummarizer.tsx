@@ -101,7 +101,7 @@ KEY HOLDINGS:
   ];
 
   return (
-    <div className="w-full p-4 md:p-6 lg:p-8 bg-background min-h-screen">
+    <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
