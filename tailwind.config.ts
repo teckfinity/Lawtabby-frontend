@@ -13,6 +13,17 @@ export default {
       },
     },
     extend: {
+      fontFamily: {
+        'alex-brush': ['"Alex Brush"', 'cursive'],
+        'allura': ['Allura', 'cursive'],
+        'mrs-saint-delafield': ['"Mrs Saint Delafield"', 'cursive'],
+        'kristi': ['Kristi', 'cursive'],
+        'italianno': ['Italianno', 'cursive'],
+        'mr-dafoe': ['"Mr Dafoe"', 'cursive'],
+        'satisfy': ['Satisfy', 'cursive'],
+        'zeyada': ['Zeyada', 'cursive'],
+        'shadows-into-light': ['"Shadows Into Light"', 'cursive'],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
