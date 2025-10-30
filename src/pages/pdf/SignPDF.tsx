@@ -37,7 +37,7 @@ import { Rnd } from "react-rnd";
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 type ProcessStep = "upload" | "processing" | "download";
-type FieldType = "signature" | "initials" | "date" | "stamp";
+type FieldType = "signature" | "initials" | "date" | "stamp" | "name" | "text";
 
 type SignatureType = "text" | "image";
 
@@ -76,28 +76,15 @@ interface Signer {
 /*  Font options with proper font families                                */
 /* ────────────────────────────────────────────────────────────────────── */
 const FONT_OPTIONS = [
-  { value: "Helvetica", label: "Helvetica", style: "font-sans" },
-  { value: "Times-Roman", label: "Times Roman", style: "font-serif" },
-  { value: "Courier", label: "Courier", style: "font-mono" },
-  { value: "Arial", label: "Arial", style: "font-sans" },
-];
-
-/* ────────────────────────────────────────────────────────────────────── */
-/*  12 preset signatures (cursive, block, elegant, …)                     */
-/* ────────────────────────────────────────────────────────────────────── */
-const PRESET_SIGNATURES = [
-  { name: "Cursive", svg: `<svg viewBox="0 0 220 70"><path d="M10 35 Q30 15 50 35 T90 35 Q110 55 130 35 T170 35 Q190 55 210 35" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>` },
-  { name: "Elegant", svg: `<svg viewBox="0 0 220 70"><path d="M10 40 Q40 20 70 40 T130 40 Q160 60 190 40 T210 40" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>` },
-  { name: "Block", svg: `<svg viewBox="0 0 220 70"><text x="10" y="45" font-family="Arial" font-weight="bold" font-size="42" fill="currentColor">JS</text></svg>` },
-  { name: "Italic", svg: `<svg viewBox="0 0 220 70"><text x="10" y="45" font-family="Times New Roman" font-style="italic" font-size="42" fill="currentColor">JS</text></svg>` },
-  { name: "Simple", svg: `<svg viewBox="0 0 220 70"><text x="10" y="45" font-family="Helvetica" font-size="38" fill="currentColor">JS</text></svg>` },
-  { name: "Fancy", svg: `<svg viewBox="0 0 220 70"><path d="M10 35 Q35 15 60 35 T110 35 Q135 55 160 35 T210 35" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>` },
-  { name: "Bold", svg: `<svg viewBox="0 0 220 70"><text x="10" y="45" font-family="Impact" font-size="44" fill="currentColor">JS</text></svg>` },
-  { name: "Script", svg: `<svg viewBox="0 0 220 70"><path d="M10 40 Q30 20 50 40 T90 40 Q110 60 130 40 T170 40 Q190 60 210 40" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>` },
-  { name: "Modern", svg: `<svg viewBox="0 0 220 70"><text x="10" y="45" font-family="Verdana" font-weight="600" font-size="40" fill="currentColor">JS</text></svg>` },
-  { name: "Handwrite", svg: `<svg viewBox="0 0 220 70"><path d="M10 35 Q28 18 45 35 Q62 52 80 35 Q98 18 115 35 Q133 52 150 35 Q168 18 185 35 Q203 52 210 35" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></svg>` },
-  { name: "Minimal", svg: `<svg viewBox="0 0 220 70"><text x="10" y="45" font-family="Courier New" font-size="38" fill="currentColor">JS</text></svg>` },
-  { name: "Signature", svg: `<svg viewBox="0 0 220 70"><path d="M10 35 Q35 15 60 35 T110 35 Q135 55 160 35 T210 35" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>` },
+  { value: "Alex Brush", label: "Alex", style: "font-alex-brush" },
+  { value: "Allura", label: "Allura", style: "font-allura" },
+  { value: "Mrs Saint Delafield", label: "Handle", style: "font-mrs-saint-delafield" },
+  { value: "Kristi", label: "Kristi", style: "font-kristi" },
+  { value: "Italianno", label: "Lassie", style: "font-italianno" },
+  { value: "Mr Dafoe", label: "Mark", style: "font-mr-dafoe" },
+  { value: "Satisfy", label: "Satisfy", style: "font-satisfy" },
+  { value: "Zeyada", label: "Zeyada", style: "font-zeyada" },
+  { value: "Shadows Into Light", label: "Shadows", style: "font-shadows-into-light" },
 ];
 
 /* ────────────────────────────────────────────────────────────────────── */
@@ -139,8 +126,35 @@ const SignatureCreator = ({
       toast.error("Please enter your signature text");
       return;
     }
-    const w = Math.max(text.length * 12 + 40, 150);
-    onSave({ type: "text", content: text, color, font, width: w, height: 40 });
+    
+    // Create a canvas to render the text as an image
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    // Set canvas size
+    const fontSize = 48;
+    canvas.width = Math.max(text.length * fontSize * 0.6 + 40, 200);
+    canvas.height = fontSize + 40;
+    
+    // Set font with the selected Google Font
+    ctx.font = `${fontSize}px "${font}", cursive`;
+    ctx.fillStyle = color;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    
+    // Draw text
+    ctx.fillText(text, 20, canvas.height / 2);
+    
+    // Convert to image data
+    const imageData = canvas.toDataURL('image/png');
+    
+    onSave({ 
+      type: "image", 
+      content: imageData, 
+      width: canvas.width / 2, 
+      height: canvas.height / 2 
+    });
   };
 
   /* ---------- DRAW ---------- */
@@ -200,28 +214,12 @@ const SignatureCreator = ({
     r.readAsDataURL(f);
   };
 
-  /* ---------- PRESET – render typed name inside SVG ---------- */
-  const renderPreset = (svg: string) => {
-    const withName = svg.replace(/JS|John Doe/g, text || "Name");
-    const colored = withName.replace(/currentColor/g, color);
-    return colored;
-  };
-
-  const choosePreset = (svg: string) => {
-    if (!text.trim()) {
-      toast.error("Please enter your name first");
-      return;
-    }
-    const colored = renderPreset(svg);
-    const data = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(colored)))}`;
-    onSave({ type: "image", content: data, width: 220, height: 70 });
-  };
 
   return (
     <div className="space-y-4">
       {/* Tabs */}
       <div className="flex gap-1 border-b">
-        {(["type", "draw", "upload", "preset"] as const).map((m) => (
+        {(["type", "draw", "upload"] as const).map((m) => (
           <button
             key={m}
             className={`px-4 py-2 capitalize text-sm font-medium transition-colors ${
@@ -231,7 +229,7 @@ const SignatureCreator = ({
             }`}
             onClick={() => setMethod(m)}
           >
-            {m === "type" ? "Type" : m === "draw" ? "Draw" : m === "upload" ? "Upload" : "Samples"}
+            {m === "type" ? "Type" : m === "draw" ? "Draw" : "Upload"}
           </button>
         ))}
       </div>
@@ -378,29 +376,6 @@ const SignatureCreator = ({
           <p className="text-xs text-muted-foreground text-center">
             PNG, JPG, or SVG format supported
           </p>
-        </div>
-      )}
-
-      {/* PRESET SAMPLES – show typed name inside */}
-      {method === "preset" && (
-        <div>
-          <Label className="mb-3 block">Choose a Style</Label>
-          <div className="grid grid-cols-2 gap-3 max-h-96 overflow-y-auto pr-2">
-            {PRESET_SIGNATURES.map((p, i) => (
-              <button
-                key={i}
-                className="border-2 rounded-lg p-3 hover:border-primary hover:bg-muted/50 transition-all flex flex-col items-center gap-2"
-                onClick={() => choosePreset(p.svg)}
-              >
-                <div
-                  dangerouslySetInnerHTML={{ __html: renderPreset(p.svg) }}
-                  style={{ width: "100%", height: 50 }}
-                  className="flex items-center justify-center"
-                />
-                <p className="text-xs font-medium">{p.name}</p>
-              </button>
-            ))}
-          </div>
         </div>
       )}
     </div>
@@ -623,10 +598,85 @@ const [scale, setScale] = useState(1.30);
     let w = 150;
     let h = 40;
 
+    // Handle date specially
     if (type === "date") {
-      value = new Date().toLocaleDateString("en-US");
-      w = 120;
-    } else if (mode === "multiple") {
+      value = new Date().toLocaleDateString();
+      setFields((prev) => [...prev, {
+        id: `f-${Date.now()}`,
+        type,
+        x,
+        y,
+        page,
+        value,
+        color: "#000000",
+        font: "Helvetica",
+        width: w,
+        height: h,
+        rotation: 0,
+      }]);
+      toast.success("Date placed – drag to move, resize with corners");
+      return;
+    }
+
+    // Handle name field - uses signer's name
+    if (type === "name") {
+      if (mode === "multiple") {
+        if (!currentSignerId) {
+          toast.error("Select a signer first");
+          return;
+        }
+        const s = signers.find((s) => s.id === currentSignerId);
+        if (!s?.name) {
+          toast.error("Signer name missing");
+          return;
+        }
+        value = s.name;
+        signerId = currentSignerId;
+      } else {
+        // single mode
+        value = fullName;
+        signerId = signers[0]?.id;
+      }
+      
+      setFields((prev) => [...prev, {
+        id: `f-${Date.now()}`,
+        type,
+        x,
+        y,
+        page,
+        value,
+        color: "#000000",
+        font: "Helvetica",
+        width: w,
+        height: h,
+        rotation: 0,
+        signerId,
+      }]);
+      toast.success("Name placed – drag to move, resize with corners");
+      return;
+    }
+
+    // Handle text field - empty editable text
+    if (type === "text") {
+      setFields((prev) => [...prev, {
+        id: `f-${Date.now()}`,
+        type,
+        x,
+        y,
+        page,
+        value: "Double-click to edit",
+        color: "#000000",
+        font: "Helvetica",
+        width: w,
+        height: h,
+        rotation: 0,
+      }]);
+      toast.success("Text placed – double-click to edit, drag to move");
+      return;
+    }
+
+    // Multiple mode logic for signature/initials
+    if (mode === "multiple") {
       if (!currentSignerId) {
         toast.error("Select a signer first");
         return;
@@ -706,14 +756,26 @@ const [scale, setScale] = useState(1.30);
   /*  Render field with Rnd (drag + resize) + edit button */
   /* ──────────────────────────────────────── */
   const renderField = (f: PlacedField) => {
-    const Icon = f.type === "date" ? Calendar : PenTool;
+    const Icon = f.type === "date" 
+      ? Calendar 
+      : f.type === "name"
+      ? Edit3
+      : f.type === "text"
+      ? Edit3
+      : PenTool;
+      
     const bg = f.type === "date" 
       ? "bg-blue-50 border-blue-400" 
       : f.type === "stamp"
       ? "bg-purple-50 border-purple-400"
+      : f.type === "name"
+      ? "bg-orange-50 border-orange-400"
+      : f.type === "text"
+      ? "bg-pink-50 border-pink-400"
       : "bg-green-50 border-green-400";
 
     const isEditable = (f.type === "signature" || f.type === "initials") && mode === "single";
+    const isTextEditable = f.type === "text";
 
     return (
       <Rnd
@@ -760,6 +822,18 @@ const [scale, setScale] = useState(1.30);
         <div
           className={`w-full h-full ${bg} border-2 rounded-lg shadow-md p-2 flex items-center justify-center relative group transition-all hover:shadow-lg`}
           style={{ cursor: "move" }}
+          onDoubleClick={(e) => {
+            if (isTextEditable) {
+              e.stopPropagation();
+              const newText = prompt("Edit text:", f.value || "");
+              if (newText !== null) {
+                setFields((prev) =>
+                  prev.map((x) => (x.id === f.id ? { ...x, value: newText } : x))
+                );
+                toast.success("Text updated");
+              }
+            }
+          }}
         >
           {f.imageData ? (
             <img 
@@ -900,7 +974,9 @@ const [scale, setScale] = useState(1.30);
     if (!signedUrl || !file) return;
     const a = document.createElement("a");
     a.href = signedUrl;
-    a.download = `signed_${file.name}`;
+    // Remove .pdf extension if it exists to prevent double extension
+    const nameWithoutPdf = file.name.endsWith('.pdf') ? file.name.slice(0, -4) : file.name;
+    a.download = `signed_${nameWithoutPdf}.pdf`;
     a.click();
     toast.success("Download started!");
   };
@@ -1194,7 +1270,8 @@ const [scale, setScale] = useState(1.30);
                     </button>
                   )}
 
-                  {stampImg && (
+                  {/* Company Stamp button - opens modal if no stamp, or places if stamp exists */}
+                  {stampImg ? (
                     <button
                       onClick={() => {
                         setPlacing("stamp");
@@ -1214,7 +1291,62 @@ const [scale, setScale] = useState(1.30);
                         <div className="text-xs text-muted-foreground">Official seal</div>
                       </div>
                     </button>
+                  ) : (
+                    <button
+                      onClick={() => {
+                        setActiveTab("stamp");
+                        setShowSingleModal(true);
+                      }}
+                      className="w-full flex items-center gap-3 p-3 rounded-lg border-2 border-border hover:border-purple-400/50 transition-all"
+                    >
+                      <div className="w-8 h-8 bg-purple-500/20 rounded-lg flex items-center justify-center">
+                        <span className="text-purple-600 text-xs font-bold">+</span>
+                      </div>
+                      <div className="flex-1 text-left">
+                        <div className="text-sm font-medium">Add Company Stamp</div>
+                        <div className="text-xs text-muted-foreground">Create official seal</div>
+                      </div>
+                    </button>
                   )}
+
+                  {/* Name button - uses name from signature creation */}
+                  <button
+                    onClick={() => {
+                      setPlacing("name");
+                      setCurrentSignerId(signers[0].id);
+                    }}
+                    className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
+                      placing === "name"
+                        ? "bg-orange-50 border-orange-400 shadow-sm"
+                        : "border-border hover:border-orange-400/50"
+                    }`}
+                  >
+                    <div className="w-8 h-8 bg-orange-500/20 rounded-lg flex items-center justify-center">
+                      <Edit3 className="h-4 w-4 text-orange-600" />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <div className="text-sm font-medium">Name</div>
+                      <div className="text-xs text-muted-foreground">{fullName || "Your name"}</div>
+                    </div>
+                  </button>
+
+                  {/* Text button - editable textbox */}
+                  <button
+                    onClick={() => setPlacing("text")}
+                    className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
+                      placing === "text"
+                        ? "bg-pink-50 border-pink-400 shadow-sm"
+                        : "border-border hover:border-pink-400/50"
+                    }`}
+                  >
+                    <div className="w-8 h-8 bg-pink-500/20 rounded-lg flex items-center justify-center">
+                      <Edit3 className="h-4 w-4 text-pink-600" />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <div className="text-sm font-medium">Text</div>
+                      <div className="text-xs text-muted-foreground">Custom textbox</div>
+                    </div>
+                  </button>
                 </div>
               )}
 
@@ -1326,7 +1458,9 @@ const [scale, setScale] = useState(1.30);
                       <span className="text-red-600 font-bold text-sm">PDF</span>
                     </div>
                     <div className="flex-1 text-left">
-                      <h4 className="font-medium">signed_{file.name}</h4>
+                      <h4 className="font-medium">
+                        signed_{file.name.endsWith('.pdf') ? file.name.slice(0, -4) : file.name}.pdf
+                      </h4>
                       <p className="text-sm text-muted-foreground">
                         {(file.size / 1024 / 1024).toFixed(2)} MB
                       </p>
