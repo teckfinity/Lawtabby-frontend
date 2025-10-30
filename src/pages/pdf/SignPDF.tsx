@@ -1,24 +1,54 @@
-import { useState, useRef } from "react";
+/* ────────────────────────────────────────────────────────────────────────── */
+/*  SignPDF.tsx – frontend-only version with full drag/resize/re-sign       */
+/* ────────────────────────────────────────────────────────────────────────── */
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowLeft, Upload, Download, PenTool, Calendar, Trash2, ZoomIn, ZoomOut, Trash } from "lucide-react";
+import {
+  ArrowLeft,
+  Upload,
+  Download,
+  PenTool,
+  Calendar,
+  Trash2,
+  ZoomIn,
+  ZoomOut,
+  Trash,
+  Edit3,
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
-import { Document, Page, pdfjs } from 'react-pdf';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Document, Page, pdfjs } from "react-pdf";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { signPDF } from "@/api"; // Import the signPDF API function
-import 'react-pdf/dist/Page/AnnotationLayer.css';
-import 'react-pdf/dist/Page/TextLayer.css';
+import "react-pdf/dist/Page/AnnotationLayer.css";
+import "react-pdf/dist/Page/TextLayer.css";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { Rnd } from "react-rnd";
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 type ProcessStep = "upload" | "processing" | "download";
-type FieldType = "signature" | "date";
+type FieldType = "signature" | "initials" | "date" | "stamp";
+
+type SignatureType = "text" | "image";
+
+interface SignatureConfig {
+  type: SignatureType;
+  content: string; // text or base64
+  color?: string;
+  font?: string;
+  width?: number;
+  height?: number;
+}
 
 interface PlacedField {
   id: string;
@@ -27,413 +57,1200 @@ interface PlacedField {
   y: number;
   page: number;
   value?: string;
-  isDragging?: boolean;
+  imageData?: string;
+  color?: string;
+  font?: string;
+  width: number;
+  height: number;
+  rotation?: number;
+  signerId?: string;
 }
 
-const SignPDF = () => {
-  const navigate = useNavigate();
-  const [file, setFile] = useState<File | null>(null);
-  const [currentStep, setCurrentStep] = useState<ProcessStep>("upload");
-  const [progress, setProgress] = useState(0);
-  const [numPages, setNumPages] = useState<number>(0);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [scale, setScale] = useState(1.0);
-  const pageRef = useRef<HTMLDivElement>(null);
+interface Signer {
+  id: string;
+  name: string;
+  email?: string;
+}
 
-  // Modal state
-  const [showSignatureDetailsModal, setShowSignatureDetailsModal] = useState(false);
+/* ────────────────────────────────────────────────────────────────────── */
+/*  Font options with proper font families                                */
+/* ────────────────────────────────────────────────────────────────────── */
+const FONT_OPTIONS = [
+  { value: "Helvetica", label: "Helvetica", style: "font-sans" },
+  { value: "Times-Roman", label: "Times Roman", style: "font-serif" },
+  { value: "Courier", label: "Courier", style: "font-mono" },
+  { value: "Arial", label: "Arial", style: "font-sans" },
+];
 
-  // Signature details
-  const [fullName, setFullName] = useState("");
+/* ────────────────────────────────────────────────────────────────────── */
+/*  12 preset signatures (cursive, block, elegant, …)                     */
+/* ────────────────────────────────────────────────────────────────────── */
+const PRESET_SIGNATURES = [
+  { name: "Cursive", svg: `<svg viewBox="0 0 220 70"><path d="M10 35 Q30 15 50 35 T90 35 Q110 55 130 35 T170 35 Q190 55 210 35" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>` },
+  { name: "Elegant", svg: `<svg viewBox="0 0 220 70"><path d="M10 40 Q40 20 70 40 T130 40 Q160 60 190 40 T210 40" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>` },
+  { name: "Block", svg: `<svg viewBox="0 0 220 70"><text x="10" y="45" font-family="Arial" font-weight="bold" font-size="42" fill="currentColor">JS</text></svg>` },
+  { name: "Italic", svg: `<svg viewBox="0 0 220 70"><text x="10" y="45" font-family="Times New Roman" font-style="italic" font-size="42" fill="currentColor">JS</text></svg>` },
+  { name: "Simple", svg: `<svg viewBox="0 0 220 70"><text x="10" y="45" font-family="Helvetica" font-size="38" fill="currentColor">JS</text></svg>` },
+  { name: "Fancy", svg: `<svg viewBox="0 0 220 70"><path d="M10 35 Q35 15 60 35 T110 35 Q135 55 160 35 T210 35" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>` },
+  { name: "Bold", svg: `<svg viewBox="0 0 220 70"><text x="10" y="45" font-family="Impact" font-size="44" fill="currentColor">JS</text></svg>` },
+  { name: "Script", svg: `<svg viewBox="0 0 220 70"><path d="M10 40 Q30 20 50 40 T90 40 Q110 60 130 40 T170 40 Q190 60 210 40" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>` },
+  { name: "Modern", svg: `<svg viewBox="0 0 220 70"><text x="10" y="45" font-family="Verdana" font-weight="600" font-size="40" fill="currentColor">JS</text></svg>` },
+  { name: "Handwrite", svg: `<svg viewBox="0 0 220 70"><path d="M10 35 Q28 18 45 35 Q62 52 80 35 Q98 18 115 35 Q133 52 150 35 Q168 18 185 35 Q203 52 210 35" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/></svg>` },
+  { name: "Minimal", svg: `<svg viewBox="0 0 220 70"><text x="10" y="45" font-family="Courier New" font-size="38" fill="currentColor">JS</text></svg>` },
+  { name: "Signature", svg: `<svg viewBox="0 0 220 70"><path d="M10 35 Q35 15 60 35 T110 35 Q135 55 160 35 T210 35" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>` },
+];
 
-  // Placed fields
-  const [placedFields, setPlacedFields] = useState<PlacedField[]>([]);
-  const [draggedField, setDraggedField] = useState<{ id: string; offsetX: number; offsetY: number } | null>(null);
-  const [currentPlacingType, setCurrentPlacingType] = useState<FieldType | null>("signature");
+/* ────────────────────────────────────────────────────────────────────── */
+/*  SignatureCreator – type / draw / upload / 12 presets                 */
+/*  → Shows the typed name inside every preset preview                     */
+/*  → Font selector now shows visual preview of each font                  */
+/* ────────────────────────────────────────────────────────────────────── */
+const SignatureCreator = ({
+  onSave,
+  initialName,
+}: {
+  onSave: (cfg: SignatureConfig) => void;
+  initialName: string;
+}) => {
+  const [method, setMethod] = useState<"type" | "draw" | "upload" | "preset">("type");
+  const [text, setText] = useState(initialName);
+  const [color, setColor] = useState("#000000");
+  const [font, setFont] = useState("Helvetica");
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [drawing, setDrawing] = useState(false);
+  const [penColor, setPenColor] = useState("#000000");
+  const [lineW, setLineW] = useState(2);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Signed file URL
-  const [signedFileUrl, setSignedFileUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (method === "draw") {
+      const ctx = canvasRef.current?.getContext("2d");
+      if (ctx) {
+        ctx.strokeStyle = penColor;
+        ctx.lineWidth = lineW;
+        ctx.lineCap = "round";
+      }
+    }
+  }, [method, penColor, lineW]);
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = event.target.files?.[0];
-    if (!selectedFile) {
-      toast.error("No file selected");
+  /* ---------- TYPE ---------- */
+  const saveTyped = () => {
+    if (!text.trim()) {
+      toast.error("Please enter your signature text");
       return;
     }
-    const isValid = await isValidPDF(selectedFile);
-    if (!isValid) {
+    const w = Math.max(text.length * 12 + 40, 150);
+    onSave({ type: "text", content: text, color, font, width: w, height: 40 });
+  };
+
+  /* ---------- DRAW ---------- */
+  const start = (e: React.MouseEvent) => {
+    setDrawing(true);
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    ctx.strokeStyle = penColor;
+    ctx.lineWidth = lineW;
+    ctx.lineCap = "round";
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 400;
+    const y = ((e.clientY - rect.top) / rect.height) * 120;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  };
+  const move = (e: React.MouseEvent) => {
+    if (!drawing) return;
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    const rect = canvasRef.current!.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 400;
+    const y = ((e.clientY - rect.top) / rect.height) * 120;
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  };
+  const stop = () => setDrawing(false);
+  const clear = () => {
+    const ctx = canvasRef.current?.getContext("2d");
+    ctx?.clearRect(0, 0, 400, 120);
+  };
+  const saveDrawn = () => {
+    const data = canvasRef.current?.toDataURL("image/png") ?? "";
+    if (!data || data === "data:,") {
+      toast.error("Please draw your signature first");
+      return;
+    }
+    onSave({ type: "image", content: data, width: 200, height: 60 });
+  };
+
+  /* ---------- UPLOAD ---------- */
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      const data = r.result as string;
+      const img = new Image();
+      img.onload = () => {
+        const ratio = img.naturalWidth / img.naturalHeight;
+        const w = 200;
+        const h = w / ratio;
+        onSave({ type: "image", content: data, width: w, height: h });
+      };
+      img.src = data;
+    };
+    r.readAsDataURL(f);
+  };
+
+  /* ---------- PRESET – render typed name inside SVG ---------- */
+  const renderPreset = (svg: string) => {
+    const withName = svg.replace(/JS|John Doe/g, text || "Name");
+    const colored = withName.replace(/currentColor/g, color);
+    return colored;
+  };
+
+  const choosePreset = (svg: string) => {
+    if (!text.trim()) {
+      toast.error("Please enter your name first");
+      return;
+    }
+    const colored = renderPreset(svg);
+    const data = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(colored)))}`;
+    onSave({ type: "image", content: data, width: 220, height: 70 });
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Tabs */}
+      <div className="flex gap-1 border-b">
+        {(["type", "draw", "upload", "preset"] as const).map((m) => (
+          <button
+            key={m}
+            className={`px-4 py-2 capitalize text-sm font-medium transition-colors ${
+              method === m 
+                ? "border-b-2 border-primary text-primary" 
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            onClick={() => setMethod(m)}
+          >
+            {m === "type" ? "Type" : m === "draw" ? "Draw" : m === "upload" ? "Upload" : "Samples"}
+          </button>
+        ))}
+      </div>
+
+      {/* TYPE */}
+      {method === "type" && (
+        <div className="space-y-4">
+          <div>
+            <Label>Your Signature Text</Label>
+            <Input 
+              value={text} 
+              onChange={(e) => setText(e.target.value)} 
+              placeholder="Enter your name" 
+              className="mt-1.5"
+            />
+          </div>
+          
+          {/* Color picker */}
+          <div>
+            <Label>Color</Label>
+            <div className="flex gap-2 items-center mt-1.5">
+              <input 
+                type="color" 
+                value={color} 
+                onChange={(e) => setColor(e.target.value)} 
+                className="w-12 h-12 rounded-md border cursor-pointer"
+              />
+              <span className="text-sm text-muted-foreground">{color}</span>
+            </div>
+          </div>
+
+          {/* Font selector with visual preview */}
+          <div>
+            <Label>Font Style</Label>
+            <div className="grid grid-cols-2 gap-2 mt-1.5">
+              {FONT_OPTIONS.map((fontOption) => (
+                <button
+                  key={fontOption.value}
+                  onClick={() => setFont(fontOption.value)}
+                  className={`p-3 border rounded-lg text-left transition-all ${
+                    font === fontOption.value
+                      ? "border-primary bg-primary/5 ring-2 ring-primary/20"
+                      : "border-border hover:border-primary/50"
+                  }`}
+                >
+                  <div className={`text-lg ${fontOption.style}`} style={{ color }}>
+                    {text || "Sample"}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {fontOption.label}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Preview */}
+          {text && (
+            <div className="p-4 border rounded-lg bg-muted/30">
+              <Label className="text-xs text-muted-foreground mb-2 block">Preview</Label>
+              <div className="flex items-center justify-center py-4">
+                <span 
+                  className={FONT_OPTIONS.find(f => f.value === font)?.style}
+                  style={{ 
+                    color, 
+                    fontSize: '24px',
+                    fontWeight: font === 'Helvetica' ? 400 : 'normal'
+                  }}
+                >
+                  {text}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <Button onClick={saveTyped} className="w-full">
+            Save Signature
+          </Button>
+        </div>
+      )}
+
+      {/* DRAW */}
+      {method === "draw" && (
+        <div className="space-y-3">
+          <Label>Draw Your Signature</Label>
+          <canvas
+            ref={canvasRef}
+            width={400}
+            height={120}
+            className="border-2 border-dashed border-border w-full bg-white rounded-lg cursor-crosshair"
+            onMouseDown={start}
+            onMouseMove={move}
+            onMouseUp={stop}
+            onMouseLeave={stop}
+            style={{ touchAction: "none" }}
+          />
+          <div className="flex gap-2 items-center">
+            <input 
+              type="color" 
+              value={penColor} 
+              onChange={(e) => setPenColor(e.target.value)} 
+              className="w-12 h-12 rounded-md border cursor-pointer"
+            />
+            <div className="flex-1">
+              <Label className="text-xs">Pen Width</Label>
+              <input 
+                type="range" 
+                min={1} 
+                max={8} 
+                value={lineW} 
+                onChange={(e) => setLineW(+e.target.value)} 
+                className="w-full"
+              />
+            </div>
+            <Button variant="outline" size="sm" onClick={clear}>
+              Clear
+            </Button>
+          </div>
+          <Button onClick={saveDrawn} className="w-full">
+            Save Signature
+          </Button>
+        </div>
+      )}
+
+      {/* UPLOAD */}
+      {method === "upload" && (
+        <div className="space-y-3">
+          <Label>Upload Signature Image</Label>
+          <input 
+            ref={fileInputRef} 
+            type="file" 
+            accept="image/*" 
+            onChange={handleUpload} 
+            className="hidden" 
+          />
+          <Button 
+            onClick={() => fileInputRef.current?.click()} 
+            className="w-full"
+            variant="outline"
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Choose Image File
+          </Button>
+          <p className="text-xs text-muted-foreground text-center">
+            PNG, JPG, or SVG format supported
+          </p>
+        </div>
+      )}
+
+      {/* PRESET SAMPLES – show typed name inside */}
+      {method === "preset" && (
+        <div>
+          <Label className="mb-3 block">Choose a Style</Label>
+          <div className="grid grid-cols-2 gap-3 max-h-96 overflow-y-auto pr-2">
+            {PRESET_SIGNATURES.map((p, i) => (
+              <button
+                key={i}
+                className="border-2 rounded-lg p-3 hover:border-primary hover:bg-muted/50 transition-all flex flex-col items-center gap-2"
+                onClick={() => choosePreset(p.svg)}
+              >
+                <div
+                  dangerouslySetInnerHTML={{ __html: renderPreset(p.svg) }}
+                  style={{ width: "100%", height: 50 }}
+                  className="flex items-center justify-center"
+                />
+                <p className="text-xs font-medium">{p.name}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/* ────────────────────────────────────────────────────────────────────── */
+/*  ReSignModal – edit signature/initials for a specific field            */
+/* ────────────────────────────────────────────────────────────────────── */
+const ReSignModal = ({
+  isOpen,
+  onClose,
+  fieldType,
+  currentValue,
+  onSave,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  fieldType: "signature" | "initials";
+  currentValue?: string;
+  onSave: (cfg: SignatureConfig) => void;
+}) => {
+  const [localName, setLocalName] = useState(currentValue || "");
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Update {fieldType}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <Input
+            value={localName}
+            onChange={(e) => setLocalName(e.target.value)}
+            placeholder={`Enter ${fieldType}`}
+          />
+          <SignatureCreator
+            onSave={(cfg) => {
+              onSave(cfg);
+              onClose();
+            }}
+            initialName={localName}
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+/* ────────────────────────────────────────────────────────────────────── */
+/*  Main component                                                       */
+/* ────────────────────────────────────────────────────────────────────── */
+const SignPDF = () => {
+  const navigate = useNavigate();
+
+  /* ---------- Core state ---------- */
+  const [file, setFile] = useState<File | null>(null);
+  const [step, setStep] = useState<ProcessStep>("upload");
+  const [progress, setProgress] = useState(0);
+  const [numPages, setNumPages] = useState(0);
+  const [page, setPage] = useState(1);
+const [scale, setScale] = useState(1.30);
+  const pageRef = useRef<HTMLDivElement>(null);
+
+  const [mode, setMode] = useState<"single" | "multiple" | null>(null);
+  const [signers, setSigners] = useState<Signer[]>([]);
+  const [currentSignerId, setCurrentSignerId] = useState<string | null>(null);
+
+  /* ---------- Signature configs ---------- */
+  const [fullSig, setFullSig] = useState<SignatureConfig | null>(null);
+  const [initSig, setInitSig] = useState<SignatureConfig | null>(null);
+  const [stampImg, setStampImg] = useState<string | null>(null);
+
+  /* ---------- Modals ---------- */
+  const [showSingleModal, setShowSingleModal] = useState(false);
+  const [showMultiModal, setShowMultiModal] = useState(false);
+  const [showReSignModal, setShowReSignModal] = useState(false);
+  const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
+  const [fullName, setFullName] = useState("");
+  const [initials, setInitials] = useState("");
+  const [activeTab, setActiveTab] = useState<"signature" | "initials" | "stamp">("signature");
+
+  /* ---------- Fields ---------- */
+  const [fields, setFields] = useState<PlacedField[]>([]);
+  const [placing, setPlacing] = useState<FieldType | null>(null);
+
+  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+
+  /* ──────────────────────────────────────── */
+  /*  PDF upload & validation                 */
+  /* ──────────────────────────────────────── */
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    const ok = await isValidPDF(f);
+    if (!ok) {
       toast.error("Invalid PDF file");
       return;
     }
-    setFile(selectedFile);
-    setShowSignatureDetailsModal(true); // Open textbox directly
-    toast.success("PDF file uploaded successfully");
-    event.target.value = "";
+    setFile(f);
+    setMode(null);
+    setSigners([]);
+    setFields([]);
+    setFullSig(null);
+    setInitSig(null);
+    setStampImg(null);
+    setPage(1);
+    toast.success("PDF uploaded successfully");
+    e.target.value = "";
   };
 
-  const isValidPDF = async (file: File): Promise<boolean> => {
-    try {
-      if (file.size === 0 || file.size > 100 * 1024 * 1024) return false;
-      const headerBuffer = await file.slice(0, 5).arrayBuffer();
-      const header = new Uint8Array(headerBuffer);
-      if (
-        header[0] !== 0x25 ||
-        header[1] !== 0x50 ||
-        header[2] !== 0x44 ||
-        header[3] !== 0x46 ||
-        header[4] !== 0x2d
-      ) {
-        return false;
-      }
-      return true;
-    } catch (error) {
-      console.error(`Error validating PDF ${file.name}:`, error);
-      return false;
-    }
+  const isValidPDF = async (f: File) => {
+    if (f.size === 0 || f.size > 100 * 1024 * 1024) return false;
+    const head = await f.slice(0, 5).arrayBuffer();
+    const view = new Uint8Array(head);
+    return view[0] === 0x25 && view[1] === 0x50 && view[2] === 0x44 && view[3] === 0x46 && view[4] === 0x2d;
   };
 
-  const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
+  const onLoadSuccess = ({ numPages }: { numPages: number }) => {
     setNumPages(numPages);
-    toast.success(`PDF loaded! ${numPages} pages ready for signing.`);
+    toast.success(`PDF loaded – ${numPages} page(s)`);
   };
 
-  const onDocumentLoadError = (error: Error) => {
-    toast.error("Failed to load PDF. Please try another file.");
-    console.error("PDF load error:", error);
-  };
-
-  const handleZoomIn = () => {
-    setScale(prev => Math.min(prev + 0.2, 2.0));
-  };
-
-  const handleZoomOut = () => {
-    setScale(prev => Math.max(prev - 0.2, 0.5));
-  };
-
-  const applySignatureDetails = () => {
-    if (!fullName) {
-      toast.error("Please enter your full name");
+  /* ──────────────────────────────────────── */
+  /*  Single signer – save name + signatures  */
+  /* ──────────────────────────────────────── */
+  const finishSingle = () => {
+    if (!fullName.trim() || !fullSig) {
+      toast.error("Name & signature required");
       return;
     }
-    setShowSignatureDetailsModal(false);
-    toast.success("Signature details saved! Now place fields on the PDF.");
+    setSigners([{ id: "single-1", name: fullName.trim() }]);
+    setShowSingleModal(false);
+    toast.success("Ready – place signature fields on the PDF");
   };
 
-  const addFieldToDocument = (fieldType: FieldType, x: number, y: number, page: number) => {
-    let value = '';
-    switch (fieldType) {
-      case 'signature':
-        value = fullName;
-        break;
-      case 'date':
-        value = new Date().toLocaleDateString('en-US');
-        break;
+  /* ──────────────────────────────────────── */
+  /*  Multiple signers                         */
+  /* ──────────────────────────────────────── */
+  const addSigner = () => setSigners((s) => [...s, { id: Date.now().toString(), name: "", email: "" }]);
+  const removeSigner = (id: string) => setSigners((s) => s.filter((x) => x.id !== id));
+  const updateSigner = (id: string, field: keyof Signer, v: string) =>
+    setSigners((s) => s.map((x) => (x.id === id ? { ...x, [field]: v } : x)));
+
+  const finishMulti = () => {
+    const bad = signers.some((s) => !s.name.trim());
+    if (bad || signers.length < 2) {
+      toast.error("Every signer needs a name (min 2)");
+      return;
     }
-    const newField: PlacedField = {
-      id: `field-${Date.now()}`,
-      type: fieldType,
+    setShowMultiModal(false);
+    toast.success("Signers saved – now place signature fields");
+  };
+
+  /* ──────────────────────────────────────── */
+  /*  Handle re-signing for a placed field    */
+  /* ──────────────────────────────────────── */
+  const handleReSign = (fieldId: string) => {
+    setEditingFieldId(fieldId);
+    setShowReSignModal(true);
+  };
+
+  const saveReSign = (cfg: SignatureConfig) => {
+    if (!editingFieldId) return;
+    
+    const field = fields.find(f => f.id === editingFieldId);
+    if (!field) return;
+
+    let signerName = "";
+    if (mode === "multiple") {
+      const signer = signers.find(s => s.id === field.signerId);
+      signerName = signer?.name || "";
+    } else {
+      signerName = fullName;
+    }
+
+    if (cfg.type === "text") {
+      setFields(prev => prev.map(f => 
+        f.id === editingFieldId 
+          ? { 
+              ...f, 
+              value: cfg.content, 
+              color: cfg.color, 
+              font: cfg.font, 
+              width: cfg.width || f.width, 
+              height: cfg.height || f.height,
+              imageData: undefined
+            }
+          : f
+      ));
+    } else {
+      setFields(prev => prev.map(f => 
+        f.id === editingFieldId 
+          ? { 
+              ...f, 
+              value: signerName, 
+              imageData: cfg.content, 
+              width: cfg.width || f.width, 
+              height: cfg.height || f.height,
+              color: undefined,
+              font: undefined
+            }
+          : f
+      ));
+    }
+    
+    toast.success(`${field.type} updated successfully`);
+  };
+
+  /* ──────────────────────────────────────── */
+  /*  Field placement (click → add)           */
+  /* ──────────────────────────────────────── */
+  const placeField = (type: FieldType, x: number, y: number, page: number) => {
+    let cfg: SignatureConfig | null = null;
+    let signerId: string | undefined;
+    let value = "";
+    let imageData: string | undefined;
+    let color: string | undefined;
+    let font: string | undefined;
+    let w = 150;
+    let h = 40;
+
+    if (type === "date") {
+      value = new Date().toLocaleDateString("en-US");
+      w = 120;
+    } else if (mode === "multiple") {
+      if (!currentSignerId) {
+        toast.error("Select a signer first");
+        return;
+      }
+      const s = signers.find((s) => s.id === currentSignerId);
+      if (!s?.name) {
+        toast.error("Signer name missing");
+        return;
+      }
+      value = s.name;
+      signerId = currentSignerId;
+    } else {
+      // single mode
+      if (type === "signature") cfg = fullSig;
+      else if (type === "initials") cfg = initSig;
+      else if (type === "stamp") {
+        imageData = stampImg ?? undefined;
+        w = 150;
+        h = 150;
+      }
+
+      if (!cfg && type !== "stamp") {
+        toast.error(`Create a ${type} first`);
+        return;
+      }
+      signerId = signers[0]?.id;
+
+      if (cfg?.type === "text") {
+        value = cfg.content;
+        color = cfg.color;
+        font = cfg.font;
+        w = cfg.width ?? 150;
+        h = cfg.height ?? 40;
+      } else if (cfg?.type === "image") {
+        imageData = cfg.content;
+        value = fullName;
+        w = cfg.width ?? 200;
+        h = cfg.height ?? 60;
+      }
+    }
+
+    const f: PlacedField = {
+      id: `f-${Date.now()}`,
+      type,
       x,
       y,
       page,
       value,
+      imageData,
+      color,
+      font,
+      width: w,
+      height: h,
+      rotation: 0,
+      signerId,
     };
-    setPlacedFields([...placedFields, newField]);
-    toast.success(`${fieldType} field added! Drag to reposition.`);
+    setFields((prev) => [...prev, f]);
+    toast.success(`${type} placed – drag to move, resize with corners`);
   };
 
-  const handlePdfClick = (e: React.MouseEvent) => {
-    if (currentPlacingType && pageRef.current) {
-      const rect = pageRef.current.getBoundingClientRect();
-      const renderedX = e.clientX - rect.left;
-      const renderedY = e.clientY - rect.top;
-      const originalX = renderedX / scale;
-      const originalY = renderedY / scale;
-      addFieldToDocument(currentPlacingType, originalX, originalY, currentPage);
-      setCurrentPlacingType(null);
-    }
-  };
-
-  const handleFieldDragStart = (e: React.MouseEvent, fieldId: string) => {
-    const element = e.currentTarget as HTMLElement;
-    const rect = element.getBoundingClientRect();
-    setDraggedField({
-      id: fieldId,
-      offsetX: e.clientX - rect.left,
-      offsetY: e.clientY - rect.top,
-    });
-    setPlacedFields(prev =>
-      prev.map(field => field.id === fieldId ? { ...field, isDragging: true } : field)
-    );
-  };
-
-  const handleFieldDrag = (e: React.MouseEvent) => {
-    if (!draggedField || !pageRef.current) return;
-
+  const clickPdf = (e: React.MouseEvent) => {
+    if (!placing || !pageRef.current) return;
     const rect = pageRef.current.getBoundingClientRect();
-    const renderedX = e.clientX - rect.left - draggedField.offsetX;
-    const renderedY = e.clientY - rect.top - draggedField.offsetY;
-    const originalX = renderedX / scale;
-    const originalY = renderedY / scale;
-
-    setPlacedFields(prev =>
-      prev.map(field =>
-        field.id === draggedField.id
-          ? { ...field, x: originalX, y: originalY }
-          : field
-      )
-    );
+    const rx = (e.clientX - rect.left) / scale;
+    const ry = (e.clientY - rect.top) / scale;
+    placeField(placing, rx, ry, page);
+    setPlacing(null);
+    setCurrentSignerId(null);
   };
 
-  const handleFieldDragEnd = () => {
-    if (draggedField) {
-      setPlacedFields(prev =>
-        prev.map(field => ({ ...field, isDragging: false }))
-      );
-      setDraggedField(null);
-    }
-  };
-
-  const removeField = (fieldId: string) => {
-    setPlacedFields(prev => prev.filter(field => field.id !== fieldId));
+  const deleteField = (id: string) => {
+    setFields((f) => f.filter((x) => x.id !== id));
     toast.success("Field removed");
   };
 
-  const getFieldIcon = (type: FieldType) => {
-    switch (type) {
-      case "signature": return PenTool;
-      case "date": return Calendar;
-    }
-  };
+  /* ──────────────────────────────────────── */
+  /*  Render field with Rnd (drag + resize) + edit button */
+  /* ──────────────────────────────────────── */
+  const renderField = (f: PlacedField) => {
+    const Icon = f.type === "date" ? Calendar : PenTool;
+    const bg = f.type === "date" 
+      ? "bg-blue-50 border-blue-400" 
+      : f.type === "stamp"
+      ? "bg-purple-50 border-purple-400"
+      : "bg-green-50 border-green-400";
 
-  const getFieldColor = (type: FieldType) => {
-    switch (type) {
-      case "signature": return "bg-green-100 border-green-400 text-green-700";
-      case "date": return "bg-blue-100 border-blue-400 text-blue-700";
-      default: return "bg-gray-100 border-gray-300 text-gray-700";
-    }
-  };
+    const isEditable = (f.type === "signature" || f.type === "initials") && mode === "single";
 
-  const handleSignPDF = async () => {
-    if (!file) {
-      toast.error("Please upload a PDF file first");
-      return;
-    }
-
-    if (placedFields.length === 0) {
-      toast.error("Please place at least one field");
-      return;
-    }
-
-    setCurrentStep("processing");
-    let progressInterval: any;
-    try {
-      let currentProgress = 0;
-      progressInterval = setInterval(() => {
-        currentProgress += Math.random() * 15;
-        if (currentProgress >= 90) currentProgress = 90;
-        setProgress(currentProgress);
-      }, 200);
-
-      const signatures = placedFields.map(field => ({
-        text: field.value || '',
-        page: field.page,
-        x: field.x,
-        y: field.y,
-      }));
-
-      const apiResult = await signPDF(file, signatures);
-      const data = apiResult?.data ? apiResult.data : apiResult;
-      const signedFilePath = data?.signed_pdf?.signed_file;
-      if (!signedFilePath) throw new Error("No signed file path received from server");
-
-      const apiBase = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
-      const signedUrl = signedFilePath.startsWith("http")
-        ? signedFilePath
-        : `${apiBase}/pdf/sign_pdf/${signedFilePath}`;
-
-      setSignedFileUrl(signedUrl);
-
-      if (progressInterval) clearInterval(progressInterval);
-      setProgress(100);
-      setTimeout(() => setCurrentStep("download"), 500);
-    } catch (error: any) {
-      if (progressInterval) clearInterval(progressInterval);
-      setProgress(0);
-      setCurrentStep("upload");
-      const errorMessage =
-        error?.response?.data?.error ||
-        error?.message ||
-        "Failed to sign PDF. Please ensure all fields are valid.";
-      toast.error(`Sign failed: ${errorMessage}`);
-      console.error("Sign PDF error:", error);
-    }
-  };
-
-  const downloadFile = async () => {
-    if (!file) {
-      toast.error("No PDF to download");
-      return;
-    }
-
-    try {
-      const arrayBuffer = await file.arrayBuffer();
-      const pdfDoc = await PDFDocument.load(arrayBuffer);
-      const helveticaFont = await pdfDoc.embedFont(StandardFonts.Helvetica);
-      const pages = pdfDoc.getPages();
-
-      placedFields.forEach(field => {
-        const page = pages[field.page - 1];
-        const { x, y, value } = field;
-        page.drawText(value || "", {
-          x,
-          y: page.getHeight() - y - 20,
-          size: 12,
-          font: helveticaFont,
-          color: rgb(0, 0.5, 0), // Green color for signature
-        });
-      });
-
-      const pdfBytes = await pdfDoc.save();
-      const blob = new Blob([pdfBytes], { type: "application/pdf" });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `signed_${file.name}`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-
-      toast.success("Signed PDF downloaded successfully!");
-    } catch (error: any) {
-      console.error("Download failed:", error);
-      toast.error(`Failed to download file: ${error?.message || error}`);
-    }
-  };
-
-  const resetProcess = () => {
-    setFile(null);
-    setCurrentStep("upload");
-    setProgress(0);
-    setPlacedFields([]);
-    setSignedFileUrl(null);
-    setFullName("");
-    setCurrentPlacingType("signature");
-  };
-
-  const renderUploadStep = () => (
-  <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-    <div className="lg:col-span-3">
-{!file ? (
-  <Card className="border-2 border-dashed border-muted-foreground/20 hover:border-primary/50 transition-colors h-96 flex items-center justify-center">
-    <CardContent className="p-12 text-center flex flex-col items-center justify-center gap-4">
-      <Upload className="h-16 w-16 text-muted-foreground" />
-      <h3 className="text-xl font-semibold">Upload PDF to Sign</h3>
-      <p className="text-muted-foreground">Choose a PDF file from your device</p>
-      <input
-        id="pdf-upload"
-        type="file"
-        accept=".pdf"
-        className="hidden"
-        onChange={handleFileUpload}
-      />
-      <Button
-        className="bg-primary hover:bg-primary/90 mt-2"
-        onClick={() => document.getElementById("pdf-upload")?.click()}
+    return (
+      <Rnd
+        key={f.id}
+        size={{ width: f.width * scale, height: f.height * scale }}
+        position={{ x: f.x * scale, y: f.y * scale }}
+        onDragStop={(e, d) => {
+          setFields((prev) =>
+            prev.map((x) =>
+              x.id === f.id ? { ...x, x: d.x / scale, y: d.y / scale } : x
+            )
+          );
+        }}
+        onResizeStop={(e, dir, ref, delta, pos) => {
+          setFields((prev) =>
+            prev.map((x) =>
+              x.id === f.id
+                ? {
+                    ...x,
+                    width: parseFloat(ref.style.width) / scale,
+                    height: parseFloat(ref.style.height) / scale,
+                    x: pos.x / scale,
+                    y: pos.y / scale,
+                  }
+                : x
+            )
+          );
+        }}
+        enableResizing={{
+          top: true,
+          right: true,
+          bottom: true,
+          left: true,
+          topRight: true,
+          bottomRight: true,
+          bottomLeft: true,
+          topLeft: true,
+        }}
+        lockAspectRatio={f.type === "stamp"}
+        bounds="parent"
+        minWidth={50}
+        minHeight={30}
       >
-        <Upload className="h-4 w-4 mr-2" />
-        Select PDF File
-      </Button>
-    </CardContent>
-  </Card>
-      ) : (
-        <div className="space-y-4">
+        <div
+          className={`w-full h-full ${bg} border-2 rounded-lg shadow-md p-2 flex items-center justify-center relative group transition-all hover:shadow-lg`}
+          style={{ cursor: "move" }}
+        >
+          {f.imageData ? (
+            <img 
+              src={f.imageData} 
+              alt={f.type} 
+              className="max-w-full max-h-full object-contain pointer-events-none select-none" 
+              draggable={false}
+            />
+          ) : (
+            <span
+              className="text-sm font-medium capitalize select-none"
+              style={{ 
+                color: f.color || "#000000", 
+                fontFamily: f.font || "Helvetica",
+                fontSize: `${Math.min(14, f.height * 0.35)}px`
+              }}
+            >
+              {f.value}
+            </span>
+          )}
+          
+          <Icon className="absolute top-1 left-1 h-3 w-3 opacity-50" />
+          
+          {/* Edit button (only for signatures/initials in single mode) */}
+          {isEditable && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleReSign(f.id);
+              }}
+              className="absolute -top-2 -right-2 bg-primary text-primary-foreground rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md hover:scale-110"
+              title="Edit signature"
+            >
+              <Edit3 className="h-3 w-3" />
+            </button>
+          )}
+          
+          {/* Delete button */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              deleteField(f.id);
+            }}
+            className="absolute -top-2 -left-2 bg-destructive text-destructive-foreground rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-md hover:scale-110"
+            title="Delete field"
+          >
+            ×
+          </button>
+
+          {/* Resize indicator */}
+          <div className="absolute bottom-0 right-0 w-3 h-3 opacity-0 group-hover:opacity-50 pointer-events-none">
+            <div className="w-full h-full border-r-2 border-b-2 border-gray-600" />
+          </div>
+        </div>
+      </Rnd>
+    );
+  };
+
+  /* ──────────────────────────────────────── */
+  /*  Sign → frontend (pdf-lib with images)   */
+  /* ──────────────────────────────────────── */
+  const startSigning = async () => {
+    if (!file) return;
+    const sigs = fields.filter((f) => f.type === "signature" || f.type === "initials");
+    if (sigs.length === 0) {
+      toast.error("Place at least one signature field");
+      return;
+    }
+
+    setStep("processing");
+    let prog = 0;
+    const int = setInterval(() => {
+      prog += Math.random() * 12;
+      if (prog > 90) prog = 90;
+      setProgress(prog);
+    }, 180);
+
+    try {
+      const arr = await file.arrayBuffer();
+      const pdf = await PDFDocument.load(arr);
+      const pages = pdf.getPages();
+
+      const embed = async (f: PlacedField) => {
+        const p = pages[f.page - 1];
+        const pdfY = p.getHeight() - f.y - f.height;
+
+        if (f.imageData) {
+          const raw = f.imageData.split(",")[1];
+          const bin = Uint8Array.from(atob(raw), (c) => c.charCodeAt(0));
+          let img;
+          if (f.imageData.startsWith("data:image/png") || f.imageData.startsWith("data:image/svg+xml")) {
+            img = await pdf.embedPng(bin);
+          } else {
+            img = await pdf.embedJpg(bin);
+          }
+          p.drawImage(img, { x: f.x, y: pdfY, width: f.width, height: f.height });
+        } else if (f.value) {
+          const font = await pdf.embedFont(
+            f.font === "Times-Roman" ? StandardFonts.TimesRoman : 
+            f.font === "Courier" ? StandardFonts.Courier :
+            StandardFonts.Helvetica
+          );
+          const col = f.color ? hexToRgb(f.color) : rgb(0, 0, 0);
+          const fontSize = Math.min(14, f.height * 0.6);
+          p.drawText(f.value, {
+            x: f.x + 5,
+            y: pdfY + f.height / 2 - fontSize / 3,
+            size: fontSize,
+            font,
+            color: col,
+          });
+        }
+      };
+
+      for (const f of fields) {
+        await embed(f);
+      }
+
+      const bytes = await pdf.save();
+      const blob = new Blob([bytes.buffer as ArrayBuffer], { type: "application/pdf" });
+      setSignedUrl(URL.createObjectURL(blob));
+      clearInterval(int);
+      setProgress(100);
+      setTimeout(() => setStep("download"), 400);
+      toast.success("PDF signed successfully!");
+    } catch (e: any) {
+      clearInterval(int);
+      setProgress(0);
+      setStep("upload");
+      toast.error(e.message ?? "Signing failed");
+    }
+  };
+
+  /* ──────────────────────────────────────── */
+  /*  Download (signed blob)                  */
+  /* ──────────────────────────────────────── */
+  const downloadSigned = () => {
+    if (!signedUrl || !file) return;
+    const a = document.createElement("a");
+    a.href = signedUrl;
+    a.download = `signed_${file.name}`;
+    a.click();
+    toast.success("Download started!");
+  };
+
+  const reset = () => {
+    if (signedUrl) URL.revokeObjectURL(signedUrl);
+    setFile(null);
+    setStep("upload");
+    setProgress(0);
+    setFields([]);
+    setSignedUrl(null);
+    setMode(null);
+    setSigners([]);
+    setCurrentSignerId(null);
+    setFullSig(null);
+    setInitSig(null);
+    setStampImg(null);
+    setFullName("");
+    setInitials("");
+    setPlacing(null);
+    setEditingFieldId(null);
+    setPage(1);
+  };
+
+  /* ──────────────────────────────────────── */
+  /*  UI – upload / mode selection            */
+  /* ──────────────────────────────────────── */
+  const renderUpload = () => (
+    <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+      {/* LEFT – PDF viewer / upload card */}
+      <div className="lg:col-span-3">
+        {!file ? (
+          /* ---------- UPLOAD CARD ---------- */
+          <Card className="border-2 border-dashed border-muted-foreground/20 hover:border-primary/50 transition-colors">
+          <CardContent className="text-center space-y-8 p-3">
+                <div className="w-20 h-20 mx-auto bg-primary/10 rounded-full flex items-center justify-center">
+                <Upload className="h-10 w-10 text-primary" />
+              </div>
+              <h3 className="text-2xl font-semibold">Upload PDF to Sign</h3>
+              <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                Drag & drop your PDF here, or click to browse and select a file from your computer.
+              </p>
+              <input
+                id="pdf-upload"
+                type="file"
+                accept=".pdf,application/pdf"
+                className="hidden"
+                onChange={handleUpload}
+              />
+              <Button
+                onClick={() => document.getElementById("pdf-upload")?.click()}
+                size="lg"
+                className="mt-4"
+              >
+                <Upload className="h-5 w-5 mr-2" />
+                Select PDF File
+              </Button>
+            </CardContent>
+          </Card>
+        ) : mode === null ? (
+          /* ---------- CHOOSE WHO SIGNS ---------- */
+          <div className="flex justify-center">
+            <Card className="max-w-3xl w-full">
+              <CardContent className="p-8 space-y-6">
+                <div className="text-center">
+                  <h2 className="text-2xl font-bold mb-2">
+                    Who will sign this document?
+                  </h2>
+                  <p className="text-muted-foreground">
+                    Choose how you want to handle signatures
+                  </p>
+                </div>
+                
+                <div className="grid md:grid-cols-2 gap-6">
+                  <Card
+                    className="cursor-pointer hover:border-primary/50 hover:shadow-md transition-all border-2"
+                    onClick={() => {
+                      setMode("single");
+                      setShowSingleModal(true);
+                    }}
+                  >
+                    <CardContent className="p-6 text-center space-y-3">
+                      <div className="w-16 h-16 mx-auto bg-accent/10 rounded-full flex items-center justify-center">
+                        <PenTool className="h-8 w-8 text-accent" />
+                      </div>
+                      <h3 className="text-lg font-semibold">Only me</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Sign the document yourself quickly and securely with your own signature.
+                      </p>
+                      <Button variant="outline" className="w-full mt-2">
+                        Choose This Option
+                      </Button>
+                    </CardContent>
+                  </Card>
+
+                  <Card
+                    className="cursor-pointer hover:border-primary/50 hover:shadow-md transition-all border-2"
+                    onClick={() => {
+                      setMode("multiple");
+                      setSigners([
+                        { id: Date.now().toString(), name: "", email: "" },
+                        { id: (Date.now() + 1).toString(), name: "", email: "" },
+                      ]);
+                      setShowMultiModal(true);
+                    }}
+                  >
+                    <CardContent className="p-6 text-center space-y-3">
+                      <div className="w-16 h-16 mx-auto bg-primary/10 rounded-full flex items-center justify-center">
+                        <div className="flex -space-x-2">
+                          <div className="w-6 h-6 bg-primary rounded-full border-2 border-white" />
+                          <div className="w-6 h-6 bg-accent rounded-full border-2 border-white" />
+                        </div>
+                      </div>
+                      <h3 className="text-lg font-semibold">Several people</h3>
+                      <p className="text-sm text-muted-foreground">
+                        Invite multiple people to sign the document and track their progress.
+                      </p>
+                      <Button variant="outline" className="w-full mt-3">
+                        Choose This Option
+                      </Button>
+                    </CardContent>
+                  </Card>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        ) : (
+          /* ---------- PDF VIEWER + FIELDS ---------- */
           <Card>
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-4">
+            <CardContent className="p-4 space-y-4">
+                  {/* Zoom & page controls */}
+              <div className="flex items-center justify-between bg-muted/30 p-3 rounded-lg">
                 <div className="flex items-center gap-2">
-                  <Button variant="outline" size="icon" onClick={() => setScale(Math.max(scale - 0.2, 0.5))}>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setScale((s) => Math.max(s - 0.2, 0.5))}
+                    disabled={scale <= 0.5}
+                  >
                     <ZoomOut className="h-4 w-4" />
                   </Button>
-                  <span className="text-sm font-medium">{Math.round(scale * 100)}%</span>
-                  <Button variant="outline" size="icon" onClick={() => setScale(Math.min(scale + 0.2, 2))}>
+                  <span className="text-sm font-medium min-w-[60px] text-center">
+                    {Math.round(scale * 100)}%
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setScale((s) => Math.min(s + 0.2, 2))}
+                    disabled={scale >= 2}
+                  >
                     <ZoomIn className="h-4 w-4" />
                   </Button>
                 </div>
-                <div className="text-sm text-muted-foreground">
-                  Page {currentPage} of {numPages}
+                <div className="text-sm font-medium text-muted-foreground">
+                  Page {page} of {numPages}
                 </div>
               </div>
 
+              {placing && (
+                <div className="bg-primary/10 border border-primary/30 rounded-lg p-3 text-sm text-center">
+                  <strong>Click on the PDF</strong> to place your {placing} field
+                </div>
+              )}
+
+              {/* PDF container */}
               <div
-                id="pdf-container"
-                className={`border rounded-lg bg-gray-100 overflow-auto max-h-[600px] relative ${currentPlacingType ? 'cursor-crosshair' : ''}`}
-                onMouseMove={handleFieldDrag}
-                onMouseUp={handleFieldDragEnd}
-                onMouseLeave={handleFieldDragEnd}
+                className={`border-2 rounded-lg bg-gray-50 overflow-auto max-h-[620px] relative ${
+                  placing ? "cursor-crosshair border-primary" : "border-border"
+                }`}
+                onClick={clickPdf}
               >
-                <Document
-                  file={file}
-                  onLoadSuccess={onDocumentLoadSuccess}
-                  onLoadError={onDocumentLoadError}
-                  className="flex justify-center p-4"
-                >
-                  <div ref={pageRef} style={{ position: 'relative' }} onClick={handlePdfClick}>
+                <Document file={file} onLoadSuccess={onLoadSuccess}>
+                  <div ref={pageRef} style={{ position: "relative", display: "inline-block" }}>
                     <Page
-                      pageNumber={currentPage}
+                      pageNumber={page}
                       scale={scale}
-                      renderTextLayer={true}
-                      renderAnnotationLayer={true}
+                      renderTextLayer={false}
+                      renderAnnotationLayer={false}
                     />
-                    {placedFields
-                      .filter(field => field.page === currentPage)
-                      .map(field => {
-                        const Icon = getFieldIcon(field.type);
-                        return (
-                          <div
-                            key={field.id}
-                            className={`absolute cursor-move border-2 rounded shadow-lg p-2 group ${getFieldColor(field.type)}`}
-                            style={{
-                              left: `${field.x * scale}px`,
-                              top: `${field.y * scale}px`,
-                              opacity: field.isDragging ? 0.7 : 1,
-                              minWidth: "120px",
-                            }}
-                            onMouseDown={(e) => {
-                              e.stopPropagation();
-                              handleFieldDragStart(e, field.id);
-                            }}
-                          >
-                            <div className="flex items-center gap-2 pointer-events-none select-none">
-                              <Icon className="h-4 w-4" />
-                              <span className="text-xs font-medium capitalize">
-                                {field.value || field.type.replace("-", " ")}
-                              </span>
-                            </div>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                removeField(field.id);
-                              }}
-                              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        );
-                      })}
+                    {fields
+                      .filter((f) => f.page === page)
+                      .map(renderField)}
                   </div>
                 </Document>
               </div>
 
+              {/* Pagination */}
               {numPages > 1 && (
-                <div className="flex justify-center gap-2 mt-4">
-                  <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>
-                    Previous
+                <div className="flex justify-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page === 1}
+                    onClick={() => setPage((p) => p - 1)}
+                  >
+                    Previous Page
                   </Button>
-                  <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.min(numPages, p + 1))} disabled={currentPage === numPages}>
-                    Next
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={page === numPages}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    Next Page
                   </Button>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </div>
+
+      {/* RIGHT – field palette (only after PDF + mode selected) */}
+      {file && mode && signers.length > 0 && (
+        <div className="space-y-4">
+          <Card>
+            <CardContent className="p-4 space-y-4">
+              <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">
+                Add Fields
+              </h3>
+
+              {/* Multiple signer selector */}
+              {mode === "multiple" && (
+                <div className="space-y-2">
+                  <Label className="text-xs">Select Signer</Label>
+                  {signers.map((s, i) => (
+                    <button
+                      key={s.id}
+                      onClick={() => {
+                        setPlacing("signature");
+                        setCurrentSignerId(s.id);
+                      }}
+                      className={`w-full flex items-center gap-2 p-3 rounded-lg border-2 transition-all ${
+                        currentSignerId === s.id
+                          ? "bg-accent/10 border-accent shadow-sm"
+                          : "border-border hover:border-accent/50"
+                      }`}
+                    >
+                      <PenTool className="h-4 w-4" />
+                      <div className="flex-1 text-left">
+                        <div className="text-sm font-medium">Signature {i + 1}</div>
+                        <div className="text-xs text-muted-foreground">{s.name || "Unnamed"}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Single-mode buttons */}
+              {mode === "single" && (
+                <div className="space-y-2">
+                  <button
+                    onClick={() => {
+                      setPlacing("signature");
+                      setCurrentSignerId(signers[0].id);
+                    }}
+                    className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
+                      placing === "signature"
+                        ? "bg-accent/10 border-accent shadow-sm"
+                        : "border-border hover:border-accent/50"
+                    }`}
+                  >
+                    <div className="w-8 h-8 bg-accent/20 rounded-lg flex items-center justify-center">
+                      <PenTool className="h-4 w-4 text-accent" />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <div className="text-sm font-medium">Signature</div>
+                      <div className="text-xs text-muted-foreground">Full signature</div>
+                    </div>
+                  </button>
+
+                  {initSig && (
+                    <button
+                      onClick={() => {
+                        setPlacing("initials");
+                        setCurrentSignerId(signers[0].id);
+                      }}
+                      className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
+                        placing === "initials"
+                          ? "bg-accent/10 border-accent shadow-sm"
+                          : "border-border hover:border-accent/50"
+                      }`}
+                    >
+                      <div className="w-8 h-8 bg-accent/20 rounded-lg flex items-center justify-center">
+                        <PenTool className="h-4 w-4 text-accent" />
+                      </div>
+                      <div className="flex-1 text-left">
+                        <div className="text-sm font-medium">Initials</div>
+                        <div className="text-xs text-muted-foreground">Short form</div>
+                      </div>
+                    </button>
+                  )}
+
+                  {stampImg && (
+                    <button
+                      onClick={() => {
+                        setPlacing("stamp");
+                        setCurrentSignerId(signers[0].id);
+                      }}
+                      className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
+                        placing === "stamp"
+                          ? "bg-purple-50 border-purple-400 shadow-sm"
+                          : "border-border hover:border-purple-400/50"
+                      }`}
+                    >
+                      <div className="w-8 h-8 bg-purple-500/20 rounded-lg flex items-center justify-center">
+                        <span className="text-purple-600 text-xs font-bold">S</span>
+                      </div>
+                      <div className="flex-1 text-left">
+                        <div className="text-sm font-medium">Company Stamp</div>
+                        <div className="text-xs text-muted-foreground">Official seal</div>
+                      </div>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <button
+                onClick={() => setPlacing("date")}
+                className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
+                  placing === "date"
+                    ? "bg-blue-50 border-blue-400 shadow-sm"
+                    : "border-border hover:border-blue-400/50"
+                }`}
+              >
+                <div className="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center">
+                  <Calendar className="h-4 w-4 text-blue-600" />
+                </div>
+                <div className="flex-1 text-left">
+                  <div className="text-sm font-medium">Date</div>
+                  <div className="text-xs text-muted-foreground">Today's date</div>
+                </div>
+              </button>
+
+              <div className="pt-4 border-t">
+                <Button
+                  onClick={startSigning}
+                  className="w-full"
+                  size="lg"
+                  disabled={fields.filter((f) => f.type !== "date").length === 0}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Sign PDF
+                </Button>
+              </div>
+
+              {fields.length > 0 && (
+                <div className="text-xs text-center text-muted-foreground space-y-1 pt-2">
+                  <p className="font-medium">{fields.length} field(s) placed</p>
+                  <p>Drag to move • Corners to resize • Hover for actions</p>
                 </div>
               )}
             </CardContent>
@@ -441,165 +1258,297 @@ const SignPDF = () => {
         </div>
       )}
     </div>
+  );
 
-    {file && fullName && (
-      <div className="space-y-4">
-        <Card>
-          <CardContent className="p-4">
-            <h3 className="font-semibold mb-2 text-sm">Fields</h3>
-
-            <button
-              onClick={() => setCurrentPlacingType("signature")}
-              className="w-full flex items-center gap-3 p-3 mb-2 bg-green-50 border-2 border-green-400 rounded-lg hover:bg-green-100 transition-colors"
-            >
-              <div className="w-8 h-8 bg-green-500 rounded flex items-center justify-center">
-                <PenTool className="h-4 w-4 text-white" />
-              </div>
-              <span className="text-sm font-medium">Signature</span>
-            </button>
-
-            <button
-              onClick={() => setCurrentPlacingType("date")}
-              className="w-full flex items-center gap-3 p-3 bg-blue-50 border border-blue-400 rounded-lg hover:bg-blue-100 transition-colors"
-            >
-              <div className="w-8 h-8 bg-blue-500 rounded flex items-center justify-center">
-                <Calendar className="h-4 w-4 text-white" />
-              </div>
-              <span className="text-sm">Date</span>
-            </button>
-
-            <Button onClick={handleSignPDF} className="w-full mt-4 bg-primary" disabled={placedFields.length === 0}>
-              Sign →
-            </Button>
-
-            {placedFields.length > 0 && (
-              <p className="text-xs text-center text-muted-foreground mt-2">
-                {placedFields.length} field(s) placed
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    )}
-  </div>
-);
-
-return (
-  <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
-    <div className="max-w-6xl mx-auto">
-      {/* Back Button and Header */}
-      <div className="flex items-center gap-4 mb-8">
-        <Button variant="ghost" size="sm" onClick={() => navigate(-1)} className="flex items-center gap-2">
-          <ArrowLeft className="h-4 w-4" /> Back
-        </Button>
-        <div>
-          <h1 className="text-3xl font-bold text-foreground">Sign PDF</h1>
-          <p className="text-muted-foreground">Upload and place signature & date fields on your PDF.</p>
-        </div>
-      </div>
-
-      {/* Render steps */}
-      {currentStep === "upload" && renderUploadStep()}
-
-      {currentStep === "processing" && (
-        <div className="max-w-2xl mx-auto text-center">
-          <Card>
-            <CardContent className="p-12">
-              <div className="space-y-6">
-                <p className="font-semibold text-xl">Signing your PDF...</p>
-                <Progress value={progress} className="w-1/2 mx-auto" />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-{currentStep === "download" && signedFileUrl && file && (
-  <div className="max-w-2xl mx-auto">
-    <Card className="border-2 border-primary">
-      <CardContent className="p-8 text-center">
-        <h3 className="text-xl font-semibold mb-2">Signing Complete!</h3>
-        <p className="text-sm text-muted-foreground mb-6">
-          Your PDF has been signed successfully. Download or continue with other tools.
-        </p>
-
-        <div className="bg-muted rounded-lg p-4 mb-6">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-12 h-12 bg-red-100 rounded flex items-center justify-center">
-              <span className="text-red-600 font-bold text-xs">PDF</span>
-            </div>
-            <div className="flex-1 text-left">
-              <h4 className="font-medium">signed_{file.name}</h4>
-              <p className="text-sm text-muted-foreground">
-                {(file.size / 1024 / 1024).toFixed(2)} MB
-              </p>
-            </div>
+  return (
+    <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
+      <div className="max-w-6xl mx-auto">
+        <div className="flex items-center gap-4 mb-8">
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => navigate("/pdf-tools")} 
+            className="flex items-center gap-2"
+          >
+            <ArrowLeft className="h-4 w-4" /> Back
+          </Button>
+          <div className="flex-1">
+            <h1 className="text-3xl font-bold">Sign PDF</h1>
+            <p className="text-muted-foreground mt-1">
+              Add signatures, initials, and dates to your documents
+            </p>
           </div>
-          {/* Optional: If you want percentage reduction, calculate it here */}
         </div>
 
-        <div className="flex items-center justify-center gap-4 mb-6">
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={resetProcess}
-            className="h-12 w-12"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
+        {/* Steps */}
+        {step === "upload" && renderUpload()}
 
-          <Button
-            onClick={downloadFile}
-            className="bg-primary hover:bg-primary/90 h-12 px-8"
-          >
-            <Download className="h-4 w-4 mr-2" />
-            Download Signed PDF
-          </Button>
-
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={resetProcess}
-            className="h-12 w-12 text-destructive hover:text-destructive"
-          >
-            <Trash2 className="h-5 w-5" />
-          </Button>
-        </div>
-
-        <PDFToolRecommendations currentTool="sign" />
-      </CardContent>
-    </Card>
-  </div>
-)}
-
-      
-
-      {/* Signature Details Modal remains unchanged */}
-      <Dialog open={showSignatureDetailsModal} onOpenChange={setShowSignatureDetailsModal}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Enter Signature Details</DialogTitle>
-          </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
-              <Label htmlFor="fullName">Full Name</Label>
-              <Input
-                id="fullName"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="John Doe"
-              />
-            </div>
-            <Button onClick={applySignatureDetails} className="mt-2">
-              Save Details
-            </Button>
+        {step === "processing" && (
+          <div className="max-w-xl mx-auto text-center">
+            <Card>
+              <CardContent className="p-12 space-y-6">
+                <div className="w-16 h-16 mx-auto bg-primary/10 rounded-full flex items-center justify-center">
+                  <PenTool className="h-8 w-8 text-primary animate-pulse" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-xl mb-2">Signing your PDF…</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Processing document with your signatures
+                  </p>
+                </div>
+                <Progress value={progress} className="h-2" />
+                <p className="text-xs text-muted-foreground">
+                  {Math.round(progress)}% complete
+                </p>
+              </CardContent>
+            </Card>
           </div>
-        </DialogContent>
-      </Dialog>
+        )}
+
+        {step === "download" && file && (
+          <div className="max-w-2xl mx-auto">
+            <Card className="border-2 border-accent">
+              <CardContent className="p-8 text-center space-y-6">
+                <div className="w-20 h-20 mx-auto bg-accent/10 rounded-full flex items-center justify-center">
+                  <Download className="h-10 w-10 text-accent" />
+                </div>
+                
+                <div>
+                  <h3 className="text-2xl font-semibold mb-2">Signing Complete!</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Your PDF has been signed successfully. Download it now.
+                  </p>
+                </div>
+
+                <div className="bg-muted/50 rounded-lg p-5 border">
+                  <div className="flex items-center gap-4">
+                    <div className="w-14 h-14 bg-red-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                      <span className="text-red-600 font-bold text-sm">PDF</span>
+                    </div>
+                    <div className="flex-1 text-left">
+                      <h4 className="font-medium">signed_{file.name}</h4>
+                      <p className="text-sm text-muted-foreground">
+                        {(file.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-center gap-3 pt-4">
+                  <Button variant="outline" size="icon" onClick={reset} className="h-12 w-12">
+                    <ArrowLeft className="h-5 w-5" />
+                  </Button>
+
+                  <Button onClick={downloadSigned} size="lg" className="px-8">
+                    <Download className="h-5 w-5 mr-2" /> 
+                    Download Signed PDF
+                  </Button>
+
+                  <Button 
+                    variant="outline" 
+                    size="icon" 
+                    onClick={reset} 
+                    className="h-12 w-12 text-destructive hover:text-destructive"
+                  >
+                    <Trash2 className="h-5 w-5" />
+                  </Button>
+                </div>
+
+                <PDFToolRecommendations currentTool="sign" />
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* ──────────────────────── SINGLE SIGNER MODAL ──────────────────────── */}
+        <Dialog open={showSingleModal} onOpenChange={setShowSingleModal}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Create Your Signature</DialogTitle>
+            </DialogHeader>
+
+            <div className="space-y-5 py-4">
+              {/* Name & Initials */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Full Name *</Label>
+                  <Input 
+                    value={fullName} 
+                    onChange={(e) => setFullName(e.target.value)} 
+                    placeholder="John Doe" 
+                    className="mt-1.5"
+                  />
+                </div>
+                <div>
+                  <Label>Initials (optional)</Label>
+                  <Input 
+                    value={initials} 
+                    onChange={(e) => setInitials(e.target.value)} 
+                    placeholder="JD" 
+                    className="mt-1.5"
+                  />
+                </div>
+              </div>
+
+              {/* Tabs */}
+              <div className="flex border-b">
+                {(["signature", "initials", "stamp"] as const).map((t) => (
+                  <button
+                    key={t}
+                    className={`px-4 py-2 capitalize transition-colors ${
+                      activeTab === t 
+                        ? "border-b-2 border-primary text-primary font-medium" 
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                    onClick={() => setActiveTab(t)}
+                  >
+                    {t === "signature" ? "Signature" : t === "initials" ? "Initials" : "Company Stamp"}
+                  </button>
+                ))}
+              </div>
+
+              {/* Signature creator */}
+              {activeTab === "signature" && (
+                <SignatureCreator
+                  onSave={(cfg) => {
+                    setFullSig(cfg);
+                    toast.success("Signature saved");
+                  }}
+                  initialName={fullName}
+                />
+              )}
+
+              {/* Initials creator */}
+              {activeTab === "initials" && (
+                <SignatureCreator
+                  onSave={(cfg) => {
+                    setInitSig(cfg);
+                    toast.success("Initials saved");
+                  }}
+                  initialName={initials}
+                />
+              )}
+
+              {/* Company stamp */}
+              {activeTab === "stamp" && (
+                <div className="space-y-3">
+                  <Label>Upload Company Stamp</Label>
+                  <Input
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      const r = new FileReader();
+                      r.onload = () => {
+                        setStampImg(r.result as string);
+                        toast.success("Stamp uploaded");
+                      };
+                      r.readAsDataURL(f);
+                    }}
+                    className="mt-1.5"
+                  />
+                  {stampImg && (
+                    <div className="p-4 border rounded-lg bg-muted/30">
+                      <Label className="text-xs text-muted-foreground mb-2 block">Preview</Label>
+                      <img 
+                        src={stampImg} 
+                        alt="stamp preview" 
+                        className="max-h-40 mx-auto rounded" 
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <Button variant="outline" onClick={() => setShowSingleModal(false)}>
+                Cancel
+              </Button>
+              <Button onClick={finishSingle} disabled={!fullSig || !fullName.trim()}>
+                Continue
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* ──────────────────────── MULTIPLE SIGNERS MODAL ──────────────────────── */}
+        <Dialog open={showMultiModal} onOpenChange={setShowMultiModal}>
+          <DialogContent className="max-w-xl">
+            <DialogHeader>
+              <DialogTitle>Add Multiple Signers</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3 py-4">
+              {signers.map((s, i) => (
+                <div key={s.id} className="flex gap-2 items-start p-3 border rounded-lg">
+                  <div className="flex-1 space-y-2">
+                    <Input
+                      placeholder={`Signer ${i + 1} name *`}
+                      value={s.name}
+                      onChange={(e) => updateSigner(s.id, "name", e.target.value)}
+                    />
+                    <Input
+                      placeholder="Email (optional)"
+                      type="email"
+                      value={s.email ?? ""}
+                      onChange={(e) => updateSigner(s.id, "email", e.target.value)}
+                    />
+                  </div>
+                  <Button 
+                    variant="destructive" 
+                    size="icon" 
+                    onClick={() => removeSigner(s.id)}
+                    disabled={signers.length <= 2}
+                  >
+                    <Trash className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              <Button variant="outline" className="w-full" onClick={addSigner}>
+                + Add Another Signer
+              </Button>
+            </div>
+            <div className="flex justify-end gap-2 pt-4 border-t">
+              <Button variant="outline" onClick={() => setShowMultiModal(false)}>
+                Cancel
+              </Button>
+              <Button onClick={finishMulti}>
+                Continue
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* ──────────────────────── RE-SIGN MODAL ──────────────────────── */}
+        <ReSignModal
+          isOpen={showReSignModal}
+          onClose={() => {
+            setShowReSignModal(false);
+            setEditingFieldId(null);
+          }}
+          fieldType={
+            editingFieldId 
+              ? (fields.find(f => f.id === editingFieldId)?.type === "signature" ? "signature" : "initials") 
+              : "signature"
+          }
+          currentValue={editingFieldId ? fields.find(f => f.id === editingFieldId)?.value : undefined}
+          onSave={saveReSign}
+        />
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
+/* ──────────────────────────────────────── */
+/*  Helper – hex → pdf-lib rgb              */
+/* ──────────────────────────────────────── */
+const hexToRgb = (hex: string) => {
+  const clean = hex.replace("#", "");
+  const r = parseInt(clean.slice(0, 2), 16) / 255;
+  const g = parseInt(clean.slice(2, 4), 16) / 255;
+  const b = parseInt(clean.slice(4, 6), 16) / 255;
+  return rgb(r, g, b);
 };
 
 export default SignPDF;
