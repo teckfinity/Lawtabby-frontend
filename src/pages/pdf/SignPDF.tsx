@@ -462,7 +462,7 @@ const SignPDF = () => {
   const [progress, setProgress] = useState(0);
   const [numPages, setNumPages] = useState(0);
   const [page, setPage] = useState(1);
-  const [scale, setScale] = useState(1);
+const [scale, setScale] = useState(1.30);
   const pageRef = useRef<HTMLDivElement>(null);
 
   const [mode, setMode] = useState<"single" | "multiple" | null>(null);
@@ -934,9 +934,9 @@ const SignPDF = () => {
       <div className="lg:col-span-3">
         {!file ? (
           /* ---------- UPLOAD CARD ---------- */
-          <Card className="border-2 border-dashed hover:border-primary/50 transition-colors h-96 flex items-center justify-center">
-            <CardContent className="text-center space-y-4 p-8">
-              <div className="w-20 h-20 mx-auto bg-primary/10 rounded-full flex items-center justify-center">
+          <Card className="border-2 border-dashed border-muted-foreground/20 hover:border-primary/50 transition-colors">
+          <CardContent className="text-center space-y-8 p-3">
+                <div className="w-20 h-20 mx-auto bg-primary/10 rounded-full flex items-center justify-center">
                 <Upload className="h-10 w-10 text-primary" />
               </div>
               <h3 className="text-2xl font-semibold">Upload PDF to Sign</h3>
@@ -1031,7 +1031,7 @@ const SignPDF = () => {
           /* ---------- PDF VIEWER + FIELDS ---------- */
           <Card>
             <CardContent className="p-4 space-y-4">
-              {/* Zoom & page controls */}
+                  {/* Zoom & page controls */}
               <div className="flex items-center justify-between bg-muted/30 p-3 rounded-lg">
                 <div className="flex items-center gap-2">
                   <Button
@@ -1262,13 +1262,12 @@ const SignPDF = () => {
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
+      <div className="max-w-6xl mx-auto">
         <div className="flex items-center gap-4 mb-8">
           <Button 
             variant="ghost" 
             size="sm" 
-            onClick={() => navigate("/")} 
+            onClick={() => navigate("/pdf-tools")} 
             className="flex items-center gap-2"
           >
             <ArrowLeft className="h-4 w-4" /> Back
