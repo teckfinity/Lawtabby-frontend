@@ -1,33 +1,292 @@
 'use client';
 
-import { useState, useRef, useEffect, useMemo, memo } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useMemo,
+  memo,
+  useCallback,
+} from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  Upload, Download, Check, Type, Image as ImageIcon,
-  FileText, Settings2, ArrowLeft
+  Upload,
+  Download,
+  Check,
+  Type,
+  Image as ImageIcon,
+  FileText,
+  Settings2,
+  ArrowLeft,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { PDFDocument, rgb, degrees, StandardFonts } from "pdf-lib";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { useNavigate } from "react-router-dom";
 
-/* ---------- react-pdf (CDN + ESM worker – WORKS 100%) ---------- */
+/* ---------- react-pdf ---------- */
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
-// CORRECT ESM WORKER FROM CDN
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 type ProcessStep = "upload" | "customize" | "processing" | "download";
 type WatermarkType = "text" | "image";
 
+/* ------------------------------------------------------------------ */
+/* Hook – load PDF once and keep the pdfjs document in a ref          */
+/* ------------------------------------------------------------------ */
+const usePDFDocument = (file: File | null) => {
+  const [pdfDoc, setPdfDoc] = useState<pdfjs.PDFDocumentProxy | null>(null);
+  const [numPages, setNumPages] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!file) {
+      setPdfDoc(null);
+      setNumPages(0);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+
+    const load = async () => {
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const doc = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+        if (!cancelled) {
+          setPdfDoc(doc);
+          setNumPages(doc.numPages);
+        }
+      } catch (e: any) {
+        if (!cancelled) setError(e.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [file]);
+
+  return { pdfDoc, numPages, loading, error };
+};
+
+/* ------------------------------------------------------------------ */
+/* Page overlay – pure component, only re-renders on watermark change*/
+/* ------------------------------------------------------------------ */
+const PageOverlay = memo(
+  ({
+    pageIndex,
+    watermarkType,
+    watermarkText,
+    fontSize,
+    fontFamily,
+    textColor,
+    rotation,
+    opacity,
+    imageUrl,
+    positionX,
+    positionY,
+    pageWidth,
+    pageHeight,
+  }: {
+    pageIndex: number;
+    watermarkType: WatermarkType;
+    watermarkText: string;
+    fontSize: number;
+    fontFamily: string;
+    textColor: string;
+    rotation: number;
+    opacity: number;
+    imageUrl: string | null;
+    positionX: number;
+    positionY: number;
+    pageWidth: number;
+    pageHeight: number;
+  }) => {
+    const overlayKey = `${watermarkType}-${watermarkText}-${fontSize}-${fontFamily}-${textColor}-${rotation}-${opacity}-${imageUrl}-${positionX}-${positionY}-${pageWidth}-${pageHeight}`;
+
+    return (
+      <div
+        key={overlayKey}
+        className="pointer-events-none absolute inset-0"
+        style={{ zIndex: 10 }}
+      >
+        {watermarkType === "text" && watermarkText && (
+          <div
+            style={{
+              position: "absolute",
+              left: `${positionX}%`,
+              top: `${positionY}%`,
+              transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+              fontSize: `${(fontSize * pageWidth) / 1000}px`, // Scale font based on actual page
+              fontFamily:
+                fontFamily === "Helvetica"
+                  ? "sans-serif"
+                  : fontFamily === "Times"
+                  ? "serif"
+                  : "monospace",
+              color: textColor,
+              opacity: opacity / 100,
+              fontWeight: "bold",
+              whiteSpace: "nowrap",
+              userSelect: "none",
+            }}
+          >
+            {watermarkText}
+          </div>
+        )}
+
+        {watermarkType === "image" && imageUrl && (
+          <img
+            src={imageUrl}
+            alt="watermark"
+            style={{
+              position: "absolute",
+              left: `${positionX}%`,
+              top: `${positionY}%`,
+              transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+              width: `${(200 * pageWidth) / 1000}px`, // Scale image
+              height: "auto",
+              opacity: opacity / 100,
+              pointerEvents: "none",
+            }}
+          />
+        )}
+      </div>
+    );
+  }
+);
+PageOverlay.displayName = "PageOverlay";
+
+/* ------------------------------------------------------------------ */
+/* Live preview – shows all pages, but only stamps selected ones     */
+/* ------------------------------------------------------------------ */
+const PDFLivePreview = memo(
+  ({
+    file,
+    totalPages,
+    watermarkSettings,
+    applyToAllPages,
+    pageRangeFrom,
+    pageRangeTo,
+    selectedPages,
+  }: {
+    file: File;
+    totalPages: number;
+    watermarkSettings: any;
+    applyToAllPages: boolean;
+    pageRangeFrom: number;
+    pageRangeTo: number;
+    selectedPages: Set<number>;
+  }) => {
+    const { pdfDoc, loading, error } = usePDFDocument(file);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const [containerWidth, setContainerWidth] = useState(0);
+    const [pageDimensions, setPageDimensions] = useState<Map<number, { width: number; height: number }>>(new Map());
+
+    /* Resize observer */
+    useEffect(() => {
+      if (!containerRef.current) return;
+      const ro = new ResizeObserver((entries) => {
+        const w = entries[0].contentRect.width;
+        if (Math.abs(w - containerWidth) > 5) setContainerWidth(w);
+      });
+      ro.observe(containerRef.current);
+      return () => ro.disconnect();
+    }, [containerWidth]);
+
+    /* Get page dimensions */
+    const onRenderSuccess = useCallback((pageIndex: number, page: any) => {
+      const viewport = page.getViewport({ scale: 1 });
+      setPageDimensions(prev => new Map(prev).set(pageIndex, { width: viewport.width, height: viewport.height }));
+    }, []);
+
+    if (!pdfDoc) return null;
+
+    return (
+      <div
+        ref={containerRef}
+        className="relative w-full h-full bg-white overflow-auto rounded-lg shadow-inner"
+        style={{ overflowX: "hidden" }}
+      >
+        <Document file={file} loading={null}>
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => {
+            const isSelected = selectedPages.has(pageNum);
+            const dims = pageDimensions.get(pageNum) || { width: 800, height: 1000 };
+
+            return (
+              <div
+                key={pageNum}
+                className={`mb-6 relative ${!isSelected ? "opacity-40" : ""}`}
+                style={{ filter: !isSelected ? "grayscale(50%)" : "none" }}
+              >
+                <Page
+                  pageNumber={pageNum}
+                  width={containerWidth || undefined}
+                  renderTextLayer={false}
+                  renderAnnotationLayer={false}
+                  loading={null}
+                  className="shadow-md"
+                  onRenderSuccess={(page) => onRenderSuccess(pageNum, page)}
+                  canvasProps={{
+                    style: { width: "100%", height: "auto" },
+                  }}
+                />
+                {isSelected && (
+                  <PageOverlay
+                    pageIndex={pageNum}
+                    {...watermarkSettings}
+                    pageWidth={dims.width}
+                    pageHeight={dims.height}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </Document>
+
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-white/90 backdrop-blur-sm">
+            <div className="text-lg font-medium text-muted-foreground">
+              Loading PDF...
+            </div>
+          </div>
+        )}
+        {error && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-50 text-red-600 p-4">
+            <p className="font-medium">Failed to load PDF</p>
+            <p className="text-sm mt-1 max-w-md text-center">{error}</p>
+          </div>
+        )}
+      </div>
+    );
+  }
+);
+PDFLivePreview.displayName = "PDFLivePreview";
+
+/* ------------------------------------------------------------------ */
+/* Main component                                                     */
+/* ------------------------------------------------------------------ */
 const StampPDF = () => {
   const navigate = useNavigate();
 
@@ -39,7 +298,9 @@ const StampPDF = () => {
   const [watermarkType, setWatermarkType] = useState<WatermarkType>("text");
   const [watermarkText, setWatermarkText] = useState("CONFIDENTIAL");
   const [fontSize, setFontSize] = useState(48);
-  const [fontFamily, setFontFamily] = useState<"Helvetica" | "Times" | "Courier">("Helvetica");
+  const [fontFamily, setFontFamily] = useState<
+    "Helvetica" | "Times" | "Courier"
+  >("Helvetica");
   const [textColor, setTextColor] = useState("#000000");
   const [rotation, setRotation] = useState(0);
   const [opacity, setOpacity] = useState(50);
@@ -58,25 +319,19 @@ const StampPDF = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const previewContainerRef = useRef<HTMLDivElement>(null);
-  const [previewWidth, setPreviewWidth] = useState<number>(0);
 
-  /* ---------- Resize observer ---------- */
-  useEffect(() => {
-    if (!previewContainerRef.current) return;
-
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const width = entry.contentRect.width;
-        if (Math.abs(width - previewWidth) > 5) {
-          setPreviewWidth(width);
-        }
+  /* ---------- Selected pages set ---------- */
+  const selectedPages = useMemo(() => {
+    const set = new Set<number>();
+    if (applyToAllPages) {
+      for (let i = 1; i <= totalPages; i++) set.add(i);
+    } else {
+      for (let i = pageRangeFrom; i <= pageRangeTo; i++) {
+        if (i >= 1 && i <= totalPages) set.add(i);
       }
-    });
-
-    resizeObserver.observe(previewContainerRef.current);
-    return () => resizeObserver.disconnect();
-  }, [previewWidth]);
+    }
+    return set;
+  }, [applyToAllPages, pageRangeFrom, pageRangeTo, totalPages]);
 
   /* ---------- Image preview URL ---------- */
   useEffect(() => {
@@ -88,6 +343,34 @@ const StampPDF = () => {
       setImageUrl(null);
     }
   }, [imageWatermark]);
+
+  /* ---------- Watermark settings object for memoization ---------- */
+  const watermarkSettings = useMemo(
+    () => ({
+      watermarkType,
+      watermarkText,
+      fontSize,
+      fontFamily,
+      textColor,
+      rotation,
+      opacity,
+      imageUrl,
+      positionX,
+      positionY,
+    }),
+    [
+      watermarkType,
+      watermarkText,
+      fontSize,
+      fontFamily,
+      textColor,
+      rotation,
+      opacity,
+      imageUrl,
+      positionX,
+      positionY,
+    ]
+  );
 
   /* ---------- PDF upload ---------- */
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -104,6 +387,7 @@ const StampPDF = () => {
       const pages = pdf.getPages();
       const numPages = pages.length;
       setTotalPages(numPages);
+      setPageRangeFrom(1);
       setPageRangeTo(numPages);
       toast.success(`PDF loaded – ${numPages} page${numPages > 1 ? "s" : ""}`);
       setCurrentStep("customize");
@@ -123,7 +407,7 @@ const StampPDF = () => {
     }
   };
 
-  /* ---------- Watermark processing ---------- */
+  /* ---------- Watermark processing – EXACT POSITIONING ---------- */
   const hexToRgb = (hex: string) => {
     const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     return m
@@ -137,8 +421,10 @@ const StampPDF = () => {
 
   const applyWatermark = async () => {
     if (!file) return toast.error("Upload a PDF first");
-    if (watermarkType === "text" && !watermarkText) return toast.error("Enter text");
-    if (watermarkType === "image" && !imageWatermark) return toast.error("Upload an image");
+    if (watermarkType === "text" && !watermarkText)
+      return toast.error("Enter text");
+    if (watermarkType === "image" && !imageWatermark)
+      return toast.error("Upload an image");
 
     setCurrentStep("processing");
     setProgress(10);
@@ -150,14 +436,7 @@ const StampPDF = () => {
 
       setProgress(30);
 
-      const indices: number[] = [];
-      if (applyToAllPages) {
-        for (let i = 0; i < pages.length; i++) indices.push(i);
-      } else {
-        const from = Math.max(0, pageRangeFrom - 1);
-        const to = Math.min(pages.length - 1, pageRangeTo - 1);
-        for (let i = from; i <= to; i++) indices.push(i);
-      }
+      const indices: number[] = Array.from(selectedPages).map(p => p - 1);
 
       setProgress(50);
 
@@ -188,9 +467,10 @@ const StampPDF = () => {
         }
       } else if (watermarkType === "image" && imageWatermark) {
         const imgBuf = await imageWatermark.arrayBuffer();
-        const img = imageWatermark.type === "image/png"
-          ? await pdfDoc.embedPng(imgBuf)
-          : await pdfDoc.embedJpg(imgBuf);
+        const img =
+          imageWatermark.type === "image/png"
+            ? await pdfDoc.embedPng(imgBuf)
+            : await pdfDoc.embedJpg(imgBuf);
 
         for (const i of indices) {
           const page = pages[i];
@@ -245,124 +525,22 @@ const StampPDF = () => {
     setImageUrl(null);
   };
 
-  /* ---------- Memoized PDF File for Preview ---------- */
-  const memoizedPdfFile = useMemo(() => {
-    if (!file) return null;
-    return file;
-  }, [file]);
-
-  /* ---------- Memoized Live Preview Component ---------- */
-  const PDFLivePreview = memo(() => {
-    const [pdfLoading, setPdfLoading] = useState(true);
-    const [pdfError, setPdfError] = useState<string | null>(null);
-
-    if (!memoizedPdfFile) return null;
-
-    return (
-      <div
-        ref={previewContainerRef}
-        className="relative w-full h-full bg-white overflow-auto rounded-lg shadow-inner"
-      >
-        <Document
-          file={memoizedPdfFile}
-          onLoadSuccess={({ numPages }) => {
-            setTotalPages(numPages);
-            setPdfLoading(false);
-            setPdfError(null);
-          }}
-          onLoadError={(err) => {
-            setPdfLoading(false);
-            setPdfError(err.message);
-          }}
-          loading={null}
-          key={memoizedPdfFile?.name}
-        >
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
-            <div key={pageNum} className="mb-6 relative">
-              <Page
-                pageNumber={pageNum}
-                width={previewWidth || undefined}
-                renderTextLayer={false}
-                renderAnnotationLayer={false}
-                loading={null}
-                className="shadow-md mx-auto"
-              />
-
-              {/* Watermark overlay per page */}
-              <div className="pointer-events-none absolute inset-0">
-                {watermarkType === "text" && watermarkText && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      left: `${positionX}%`,
-                      top: `${positionY}%`,
-                      transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
-                      fontSize: `${fontSize}px`,
-                      fontFamily:
-                        fontFamily === "Helvetica"
-                          ? "sans-serif"
-                          : fontFamily === "Times"
-                          ? "serif"
-                          : "monospace",
-                      color: textColor,
-                      opacity: opacity / 100,
-                      fontWeight: "bold",
-                      whiteSpace: "nowrap",
-                      userSelect: "none",
-                    }}
-                  >
-                    {watermarkText}
-                  </div>
-                )}
-
-                {watermarkType === "image" && imageUrl && (
-                  <img
-                    src={imageUrl}
-                    alt="watermark"
-                    style={{
-                      position: "absolute",
-                      left: `${positionX}%`,
-                      top: `${positionY}%`,
-                      transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
-                      maxWidth: "200px",
-                      maxHeight: "200px",
-                      opacity: opacity / 100,
-                      pointerEvents: "none",
-                    }}
-                  />
-                )}
-              </div>
-            </div>
-          ))}
-        </Document>
-
-        {pdfLoading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/90 backdrop-blur-sm">
-            <div className="text-lg font-medium text-muted-foreground">Loading PDF...</div>
-          </div>
-        )}
-        {pdfError && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-50 text-red-600 p-4">
-            <p className="font-medium">Failed to load PDF</p>
-            <p className="text-sm mt-1 max-w-md text-center">{pdfError}</p>
-          </div>
-        )}
-      </div>
-    );
-  });
-
-  PDFLivePreview.displayName = "PDFLivePreview";
-
-  /* ---------- Render Steps ---------- */
+  /* ---------- Render steps ---------- */
   const renderUpload = () => (
-    <div className="max-w-3xl mx-auto">
+    <div className="w-full max-w-3xl mx-auto">
       <Card>
         <CardContent className="p-12 text-center">
           <div className="border-2 border-dashed rounded-xl p-12 bg-muted/30 hover:bg-muted/50 transition-colors">
             <Upload className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
             <p className="text-lg font-medium mb-2">Upload PDF to Stamp</p>
-            <p className="text-sm text-muted-foreground mb-6">Drag & drop your PDF here, or click to browse and select a file from your computer.</p>
-            <Button size="lg" onClick={() => fileInputRef.current?.click()}>
+            <p className="text-sm text-muted-foreground mb-6">
+              Drag & drop your PDF here, or click to browse and select a file
+              from your computer.
+            </p>
+            <Button
+              size="lg"
+              onClick={() => fileInputRef.current?.click()}
+            >
               <Upload className="h-5 w-5 mr-2" />
               Select PDF
             </Button>
@@ -380,63 +558,95 @@ const StampPDF = () => {
   );
 
   const renderCustomize = () => (
-    <div className="grid lg:grid-cols-2 gap-6 h-full">
-      {/* LEFT – PDF PREVIEW */}
+    <div className="grid lg:grid-cols-[1.4fr,0.8fr] gap-6 h-full w-full">
+      {/* LEFT – PDF PREVIEW (Wider) */}
       <div className="flex flex-col h-full">
         <Card className="flex flex-col h-full">
-          <CardContent className="p-4 flex flex-col h-full">
-            <div className="flex items-center justify-between mb-3">
+          <CardContent className="p-0 flex flex-col h-full">
+            <div className="flex items-center justify-between p-3 border-b bg-background">
               <h3 className="font-semibold">Live Preview</h3>
               <span className="text-sm text-muted-foreground">
-                {totalPages > 1 ? `Pages 1–${totalPages}` : "Page 1"}
+                {applyToAllPages
+                  ? totalPages > 1
+                    ? `All ${totalPages} pages`
+                    : "Page 1"
+                  : `Pages ${pageRangeFrom}–${pageRangeTo}`}
               </span>
             </div>
-            <div className="flex-1 min-h-0 bg-muted/10 rounded-lg border overflow-hidden">
-              <PDFLivePreview />
+            <div className="flex-1 min-h-0 bg-muted/10 overflow-hidden">
+              {file && (
+                <PDFLivePreview
+                  file={file}
+                  totalPages={totalPages}
+                  watermarkSettings={watermarkSettings}
+                  applyToAllPages={applyToAllPages}
+                  pageRangeFrom={pageRangeFrom}
+                  pageRangeTo={pageRangeTo}
+                  selectedPages={selectedPages}
+                />
+              )}
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* RIGHT – SETTINGS */}
-      <div className="flex flex-col h-full overflow-y-auto pr-2 space-y-4">
+      {/* RIGHT – SETTINGS (Compressed, No Scroll) */}
+      <div className="flex flex-col h-full space-y-3 max-w-sm mx-auto w-full">
         {/* File info */}
-        <Card>
-          <CardContent className="p-4 flex items-center gap-4">
-            <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-              <FileText className="h-6 w-6 text-primary" />
+        <Card className="shadow-sm">
+          <CardContent className="p-3 flex items-center gap-3">
+            <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
+              <FileText className="h-5 w-5 text-primary" />
             </div>
-            <div className="flex-1">
-              <h4 className="font-semibold">{file?.name}</h4>
-              <p className="text-sm text-muted-foreground">
-                {totalPages} pages • {(file!.size / 1024 / 1024).toFixed(2)} MB
+            <div className="flex-1 min-w-0">
+              <h4 className="text-sm font-medium truncate">{file?.name}</h4>
+              <p className="text-xs text-muted-foreground">
+                {totalPages} pages
               </p>
             </div>
-            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 px-2 text-xs"
+              onClick={() => fileInputRef.current?.click()}
+            >
               Change
             </Button>
           </CardContent>
         </Card>
 
         {/* Watermark type */}
-        <Card>
-          <CardContent className="p-4">
-            <Tabs value={watermarkType} onValueChange={(v) => setWatermarkType(v as WatermarkType)}>
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="text"><Type className="h-4 w-4 mr-1" />Text</TabsTrigger>
-                <TabsTrigger value="image"><ImageIcon className="h-4 w-4 mr-1" />Image</TabsTrigger>
+        <Card className="shadow-sm">
+          <CardContent className="p-3">
+            <Tabs
+              value={watermarkType}
+              onValueChange={(v) => setWatermarkType(v as WatermarkType)}
+            >
+              <TabsList className="grid w-full grid-cols-2 h-8">
+                <TabsTrigger value="text" className="text-xs">
+                  <Type className="h-3 w-3 mr-1" /> Text
+                </TabsTrigger>
+                <TabsTrigger value="image" className="text-xs">
+                  <ImageIcon className="h-3 w-3 mr-1" /> Image
+                </TabsTrigger>
               </TabsList>
 
-              <TabsContent value="text" className="mt-4 space-y-4">
-                <div className="space-y-2">
-                  <Label>Text</Label>
-                  <Input value={watermarkText} onChange={(e) => setWatermarkText(e.target.value)} />
+              <TabsContent value="text" className="mt-3 space-y-3">
+                <div className="space-y-1">
+                  <Label className="text-xs">Text</Label>
+                  <Input
+                    value={watermarkText}
+                    onChange={(e) => setWatermarkText(e.target.value)}
+                    className="h-8 text-sm"
+                  />
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label>Font</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Font</Label>
                     <Select value={fontFamily} onValueChange={(v) => setFontFamily(v as any)}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="Helvetica">Helvetica</SelectItem>
                         <SelectItem value="Times">Times</SelectItem>
@@ -444,45 +654,77 @@ const StampPDF = () => {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Size</Label>
-                    <Input type="number" min={12} max={120} value={fontSize}
-                           onChange={(e) => setFontSize(+e.target.value)} />
+                  <div className="space-y-1">
+                    <Label className="text-xs">Size</Label>
+                    <Input
+                      type="number"
+                      min={12}
+                      max={120}
+                      value={fontSize}
+                      onChange={(e) => setFontSize(+e.target.value)}
+                      className="h-8 text-sm"
+                    />
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label>Color</Label>
-                  <div className="flex gap-2">
-                    <Input type="color" value={textColor} onChange={(e) => setTextColor(e.target.value)}
-                           className="w-16 h-10 p-1" />
-                    <Input value={textColor} onChange={(e) => setTextColor(e.target.value)} className="flex-1" />
+                <div className="space-y-1">
+                  <Label className="text-xs">Color</Label>
+                  <div className="flex gap-1">
+                    <Input
+                      type="color"
+                      value={textColor}
+                      onChange={(e) => setTextColor(e.target.value)}
+                      className="w-10 h-8 p-0.5"
+                    />
+                    <Input
+                      value={textColor}
+                      onChange={(e) => setTextColor(e.target.value)}
+                      className="h-8 text-xs flex-1"
+                    />
                   </div>
                 </div>
               </TabsContent>
 
-              <TabsContent value="image" className="mt-4">
-                <div className="border-2 border-dashed rounded-lg p-6 text-center">
+              <TabsContent value="image" className="mt-3">
+                <div className="border border-dashed rounded-lg p-4 text-center">
                   {imageWatermark ? (
-                    <div className="space-y-3">
-                      <div className="w-24 h-24 mx-auto bg-muted rounded-lg overflow-hidden flex items-center justify-center">
-                        <img src={URL.createObjectURL(imageWatermark)} alt=""
-                             className="max-w-full max-h-full object-contain" />
+                    <div className="space-y-2">
+                      <div className="w-16 h-16 mx-auto bg-muted rounded overflow-hidden">
+                        <img
+                          src={URL.createObjectURL(imageWatermark)}
+                          alt=""
+                          className="w-full h-full object-contain"
+                        />
                       </div>
-                      <p className="text-sm font-medium">{imageWatermark.name}</p>
-                      <Button variant="outline" size="sm" onClick={() => imageInputRef.current?.click()}>
+                      <p className="text-xs font-medium truncate">{imageWatermark.name}</p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => imageInputRef.current?.click()}
+                      >
                         Change
                       </Button>
                     </div>
                   ) : (
                     <div>
-                      <ImageIcon className="h-12 mx-auto text-muted-foreground mb-3" />
-                      <Button variant="outline" onClick={() => imageInputRef.current?.click()}>
-                        <Upload className="h-4 w-4 mr-2" /> Upload Image
+                      <ImageIcon className="h-8 mx-auto text-muted-foreground mb-2" />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => imageInputRef.current?.click()}
+                      >
+                        <Upload className="h-3 w-3 mr-1" /> Upload
                       </Button>
                     </div>
                   )}
-                  <input ref={imageInputRef} type="file" accept="image/*" className="hidden"
-                         onChange={handleImageUpload} />
+                  <input
+                    ref={imageInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleImageUpload}
+                  />
                 </div>
               </TabsContent>
             </Tabs>
@@ -490,57 +732,108 @@ const StampPDF = () => {
         </Card>
 
         {/* Position & Rotation */}
-        <Card>
-          <CardContent className="p-4">
-            <h3 className="font-semibold mb-4 flex items-center gap-2">
-              <Settings2 className="h-4 w-4" />Position & Rotation
+        <Card className="shadow-sm">
+          <CardContent className="p-3 space-y-3">
+            <h3 className="text-sm font-medium flex items-center gap-1">
+              <Settings2 className="h-3 w-3" /> Position
             </h3>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>X (%)</Label>
-                <Input type="number" min={0} max={100} value={positionX}
-                       onChange={(e) => setPositionX(+e.target.value)} />
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">X (%)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={positionX}
+                  onChange={(e) => setPositionX(+e.target.value)}
+                  className="h-8 text-sm"
+                />
               </div>
-              <div className="space-y-2">
-                <Label>Y (%)</Label>
-                <Input type="number" min={0} max={100} value={positionY}
-                       onChange={(e) => setPositionY(+e.target.value)} />
+              <div className="space-y-1">
+                <Label className="text-xs">Y (%)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={positionY}
+                  onChange={(e) => setPositionY(+e.target.value)}
+                  className="h-8 text-sm"
+                />
               </div>
             </div>
-            <div className="mt-4 grid grid-cols-2 gap-3">
-              <div className="space-y-2">
-                <Label>Rotation (degrees)</Label>
-                <Input type="number" min={-180} max={180} value={rotation}
-                       onChange={(e) => setRotation(+e.target.value)} />
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">Rotate</Label>
+                <Input
+                  type="number"
+                  min={-180}
+                  max={180}
+                  value={rotation}
+                  onChange={(e) => setRotation(+e.target.value)}
+                  className="h-8 text-sm"
+                />
               </div>
-              <div className="space-y-2">
-                <Label>Opacity (%)</Label>
-                <Input type="number" min={10} max={100} value={opacity}
-                       onChange={(e) => setOpacity(+e.target.value)} />
+              <div className="space-y-1">
+                <Label className="text-xs">Opacity</Label>
+                <Input
+                  type="number"
+                  min={10}
+                  max={100}
+                  value={opacity}
+                  onChange={(e) => setOpacity(+e.target.value)}
+                  className="h-8 text-sm"
+                />
               </div>
             </div>
           </CardContent>
         </Card>
 
         {/* Pages */}
-        <Card>
-          <CardContent className="p-4">
-            <h3 className="font-semibold mb-4">Pages</h3>
-            <div className="flex items-center justify-between">
-              <Label>Apply to all pages</Label>
-              <Switch checked={applyToAllPages} onCheckedChange={setApplyToAllPages} />
+        <Card className="shadow-sm">
+          <CardContent className="p-3">
+            <h3 className="text-sm font-medium mb-2">Pages</h3>
+            <div className="flex items-center justify-between mb-2">
+              <Label className="text-xs">All pages</Label>
+              <Switch
+                checked={applyToAllPages}
+                onCheckedChange={setApplyToAllPages}
+              />
             </div>
             {!applyToAllPages && (
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label>From</Label>
-                  <Input type="number" min={1} max={totalPages} value={pageRangeFrom}
-                         onChange={(e) => setPageRangeFrom(+e.target.value)} />
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">From</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={totalPages}
+                    value={pageRangeFrom}
+                    onChange={(e) => {
+                      const val = +e.target.value;
+                      if (val >= 1 && val <= totalPages) {
+                        setPageRangeFrom(val);
+                        if (val > pageRangeTo) setPageRangeTo(val);
+                      }
+                    }}
+                    className="h-8 text-sm"
+                  />
                 </div>
-                <div className="space-y-2">
-                  <Label>To</Label>
-                  <Input type="number" min={1} max={totalPages} value={pageRangeTo}
-                         onChange={(e) => setPageRangeTo(+e.target.value)} />
+                <div className="space-y-1">
+                  <Label className="text-xs">To</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={totalPages}
+                    value={pageRangeTo}
+                    onChange={(e) => {
+                      const val = +e.target.value;
+                      if (val >= 1 && val <= totalPages) {
+                        setPageRangeTo(val);
+                        if (val < pageRangeFrom) setPageRangeFrom(val);
+                      }
+                    }}
+                    className="h-8 text-sm"
+                  />
                 </div>
               </div>
             )}
@@ -549,8 +842,7 @@ const StampPDF = () => {
 
         {/* Apply button */}
         <Button
-          className="w-full sticky bottom-0 bg-primary text-primary-foreground"
-          size="lg"
+          className="w-full h-10 text-sm font-medium"
           onClick={applyWatermark}
         >
           Apply Watermark
@@ -560,7 +852,7 @@ const StampPDF = () => {
   );
 
   const renderProcessing = () => (
-    <div className="max-w-2xl mx-auto">
+    <div className="w-full max-w-2xl mx-auto">
       <Card>
         <CardContent className="p-12 text-center space-y-6">
           <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto animate-pulse">
@@ -569,21 +861,25 @@ const StampPDF = () => {
           <h3 className="text-2xl font-bold">Applying Watermark…</h3>
           <p className="text-muted-foreground">{file?.name}</p>
           <Progress value={progress} className="h-3" />
-          <div className="text-3xl font-bold text-primary">{Math.round(progress)}%</div>
+          <div className="text-3xl font-bold text-primary">
+            {Math.round(progress)}%
+          </div>
         </CardContent>
       </Card>
     </div>
   );
 
   const renderDownload = () => (
-    <div className="max-w-2xl mx-auto">
+    <div className="w-full max-w-2xl mx-auto">
       <Card>
         <CardContent className="p-12 text-center space-y-6">
           <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
             <Check className="h-10 w-10 text-green-600" />
           </div>
           <h3 className="text-2xl font-bold">Done!</h3>
-          <p className="text-muted-foreground">Your watermarked PDF is ready</p>
+          <p className="text-muted-foreground">
+            Your watermarked PDF is ready
+          </p>
           <div className="flex gap-4 justify-center">
             <Button size="lg" onClick={downloadFile}>
               <Download className="h-5 w-5 mr-2" /> Download PDF
@@ -598,26 +894,27 @@ const StampPDF = () => {
   );
 
   return (
-<div className="w-full min-h-screen bg-background flex flex-col">
-<div className="max-w-6xl mx-auto pt-6 pb-10 px-6 lg:px-8">
-<div className="flex-1 overflow-hidden">
+    <div className="w-full min-h-screen bg-background flex flex-col">
+      <div className="max-w-6xl mx-auto pt-6 pb-10 px-6 lg:px-8">
+        <div className="flex items-center gap-4 mb-6">
           <Button
             variant="ghost"
             size="sm"
             onClick={() =>
-              currentStep === "upload" ? history.back() : setCurrentStep("upload")
+              currentStep === "upload" ? navigate(-1) : setCurrentStep("upload")
             }
           >
-            <ArrowLeft className="h-4 w-4" />
+            <ArrowLeft className="h-4 w-4 mr-1" />
             Back
           </Button>
           <div>
-            <h1 className="text-3xl font-bold">stamp PDF</h1>
+<h1 className="text-3xl font-bold">Stamp PDF</h1>
             <p className="text-muted-foreground">
-              Stamp an  or text over your PDF in seconds
+              Stamp text or an image over your PDF in seconds
             </p>
           </div>
         </div>
+
         {currentStep === "upload" && renderUpload()}
         {currentStep === "customize" && renderCustomize()}
         {currentStep === "processing" && renderProcessing()}
