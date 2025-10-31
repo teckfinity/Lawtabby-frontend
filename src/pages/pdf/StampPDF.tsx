@@ -372,10 +372,8 @@ const StampPDF = () => {
   );
 
 const renderCustomize = () => (
-  /* 1. Full-height grid – page will scroll */
   <div className="grid lg:grid-cols-2 gap-6 h-full">
-
-    {/* ---------- LEFT – PDF PREVIEW (fixed height) ---------- */}
+    {/* LEFT – PDF PREVIEW */}
     <div className="flex flex-col h-full">
       <Card className="flex flex-col h-full">
         <CardContent className="p-4 flex flex-col h-full">
@@ -383,14 +381,13 @@ const renderCustomize = () => (
             <h3 className="font-semibold">Live Preview</h3>
             <span className="text-sm text-muted-foreground">Page 1</span>
           </div>
-
-          {/* preview takes all remaining space */}
           <div className="flex-1 min-h-0 bg-muted/10 rounded-lg border overflow-hidden">
             <PDFLivePreview />
           </div>
         </CardContent>
       </Card>
     </div>
+  
 
     {/* ---------- RIGHT – SETTINGS (scrollable) ---------- */}
     <div className="flex flex-col h-full overflow-y-auto pr-2 space-y-4">
@@ -406,7 +403,9 @@ const renderCustomize = () => (
               {totalPages} pages • {(file!.size / 1024 / 1024).toFixed(2)} MB
             </p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => setCurrentStep("upload")}>
+      <Button className="w-full sticky bottom-0 bg-primary text-primary-foreground"
+            size="lg"
+              onClick={applyWatermark}>
             <ArrowLeft className="h-4 w-4 mr-2" /> Change
           </Button>
         </CardContent>
