@@ -371,146 +371,185 @@ const StampPDF = () => {
     </div>
   );
 
-  const renderCustomize = () => (
-    <div className="grid lg:grid-cols-2 gap-6 h-[calc(100vh-12rem)]">
-      {/* Settings */}
-      <div className="space-y-4 overflow-y-auto pr-4">
-        <Card>
-          <CardContent className="p-4 flex items-center gap-4">
-            <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
-              <FileText className="h-6 w-6 text-primary" />
-            </div>
-            <div className="flex-1">
-              <h4 className="font-semibold">{file?.name}</h4>
-              <p className="text-sm text-muted-foreground">
-                {totalPages} pages • {(file!.size / 1024 / 1024).toFixed(2)} MB
-              </p>
-            </div>
-            <Button variant="outline" size="sm" onClick={() => setCurrentStep("upload")}>
-              <ArrowLeft className="h-4 w-4 mr-2" /> Change
-            </Button>
-          </CardContent>
-        </Card>
+const renderCustomize = () => (
+  /* 1. Full-height grid – page will scroll */
+  <div className="grid lg:grid-cols-2 gap-6 h-full">
 
-        {/* Watermark Type */}
-        <Card>
-          <CardContent className="p-4">
-            <Tabs value={watermarkType} onValueChange={(v) => setWatermarkType(v as WatermarkType)}>
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="text"><Type className="h-4 w-4 mr-1" />Text</TabsTrigger>
-                <TabsTrigger value="image"><ImageIcon className="h-4 w-4 mr-1" />Image</TabsTrigger>
-              </TabsList>
+    {/* ---------- LEFT – PDF PREVIEW (fixed height) ---------- */}
+    <div className="flex flex-col h-full">
+      <Card className="flex flex-col h-full">
+        <CardContent className="p-4 flex flex-col h-full">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold">Live Preview</h3>
+            <span className="text-sm text-muted-foreground">Page 1</span>
+          </div>
 
-              <TabsContent value="text" className="mt-4 space-y-4">
-                <div className="space-y-2">
-                  <Label>Text</Label>
-                  <Input value={watermarkText} onChange={(e) => setWatermarkText(e.target.value)} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2">
-                    <Label>Font</Label>
-                    <Select value={fontFamily} onValueChange={(v) => setFontFamily(v as any)}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Helvetica">Helvetica</SelectItem>
-                        <SelectItem value="Times">Times</SelectItem>
-                        <SelectItem value="Courier">Courier</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Size</Label>
-                    <Input type="number" min={12} max={120} value={fontSize} onChange={(e) => setFontSize(+e.target.value)} />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Color</Label>
-                  <div className="flex gap-2">
-                    <Input type="color" value={textColor} onChange={(e) => setTextColor(e.target.value)} className="w-16 h-10 p-1" />
-                    <Input value={textColor} onChange={(e) => setTextColor(e.target.value)} className="flex-1" />
-                  </div>
-                </div>
-              </TabsContent>
+          {/* preview takes all remaining space */}
+          <div className="flex-1 min-h-0 bg-muted/10 rounded-lg border overflow-hidden">
+            <PDFLivePreview />
+          </div>
+        </CardContent>
+      </Card>
+    </div>
 
-              <TabsContent value="image" className="mt-4">
-                <div className="border-2 border-dashed rounded-lg p-6 text-center">
-                  {imageWatermark ? (
-                    <div className="space-y-3">
-                      <div className="w-24 h-24 mx-auto bg-muted rounded-lg overflow-hidden flex items-center justify-center">
-                        <img src={URL.createObjectURL(imageWatermark)} alt="" className="max-w-full max-h-full object-contain" />
-                      </div>
-                      <p className="text-sm font-medium">{imageWatermark.name}</p>
-                      <Button variant="outline" size="sm" onClick={() => imageInputRef.current?.click()}>Change</Button>
-                    </div>
-                  ) : (
-                    <div>
-                      <ImageIcon className="h-12 h-12 mx-auto text-muted-foreground mb-3" />
-                      <Button variant="outline" onClick={() => imageInputRef.current?.click()}>
-                        <Upload className="h-4 w-4 mr-2" /> Upload Image
-                      </Button>
-                    </div>
-                  )}
-                  <input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-                </div>
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
+    {/* ---------- RIGHT – SETTINGS (scrollable) ---------- */}
+    <div className="flex flex-col h-full overflow-y-auto pr-2 space-y-4">
+      {/* ---- File info ---- */}
+      <Card>
+        <CardContent className="p-4 flex items-center gap-4">
+          <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
+            <FileText className="h-6 w-6 text-primary" />
+          </div>
+          <div className="flex-1">
+            <h4 className="font-semibold">{file?.name}</h4>
+            <p className="text-sm text-muted-foreground">
+              {totalPages} pages • {(file!.size / 1024 / 1024).toFixed(2)} MB
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setCurrentStep("upload")}>
+            <ArrowLeft className="h-4 w-4 mr-2" /> Change
+          </Button>
+        </CardContent>
+      </Card>
 
-        {/* Position & Rotation */}
-        <Card>
-          <CardContent className="p-4">
-            <h3 className="font-semibold mb-4 flex items-center gap-2"><Settings2 className="h-4 w-4" />Position & Rotation</h3>
-            <div className="grid grid-cols-2 gap-3">
+      {/* ---- Watermark type ---- */}
+      <Card>
+        <CardContent className="p-4">
+          <Tabs value={watermarkType} onValueChange={(v) => setWatermarkType(v as WatermarkType)}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="text"><Type className="h-4 w-4 mr-1" />Text</TabsTrigger>
+              <TabsTrigger value="image"><ImageIcon className="h-4 w-4 mr-1" />Image</TabsTrigger>
+            </TabsList>
+
+            {/* TEXT TAB */}
+            <TabsContent value="text" className="mt-4 space-y-4">
               <div className="space-y-2">
-                <Label>X (%)</Label>
-                <Input type="number" min={0} max={100} value={positionX} onChange={(e) => setPositionX(+e.target.value)} />
+                <Label>Text</Label>
+                <Input value={watermarkText} onChange={(e) => setWatermarkText(e.target.value)} />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>Font</Label>
+                  <Select value={fontFamily} onValueChange={(v) => setFontFamily(v as any)}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Helvetica">Helvetica</SelectItem>
+                      <SelectItem value="Times">Times</SelectItem>
+                      <SelectItem value="Courier">Courier</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Size</Label>
+                  <Input type="number" min={12} max={120} value={fontSize}
+                         onChange={(e) => setFontSize(+e.target.value)} />
+                </div>
               </div>
               <div className="space-y-2">
-                <Label>Y (%)</Label>
-                <Input type="number" min={0} max={100} value={positionY} onChange={(e) => setPositionY(+e.target.value)} />
+                <Label>Color</Label>
+                <div className="flex gap-2">
+                  <Input type="color" value={textColor} onChange={(e) => setTextColor(e.target.value)}
+                         className="w-16 h-10 p-1" />
+                  <Input value={textColor} onChange={(e) => setTextColor(e.target.value)} className="flex-1" />
+                </div>
               </div>
+            </TabsContent>
+
+            {/* IMAGE TAB */}
+            <TabsContent value="image" className="mt-4">
+              <div className="border-2 border-dashed rounded-lg p-6 text-center">
+                {imageWatermark ? (
+                  <div className="space-y-3">
+                    <div className="w-24 h-24 mx-auto bg-muted rounded-lg overflow-hidden flex items-center justify-center">
+                      <img src={URL.createObjectURL(imageWatermark)} alt=""
+                           className="max-w-full max-h-full object-contain" />
+                    </div>
+                    <p className="text-sm font-medium">{imageWatermark.name}</p>
+                    <Button variant="outline" size="sm"
+                            onClick={() => imageInputRef.current?.click()}>Change</Button>
+                  </div>
+                ) : (
+                  <div>
+                    <ImageIcon className="h-12 mx-auto text-muted-foreground mb-3" />
+                    <Button variant="outline" onClick={() => imageInputRef.current?.click()}>
+                      <Upload className="h-4 w-4 mr-2" /> Upload Image
+                    </Button>
+                  </div>
+                )}
+                <input ref={imageInputRef} type="file" accept="image/*" className="hidden"
+                       onChange={handleImageUpload} />
+              </div>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+
+      {/* ---- Position & Rotation ---- */}
+      <Card>
+        <CardContent className="p-4">
+          <h3 className="font-semibold mb-4 flex items-center gap-2">
+            <Settings2 className="h-4 w-4" />Position & Rotation
+          </h3>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>X (%)</Label>
+              <Input type="number" min={0} max={100} value={positionX}
+                     onChange={(e) => setPositionX(+e.target.value)} />
             </div>
+            <div className="space-y-2">
+              <Label>Y (%)</Label>
+              <Input type="number" min={0} max={100} value={positionY}
+                     onChange={(e) => setPositionY(+e.target.value)} />
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Rotation (degrees)</Label>
+              <Input type="number" min={-180} max={180} value={rotation}
+                     onChange={(e) => setRotation(+e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Opacity (%)</Label>
+              <Input type="number" min={10} max={100} value={opacity}
+                     onChange={(e) => setOpacity(+e.target.value)} />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ---- Pages ---- */}
+      <Card>
+        <CardContent className="p-4">
+          <h3 className="font-semibold mb-4">Pages</h3>
+          <div className="flex items-center justify-between">
+            <Label>Apply to all pages</Label>
+            <Switch checked={applyToAllPages} onCheckedChange={setApplyToAllPages} />
+          </div>
+          {!applyToAllPages && (
             <div className="mt-4 grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label>Rotation (degrees)</Label>
-                <Input type="number" min={-180} max={180} value={rotation} onChange={(e) => setRotation(+e.target.value)} />
+                <Label>From</Label>
+                <Input type="number" min={1} max={totalPages} value={pageRangeFrom}
+                       onChange={(e) => setPageRangeFrom(+e.target.value)} />
               </div>
               <div className="space-y-2">
-                <Label>Opacity (%)</Label>
-                <Input type="number" min={10} max={100} value={opacity} onChange={(e) => setOpacity(+e.target.value)} />
+                <Label>To</Label>
+                <Input type="number" min={1} max={totalPages} value={pageRangeTo}
+                       onChange={(e) => setPageRangeTo(+e.target.value)} />
               </div>
             </div>
-          </CardContent>
-        </Card>
+          )}
+        </CardContent>
+      </Card>
 
-        {/* Page Range */}
-        <Card>
-          <CardContent className="p-4">
-            <h3 className="font-semibold mb-4">Pages</h3>
-            <div className="flex items-center justify-between">
-              <Label>Apply to all pages</Label>
-              <Switch checked={applyToAllPages} onCheckedChange={setApplyToAllPages} />
-            </div>
-            {!applyToAllPages && (
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Label>From</Label>
-                  <Input type="number" min={1} max={totalPages} value={pageRangeFrom} onChange={(e) => setPageRangeFrom(+e.target.value)} />
-                </div>
-                <div className="space-y-2">
-                  <Label>To</Label>
-                  <Input type="number" min={1} max={totalPages} value={pageRangeTo} onChange={(e) => setPageRangeTo(+e.target.value)} />
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      {/* ---- Apply button (sticky at bottom of right column) ---- */}
+      <Button className="w-full sticky bottom-0 bg-primary text-primary-foreground"
+              size="lg"
+              onClick={applyWatermark}>
+        Apply Watermark
+      </Button>
+    </div>
 
-        <Button className="w-full" size="lg" onClick={applyWatermark}>
-          Apply Watermark
-        </Button>
-      </div>
 
       {/* Live Preview */}
       <div className="lg:sticky lg:top-4">
@@ -568,9 +607,9 @@ const StampPDF = () => {
   );
 
   return (
-    <div className="w-full p-4 md:p-6 lg:p-8 bg-background min-h-screen">
-      <div className="max-w-6xl mx-auto pt-6 pb-10 px-6 lg:px-8">
-        <div className="flex items-center gap-4 mb-6">
+<div className="w-full min-h-screen bg-background flex flex-col">
+<div className="max-w-6xl mx-auto pt-6 pb-10 px-6 lg:px-8">
+<div className="flex-1 overflow-hidden">
           <Button
             variant="ghost"
             size="sm"
@@ -588,7 +627,6 @@ const StampPDF = () => {
             </p>
           </div>
         </div>
-
         {currentStep === "upload" && renderUpload()}
         {currentStep === "customize" && renderCustomize()}
         {currentStep === "processing" && renderProcessing()}
