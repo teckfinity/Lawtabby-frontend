@@ -1,429 +1,596 @@
-import { useState, useRef } from "react";
+'use client';
+
+import { useState, useRef, useEffect, useMemo, memo } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
-  ArrowLeft, Upload, Download, Check, Stamp, Type,
-  Image as ImageIcon, Printer
+  Upload, Download, Check, Type, Image as ImageIcon,
+  FileText, Settings2, ArrowLeft
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { PDFDocument, rgb, degrees, StandardFonts } from "pdf-lib";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Switch } from "@/components/ui/switch";
+import { useNavigate } from "react-router-dom";
 
-type ProcessStep = "upload" | "processing" | "download";
+/* ---------- react-pdf (CDN + ESM worker – WORKS 100%) ---------- */
+import { Document, Page, pdfjs } from "react-pdf";
+import "react-pdf/dist/Page/AnnotationLayer.css";
+import "react-pdf/dist/Page/TextLayer.css";
+
+// CORRECT ESM WORKER FROM CDN
+pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+
+type ProcessStep = "upload" | "customize" | "processing" | "download";
+type WatermarkType = "text" | "image";
 
 const StampPDF = () => {
   const navigate = useNavigate();
+
+  /* ---------- Core state ---------- */
   const [file, setFile] = useState<File | null>(null);
   const [currentStep, setCurrentStep] = useState<ProcessStep>("upload");
   const [progress, setProgress] = useState(0);
-  const [stampType, setStampType] = useState<string>("text");
-  const [stampText, setStampText] = useState("CONFIDENTIAL");
+
+  const [watermarkType, setWatermarkType] = useState<WatermarkType>("text");
+  const [watermarkText, setWatermarkText] = useState("CONFIDENTIAL");
+  const [fontSize, setFontSize] = useState(48);
+  const [fontFamily, setFontFamily] = useState<"Helvetica" | "Times" | "Courier">("Helvetica");
+  const [textColor, setTextColor] = useState("#000000");
+  const [rotation, setRotation] = useState(0);
   const [opacity, setOpacity] = useState(50);
-  const [stampedPdf, setStampedPdf] = useState<Uint8Array | null>(null);
-  const [imageStamp, setImageStamp] = useState<File | null>(null);
-  const [mosaicLayout, setMosaicLayout] = useState<boolean>(false);
-  const [manualPositions, setManualPositions] = useState<number[]>([]);
+  const [imageWatermark, setImageWatermark] = useState<File | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const [positionX, setPositionX] = useState(50);
+  const [positionY, setPositionY] = useState(50);
 
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = event.target.files?.[0];
-    if (selectedFile) {
-      setFile(selectedFile);
-      toast.success("PDF file uploaded successfully");
+  const [applyToAllPages, setApplyToAllPages] = useState(true);
+  const [pageRangeFrom, setPageRangeFrom] = useState(1);
+  const [pageRangeTo, setPageRangeTo] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
+
+  const [watermarkedPdf, setWatermarkedPdf] = useState<Uint8Array | null>(null);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const previewContainerRef = useRef<HTMLDivElement>(null);
+  const [previewWidth, setPreviewWidth] = useState<number>(0);
+
+  /* ---------- Resize observer ---------- */
+  useEffect(() => {
+    if (!previewContainerRef.current) return;
+
+    const resizeObserver = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const width = entry.contentRect.width;
+        if (Math.abs(width - previewWidth) > 5) {
+          setPreviewWidth(width);
+        }
+      }
+    });
+
+    resizeObserver.observe(previewContainerRef.current);
+    return () => resizeObserver.disconnect();
+  }, [previewWidth]);
+
+  /* ---------- Image preview URL ---------- */
+  useEffect(() => {
+    if (imageWatermark) {
+      const url = URL.createObjectURL(imageWatermark);
+      setImageUrl(url);
+      return () => URL.revokeObjectURL(url);
+    } else {
+      setImageUrl(null);
     }
-  };
+  }, [imageWatermark]);
 
-  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedImage = event.target.files?.[0];
-    if (selectedImage) {
-      setImageStamp(selectedImage);
-      toast.success("Image uploaded for stamp");
-    }
-  };
-
-  const togglePosition = (index: number) => {
-    setManualPositions((prev) =>
-      prev.includes(index) ? prev.filter((i) => i !== index) : [...prev, index]
-    );
-  };
-
-  const addStamp = async () => {
-    if (!file) {
-      toast.error("Please upload a PDF file first");
+  /* ---------- PDF upload ---------- */
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f || f.type !== "application/pdf") {
+      toast.error("Please select a valid PDF file");
       return;
     }
+
+    setFile(f);
+    try {
+      const buf = await f.arrayBuffer();
+      const pdf = await PDFDocument.load(buf);
+      const pages = pdf.getPages();
+      const numPages = pages.length;
+      setTotalPages(numPages);
+      setPageRangeTo(numPages);
+      toast.success(`PDF loaded – ${numPages} page${numPages > 1 ? "s" : ""}`);
+      setCurrentStep("customize");
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to read PDF");
+    }
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const img = e.target.files?.[0];
+    if (img && img.type.startsWith("image/")) {
+      setImageWatermark(img);
+      toast.success("Image uploaded");
+    } else {
+      toast.error("Select a valid image");
+    }
+  };
+
+  /* ---------- Watermark processing ---------- */
+  const hexToRgb = (hex: string) => {
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return m
+      ? {
+          r: parseInt(m[1], 16) / 255,
+          g: parseInt(m[2], 16) / 255,
+          b: parseInt(m[3], 16) / 255,
+        }
+      : { r: 0, g: 0, b: 0 };
+  };
+
+  const applyWatermark = async () => {
+    if (!file) return toast.error("Upload a PDF first");
+    if (watermarkType === "text" && !watermarkText) return toast.error("Enter text");
+    if (watermarkType === "image" && !imageWatermark) return toast.error("Upload an image");
+
     setCurrentStep("processing");
     setProgress(10);
 
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const pdfDoc = await PDFDocument.load(arrayBuffer);
-
+      const buf = await file.arrayBuffer();
+      const pdfDoc = await PDFDocument.load(buf);
       const pages = pdfDoc.getPages();
-      const positions = [
-        [0.17, 0.83], [0.5, 0.83], [0.83, 0.83],
-        [0.17, 0.5], [0.5, 0.5], [0.83, 0.5],
-        [0.17, 0.17], [0.5, 0.17], [0.83, 0.17],
-      ];
 
-      // Determine grid indices based on layout choice
-      const gridIndices = mosaicLayout
-        ? manualPositions.length > 0
-          ? manualPositions
-          : [...Array(9).keys()] // all 9 if none manually chosen
-        : [4]; // center only when mosaic disabled
+      setProgress(30);
 
-      if (stampType === "text") {
-        const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-        const text = stampText.toUpperCase();
-        const textSize = 22;
-        const textWidth = font.widthOfTextAtSize(text, textSize);
-        const textHeight = textSize * 1.2;
-        const paddingX = 40;
-        const paddingY = 25;
-        const stampWidth = textWidth + paddingX;
-        const stampHeight = textHeight + paddingY;
-        const rotation = degrees(15);
-        const red = rgb(0.8, 0, 0);
-        const lightRed = rgb(1, 0.9, 0.9);
-        const commonOpacity = opacity / 100;
+      const indices: number[] = [];
+      if (applyToAllPages) {
+        for (let i = 0; i < pages.length; i++) indices.push(i);
+      } else {
+        const from = Math.max(0, pageRangeFrom - 1);
+        const to = Math.min(pages.length - 1, pageRangeTo - 1);
+        for (let i = from; i <= to; i++) indices.push(i);
+      }
 
-        for (const page of pages) {
-          const width = page.getWidth();
-          const height = page.getHeight();
+      setProgress(50);
 
-          for (const i of gridIndices) {
-            const [xRatio, yRatio] = positions[i];
-            const centerX = width * xRatio - stampWidth / 2;
-            const centerY = height * yRatio - stampHeight / 2;
+      if (watermarkType === "text") {
+        const fontMap = {
+          Helvetica: StandardFonts.HelveticaBold,
+          Times: StandardFonts.TimesRomanBold,
+          Courier: StandardFonts.CourierBold,
+        };
+        const font = await pdfDoc.embedFont(fontMap[fontFamily]);
+        const col = hexToRgb(textColor);
 
-            // Light watermark background box
-            page.drawRectangle({
-              x: centerX,
-              y: centerY,
-              width: stampWidth,
-              height: stampHeight,
-              borderColor: red,
-              borderWidth: 2,
-              color: lightRed,
-              opacity: commonOpacity,
-              rotate: rotation,
-            });
+        for (const i of indices) {
+          const page = pages[i];
+          const { width, height } = page.getSize();
+          const x = (positionX / 100) * width;
+          const y = (positionY / 100) * height;
 
-            // Text watermark
-            const textX = centerX + (stampWidth - textWidth) / 2;
-            const textY = centerY + (stampHeight - textHeight) / 2 + 6;
-
-            page.drawText(text, {
-              x: textX,
-              y: textY,
-              size: textSize,
-              font,
-              color: red,
-              opacity: commonOpacity,
-              rotate: rotation,
-            });
-          }
+          page.drawText(watermarkText, {
+            x,
+            y,
+            size: fontSize,
+            font,
+            color: rgb(col.r, col.g, col.b),
+            rotate: degrees(rotation),
+            opacity: opacity / 100,
+          });
         }
-      } else if (stampType === "image" && imageStamp) {
-        const imgBytes = await imageStamp.arrayBuffer();
-        const ext = imageStamp.name.split(".").pop()?.toLowerCase();
-        let image;
-        if (ext === "png") {
-          image = await pdfDoc.embedPng(imgBytes);
-        } else {
-          image = await pdfDoc.embedJpg(imgBytes);
-        }
+      } else if (watermarkType === "image" && imageWatermark) {
+        const imgBuf = await imageWatermark.arrayBuffer();
+        const img = imageWatermark.type === "image/png"
+          ? await pdfDoc.embedPng(imgBuf)
+          : await pdfDoc.embedJpg(imgBuf);
 
-        for (const page of pages) {
-          const { width: imgW, height: imgH } = image.scale(0.3);
+        for (const i of indices) {
+          const page = pages[i];
+          const { width, height } = page.getSize();
+          const imgW = 200;
+          const imgH = (img.height / img.width) * imgW;
+          const x = (positionX / 100) * width - imgW / 2;
+          const y = (positionY / 100) * height - imgH / 2;
 
-          for (const i of gridIndices) {
-            const [xRatio, yRatio] = positions[i];
-            const x = page.getWidth() * xRatio - imgW / 2;
-            const y = page.getHeight() * yRatio - imgH / 2;
-            page.drawImage(image, {
-              x,
-              y,
-              width: imgW,
-              height: imgH,
-              opacity: opacity / 100,
-            });
-          }
+          page.drawImage(img, {
+            x,
+            y,
+            width: imgW,
+            height: imgH,
+            rotate: degrees(rotation),
+            opacity: opacity / 100,
+          });
         }
       }
 
-      const pdfBytes = await pdfDoc.save();
-      setStampedPdf(pdfBytes);
-
-      // fake progress for smooth UI
-      let currentProgress = 20;
-      const interval = setInterval(() => {
-        currentProgress += Math.random() * 20;
-        if (currentProgress >= 100) {
-          currentProgress = 100;
-          setProgress(100);
-          clearInterval(interval);
-          setTimeout(() => setCurrentStep("download"), 500);
-        }
-        setProgress(currentProgress);
-      }, 170);
+      setProgress(80);
+      const bytes = await pdfDoc.save();
+      setWatermarkedPdf(bytes);
+      setProgress(100);
+      setTimeout(() => setCurrentStep("download"), 600);
     } catch (err) {
       console.error(err);
-      toast.error("Error applying stamp");
-      setCurrentStep("upload");
+      toast.error("Watermark failed");
+      setCurrentStep("customize");
     }
   };
 
-const downloadFile = () => {
-  if (!stampedPdf) return;
-  const blob = new Blob([stampedPdf.buffer as ArrayBuffer], { type: "application/pdf" }); // ✅ force ArrayBuffer type
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `stamped_${file?.name}`;
-  a.click();
-  URL.revokeObjectURL(url);
-  toast.success("Stamped PDF downloaded successfully!");
-};
-
-const printFile = () => {
-  if (!stampedPdf) return;
-  const blob = new Blob([stampedPdf.buffer as ArrayBuffer], { type: "application/pdf" }); // ✅ same fix
-  const url = URL.createObjectURL(blob);
-  const win = window.open(url);
-  if (win) win.print();
-};
-
-  const resetProcess = () => {
-    setFile(null);
-    setStampedPdf(null);
-    setCurrentStep("upload");
-    setProgress(0);
-    setManualPositions([]);
-    setMosaicLayout(false);
+  const downloadFile = () => {
+    if (!watermarkedPdf) return;
+    const blob = new Blob([watermarkedPdf], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `watermarked_${file?.name ?? "doc.pdf"}`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Downloaded!");
   };
 
-  const predefinedStamps = [
-    "CONFIDENTIAL", "DRAFT", "APPROVED", "REJECTED",
-    "URGENT", "COPY", "ORIGINAL", "REVIEWED"
-  ];
+  const reset = () => {
+    setFile(null);
+    setWatermarkedPdf(null);
+    setCurrentStep("upload");
+    setProgress(0);
+    setWatermarkText("CONFIDENTIAL");
+    setImageWatermark(null);
+    setImageUrl(null);
+  };
 
-  const renderUploadStep = () => (
-    <div className="space-y-6">
-      <Card>
-        <CardContent className="p-8">
-          {!file ? (
-            <div className="text-center">
-              <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8">
-                <Upload className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <h3 className="text-lg font-semibold mb-2">Upload PDF to Stamp</h3>
-                <p className="text-muted-foreground mb-4">Choose a PDF file from your device</p>
-                <Button
-                  className="bg-primary hover:bg-primary/90"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  Select PDF File
-                </Button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".pdf"
-                  className="hidden"
-                  onChange={handleFileUpload}
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
-              <div className="w-12 h-12 bg-red-100 rounded flex items-center justify-center">
-                <span className="text-red-600 font-bold text-xs">PDF</span>
-              </div>
-              <div className="flex-1">
-                <h4 className="font-medium">{file.name}</h4>
-                <p className="text-sm text-muted-foreground">
-                  {(file.size / 1024 / 1024).toFixed(2)} MB
-                </p>
-              </div>
-              <Button variant="outline" size="sm" onClick={() => setFile(null)}>
-                Remove
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+  /* ---------- Memoized PDF File for Preview ---------- */
+  const memoizedPdfFile = useMemo(() => {
+    if (!file) return null;
+    return file;
+  }, [file]);
 
-      {file && (
-        <Card>
-          <CardContent className="p-6">
-            <h3 className="text-lg font-semibold mb-4">Stamp Settings</h3>
-            <div className="space-y-4">
-              {/* Stamp Type */}
-              <div className="flex gap-2">
-                <Button
-                  variant={stampType === "text" ? "default" : "outline"}
-                  onClick={() => setStampType("text")}
-                  className="flex-1"
-                >
-                  <Type className="h-4 w-4 mr-2" />
-                  Text Stamp
-                </Button>
-                <Button
-                  variant={stampType === "image" ? "default" : "outline"}
-                  onClick={() => setStampType("image")}
-                  className="flex-1"
-                >
-                  <ImageIcon className="h-4 w-4 mr-2" />
-                  Image Stamp
-                </Button>
-              </div>
+  /* ---------- Memoized Live Preview Component ---------- */
+  const PDFLivePreview = memo(() => {
+    const [pdfLoading, setPdfLoading] = useState(true);
+    const [pdfError, setPdfError] = useState<string | null>(null);
 
-              {/* Mosaic toggle */}
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium">Mosaic Layout</label>
-                <Button
-                  variant={mosaicLayout ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => {
-                    setMosaicLayout(!mosaicLayout);
-                    setManualPositions([]);
-                  }}
-                >
-                  {mosaicLayout ? "Enabled" : "Disabled"}
-                </Button>
-              </div>
+    if (!memoizedPdfFile) return null;
 
-              {mosaicLayout && (
-                <div className="grid grid-cols-3 gap-2">
-                  {[...Array(9).keys()].map((i) => (
-                    <Button
-                      key={i}
-                      variant={manualPositions.includes(i) ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => togglePosition(i)}
-                    >
-                      {i + 1}
-                    </Button>
-                  ))}
-                </div>
-              )}
+    return (
+      <div
+        ref={previewContainerRef}
+        className="relative w-full h-full bg-white overflow-auto rounded-lg shadow-inner"
+      >
+        <Document
+          file={memoizedPdfFile}
+          onLoadSuccess={({ numPages }) => {
+            setTotalPages(numPages);
+            setPdfLoading(false);
+            setPdfError(null);
+          }}
+          onLoadError={(err) => {
+            setPdfLoading(false);
+            setPdfError(err.message);
+          }}
+          loading={null}
+          key={memoizedPdfFile?.name}
+        >
+          {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
+            <div key={pageNum} className="mb-6 relative">
+              <Page
+                pageNumber={pageNum}
+                width={previewWidth || undefined}
+                renderTextLayer={false}
+                renderAnnotationLayer={false}
+                loading={null}
+                className="shadow-md mx-auto"
+              />
 
-              {/* Text stamp settings */}
-              {stampType === "text" && (
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Stamp Text</label>
-                    <input
-                      type="text"
-                      value={stampText}
-                      onChange={(e) => setStampText(e.target.value)}
-                      className="w-full p-2 border rounded"
-                      placeholder="Enter stamp text"
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {predefinedStamps.map((stamp) => (
-                      <Button
-                        key={stamp}
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setStampText(stamp)}
-                        className="text-xs"
-                      >
-                        {stamp}
-                      </Button>
-                    ))}
-                  </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Opacity: {opacity}%</label>
-                    <input
-                      type="range"
-                      min="10"
-                      max="100"
-                      step="5"
-                      value={opacity}
-                      onChange={(e) => setOpacity(Number(e.target.value))}
-                      className="w-full"
-                    />
-                  </div>
-                </div>
-              )}
-
-              {/* Image stamp upload */}
-              {stampType === "image" && (
-                <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8 text-center">
-                  <ImageIcon className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground mb-4">Upload an image for your stamp</p>
-                  <Button
-                    variant="outline"
-                    onClick={() => imageInputRef.current?.click()}
+              {/* Watermark overlay per page */}
+              <div className="pointer-events-none absolute inset-0">
+                {watermarkType === "text" && watermarkText && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      left: `${positionX}%`,
+                      top: `${positionY}%`,
+                      transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+                      fontSize: `${fontSize}px`,
+                      fontFamily:
+                        fontFamily === "Helvetica"
+                          ? "sans-serif"
+                          : fontFamily === "Times"
+                          ? "serif"
+                          : "monospace",
+                      color: textColor,
+                      opacity: opacity / 100,
+                      fontWeight: "bold",
+                      whiteSpace: "nowrap",
+                      userSelect: "none",
+                    }}
                   >
-                    <Upload className="h-4 w-4 mr-2" />
-                    Choose Image
-                  </Button>
-                  <input
-                    ref={imageInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleImageUpload}
+                    {watermarkText}
+                  </div>
+                )}
+
+                {watermarkType === "image" && imageUrl && (
+                  <img
+                    src={imageUrl}
+                    alt="watermark"
+                    style={{
+                      position: "absolute",
+                      left: `${positionX}%`,
+                      top: `${positionY}%`,
+                      transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
+                      maxWidth: "200px",
+                      maxHeight: "200px",
+                      opacity: opacity / 100,
+                      pointerEvents: "none",
+                    }}
                   />
-                </div>
-              )}
-
-              <Button onClick={addStamp} className="w-full bg-primary hover:bg-primary/90">
-                <Stamp className="h-4 w-4 mr-2" />
-                Apply Stamp
-              </Button>
+                )}
+              </div>
             </div>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
+          ))}
+        </Document>
 
-  const renderProcessingStep = () => (
-    <div className="max-w-2xl mx-auto text-center">
+        {pdfLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-white/90 backdrop-blur-sm">
+            <div className="text-lg font-medium text-muted-foreground">Loading PDF...</div>
+          </div>
+        )}
+        {pdfError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-50 text-red-600 p-4">
+            <p className="font-medium">Failed to load PDF</p>
+            <p className="text-sm mt-1 max-w-md text-center">{pdfError}</p>
+          </div>
+        )}
+      </div>
+    );
+  });
+
+  PDFLivePreview.displayName = "PDFLivePreview";
+
+  /* ---------- Render Steps ---------- */
+  const renderUpload = () => (
+    <div className="max-w-3xl mx-auto">
       <Card>
-        <CardContent className="p-12">
-          <div className="space-y-6">
-            <Stamp className="h-10 w-10 text-primary animate-pulse mx-auto" />
-            <h3 className="text-xl font-semibold mb-2">Adding Stamp...</h3>
-            <p className="text-muted-foreground">{file?.name}</p>
-            <Progress value={progress} className="h-3" />
-            <div className="text-2xl font-bold">{Math.round(progress)}%</div>
+        <CardContent className="p-12 text-center">
+          <div className="border-2 border-dashed rounded-xl p-12 bg-muted/30 hover:bg-muted/50 transition-colors">
+            <Upload className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
+            <p className="text-lg font-medium mb-2">Upload PDF to Stamp</p>
+            <p className="text-sm text-muted-foreground mb-6">Drag & drop your PDF here, or click to browse and select a file from your computer.</p>
+            <Button size="lg" onClick={() => fileInputRef.current?.click()}>
+              <Upload className="h-5 w-5 mr-2" />
+              Select PDF
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,application/pdf"
+              className="hidden"
+              onChange={handleFileUpload}
+            />
           </div>
         </CardContent>
       </Card>
     </div>
   );
 
-  const renderDownloadStep = () => (
-    <div className="max-w-2xl mx-auto text-center">
+  const renderCustomize = () => (
+    <div className="grid lg:grid-cols-2 gap-6 h-full">
+      {/* LEFT – PDF PREVIEW */}
+      <div className="flex flex-col h-full">
+        <Card className="flex flex-col h-full">
+          <CardContent className="p-4 flex flex-col h-full">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-semibold">Live Preview</h3>
+              <span className="text-sm text-muted-foreground">
+                {totalPages > 1 ? `Pages 1–${totalPages}` : "Page 1"}
+              </span>
+            </div>
+            <div className="flex-1 min-h-0 bg-muted/10 rounded-lg border overflow-hidden">
+              <PDFLivePreview />
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* RIGHT – SETTINGS */}
+      <div className="flex flex-col h-full overflow-y-auto pr-2 space-y-4">
+        {/* File info */}
+        <Card>
+          <CardContent className="p-4 flex items-center gap-4">
+            <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center">
+              <FileText className="h-6 w-6 text-primary" />
+            </div>
+            <div className="flex-1">
+              <h4 className="font-semibold">{file?.name}</h4>
+              <p className="text-sm text-muted-foreground">
+                {totalPages} pages • {(file!.size / 1024 / 1024).toFixed(2)} MB
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+              Change
+            </Button>
+          </CardContent>
+        </Card>
+
+        {/* Watermark type */}
+        <Card>
+          <CardContent className="p-4">
+            <Tabs value={watermarkType} onValueChange={(v) => setWatermarkType(v as WatermarkType)}>
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="text"><Type className="h-4 w-4 mr-1" />Text</TabsTrigger>
+                <TabsTrigger value="image"><ImageIcon className="h-4 w-4 mr-1" />Image</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="text" className="mt-4 space-y-4">
+                <div className="space-y-2">
+                  <Label>Text</Label>
+                  <Input value={watermarkText} onChange={(e) => setWatermarkText(e.target.value)} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-2">
+                    <Label>Font</Label>
+                    <Select value={fontFamily} onValueChange={(v) => setFontFamily(v as any)}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Helvetica">Helvetica</SelectItem>
+                        <SelectItem value="Times">Times</SelectItem>
+                        <SelectItem value="Courier">Courier</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Size</Label>
+                    <Input type="number" min={12} max={120} value={fontSize}
+                           onChange={(e) => setFontSize(+e.target.value)} />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Color</Label>
+                  <div className="flex gap-2">
+                    <Input type="color" value={textColor} onChange={(e) => setTextColor(e.target.value)}
+                           className="w-16 h-10 p-1" />
+                    <Input value={textColor} onChange={(e) => setTextColor(e.target.value)} className="flex-1" />
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="image" className="mt-4">
+                <div className="border-2 border-dashed rounded-lg p-6 text-center">
+                  {imageWatermark ? (
+                    <div className="space-y-3">
+                      <div className="w-24 h-24 mx-auto bg-muted rounded-lg overflow-hidden flex items-center justify-center">
+                        <img src={URL.createObjectURL(imageWatermark)} alt=""
+                             className="max-w-full max-h-full object-contain" />
+                      </div>
+                      <p className="text-sm font-medium">{imageWatermark.name}</p>
+                      <Button variant="outline" size="sm" onClick={() => imageInputRef.current?.click()}>
+                        Change
+                      </Button>
+                    </div>
+                  ) : (
+                    <div>
+                      <ImageIcon className="h-12 mx-auto text-muted-foreground mb-3" />
+                      <Button variant="outline" onClick={() => imageInputRef.current?.click()}>
+                        <Upload className="h-4 w-4 mr-2" /> Upload Image
+                      </Button>
+                    </div>
+                  )}
+                  <input ref={imageInputRef} type="file" accept="image/*" className="hidden"
+                         onChange={handleImageUpload} />
+                </div>
+              </TabsContent>
+            </Tabs>
+          </CardContent>
+        </Card>
+
+        {/* Position & Rotation */}
+        <Card>
+          <CardContent className="p-4">
+            <h3 className="font-semibold mb-4 flex items-center gap-2">
+              <Settings2 className="h-4 w-4" />Position & Rotation
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>X (%)</Label>
+                <Input type="number" min={0} max={100} value={positionX}
+                       onChange={(e) => setPositionX(+e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Y (%)</Label>
+                <Input type="number" min={0} max={100} value={positionY}
+                       onChange={(e) => setPositionY(+e.target.value)} />
+              </div>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <Label>Rotation (degrees)</Label>
+                <Input type="number" min={-180} max={180} value={rotation}
+                       onChange={(e) => setRotation(+e.target.value)} />
+              </div>
+              <div className="space-y-2">
+                <Label>Opacity (%)</Label>
+                <Input type="number" min={10} max={100} value={opacity}
+                       onChange={(e) => setOpacity(+e.target.value)} />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Pages */}
+        <Card>
+          <CardContent className="p-4">
+            <h3 className="font-semibold mb-4">Pages</h3>
+            <div className="flex items-center justify-between">
+              <Label>Apply to all pages</Label>
+              <Switch checked={applyToAllPages} onCheckedChange={setApplyToAllPages} />
+            </div>
+            {!applyToAllPages && (
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                  <Label>From</Label>
+                  <Input type="number" min={1} max={totalPages} value={pageRangeFrom}
+                         onChange={(e) => setPageRangeFrom(+e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>To</Label>
+                  <Input type="number" min={1} max={totalPages} value={pageRangeTo}
+                         onChange={(e) => setPageRangeTo(+e.target.value)} />
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Apply button */}
+        <Button
+          className="w-full sticky bottom-0 bg-primary text-primary-foreground"
+          size="lg"
+          onClick={applyWatermark}
+        >
+          Apply Watermark
+        </Button>
+      </div>
+    </div>
+  );
+
+  const renderProcessing = () => (
+    <div className="max-w-2xl mx-auto">
       <Card>
-        <CardContent className="p-12">
-          <div className="space-y-6">
-            <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
-              <Check className="h-10 w-10 text-green-600" />
-            </div>
-            <h3 className="text-xl font-semibold mb-2">Stamp Applied!</h3>
-            <div className="flex gap-4 justify-center">
-              <Button onClick={downloadFile} className="bg-primary hover:bg-primary/90">
-                <Download className="h-4 w-4 mr-2" />
-                Download Stamped PDF
-              </Button>
-              <Button onClick={printFile} variant="outline">
-                <Printer className="h-4 w-4 mr-2" />
-                Print Stamped PDF
-              </Button>
-              <Button variant="outline" onClick={resetProcess}>
-                Stamp Another
-              </Button>
-            </div>
+        <CardContent className="p-12 text-center space-y-6">
+          <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto animate-pulse">
+            <Settings2 className="h-10 w-10 text-primary" />
+          </div>
+          <h3 className="text-2xl font-bold">Applying Watermark…</h3>
+          <p className="text-muted-foreground">{file?.name}</p>
+          <Progress value={progress} className="h-3" />
+          <div className="text-3xl font-bold text-primary">{Math.round(progress)}%</div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+
+  const renderDownload = () => (
+    <div className="max-w-2xl mx-auto">
+      <Card>
+        <CardContent className="p-12 text-center space-y-6">
+          <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
+            <Check className="h-10 w-10 text-green-600" />
+          </div>
+          <h3 className="text-2xl font-bold">Done!</h3>
+          <p className="text-muted-foreground">Your watermarked PDF is ready</p>
+          <div className="flex gap-4 justify-center">
+            <Button size="lg" onClick={downloadFile}>
+              <Download className="h-5 w-5 mr-2" /> Download PDF
+            </Button>
+            <Button variant="outline" size="lg" onClick={reset}>
+              Watermark Another
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -431,32 +598,30 @@ const printFile = () => {
   );
 
   return (
-    <div className="w-full p-4 md:p-6 lg:p-8 bg-background min-h-screen">
-      <div className="max-w-4xl mx-auto">
-        <div className="flex items-center gap-4 mb-8">
+<div className="w-full min-h-screen bg-background flex flex-col">
+<div className="max-w-6xl mx-auto pt-6 pb-10 px-6 lg:px-8">
+<div className="flex-1 overflow-hidden">
           <Button
             variant="ghost"
             size="sm"
             onClick={() =>
-              currentStep === "upload"
-                ? navigate("/pdf-tools")
-                : setCurrentStep("upload")
+              currentStep === "upload" ? history.back() : setCurrentStep("upload")
             }
           >
             <ArrowLeft className="h-4 w-4" />
             Back
           </Button>
           <div>
-            <h1 className="text-3xl font-bold text-foreground">Stamp PDF</h1>
+            <h1 className="text-3xl font-bold">stamp PDF</h1>
             <p className="text-muted-foreground">
-              Add text or image stamps/watermarks to your PDF documents.
+              Stamp an  or text over your PDF in seconds
             </p>
           </div>
         </div>
-
-        {currentStep === "upload" && renderUploadStep()}
-        {currentStep === "processing" && renderProcessingStep()}
-        {currentStep === "download" && renderDownloadStep()}
+        {currentStep === "upload" && renderUpload()}
+        {currentStep === "customize" && renderCustomize()}
+        {currentStep === "processing" && renderProcessing()}
+        {currentStep === "download" && renderDownload()}
       </div>
     </div>
   );
