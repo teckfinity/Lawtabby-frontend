@@ -522,7 +522,7 @@ const StampPDF = () => {
                 size: fontSize,
                 font,
                 color: rgb(col.r, col.g, col.b),
-                rotate: degrees(rotation),
+                rotate: degrees(-rotation),
                 opacity: opacity / 100,
               });
             } else {
@@ -533,7 +533,7 @@ const StampPDF = () => {
                 size: fontSize,
                 font,
                 color: rgb(col.r, col.g, col.b),
-                rotate: degrees(rotation),
+                rotate: degrees(-rotation),
                 opacity: opacity / 100,
               });
             }
@@ -565,7 +565,7 @@ const StampPDF = () => {
                 y,
                 width: imgW,
                 height: imgH,
-                rotate: degrees(rotation),
+                rotate: degrees(-rotation),
                 opacity: opacity / 100,
               });
             } else {
@@ -575,7 +575,7 @@ const StampPDF = () => {
                 y,
                 width: imgW,
                 height: imgH,
-                rotate: degrees(rotation),
+                rotate: degrees(-rotation),
                 opacity: opacity / 100,
               });
             }
