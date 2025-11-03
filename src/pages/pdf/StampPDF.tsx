@@ -19,10 +19,12 @@ import {
   FileText,
   Settings2,
   ArrowLeft,
+  Grid3x3,
+  Layers,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
-import { PDFDocument, rgb, degrees, StandardFonts } from "pdf-lib";
+import { PDFDocument, rgb, degrees, StandardFonts, PDFPage } from "pdf-lib";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import {
@@ -108,6 +110,8 @@ const PageOverlay = memo(
     positionY,
     pageWidth,
     pageHeight,
+    mosaicMode,
+    behindContent,
   }: {
     pageIndex: number;
     watermarkType: WatermarkType;
@@ -122,23 +126,36 @@ const PageOverlay = memo(
     positionY: number;
     pageWidth: number;
     pageHeight: number;
+    mosaicMode: boolean;
+    behindContent: boolean;
   }) => {
-    const overlayKey = `${watermarkType}-${watermarkText}-${fontSize}-${fontFamily}-${textColor}-${rotation}-${opacity}-${imageUrl}-${positionX}-${positionY}-${pageWidth}-${pageHeight}`;
+    const overlayKey = `${watermarkType}-${watermarkText}-${fontSize}-${fontFamily}-${textColor}-${rotation}-${opacity}-${imageUrl}-${positionX}-${positionY}-${pageWidth}-${pageHeight}-${mosaicMode}-${behindContent}`;
 
-    return (
-      <div
-        key={overlayKey}
-        className="pointer-events-none absolute inset-0"
-        style={{ zIndex: 10 }}
-      >
+    // Calculate 3x3 grid positions (evenly distributed)
+    const mosaicPositions = [
+      { x: 16.67, y: 83.33 }, // top-left
+      { x: 50, y: 83.33 },    // top-center
+      { x: 83.33, y: 83.33 }, // top-right
+      { x: 16.67, y: 50 },    // middle-left
+      { x: 50, y: 50 },       // center
+      { x: 83.33, y: 50 },    // middle-right
+      { x: 16.67, y: 16.67 }, // bottom-left
+      { x: 50, y: 16.67 },    // bottom-center
+      { x: 83.33, y: 16.67 }, // bottom-right
+    ];
+
+    const positions = mosaicMode ? mosaicPositions : [{ x: positionX, y: positionY }];
+
+    const renderWatermark = (x: number, y: number, index: number) => (
+      <div key={index}>
         {watermarkType === "text" && watermarkText && (
           <div
             style={{
               position: "absolute",
-              left: `${positionX}%`,
-              top: `${positionY}%`,
+              left: `${x}%`,
+              top: `${y}%`,
               transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
-              fontSize: `${(fontSize * pageWidth) / 1000}px`, // Scale font based on actual page
+              fontSize: `${(fontSize * pageWidth) / 1000}px`,
               fontFamily:
                 fontFamily === "Helvetica"
                   ? "sans-serif"
@@ -162,16 +179,29 @@ const PageOverlay = memo(
             alt="watermark"
             style={{
               position: "absolute",
-              left: `${positionX}%`,
-              top: `${positionY}%`,
+              left: `${x}%`,
+              top: `${y}%`,
               transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
-              width: `${(200 * pageWidth) / 1000}px`, // Scale image
+              width: `${(200 * pageWidth) / 1000}px`,
               height: "auto",
               opacity: opacity / 100,
               pointerEvents: "none",
             }}
           />
         )}
+      </div>
+    );
+
+    return (
+      <div
+        key={overlayKey}
+        className="pointer-events-none absolute inset-0"
+        style={{ 
+          zIndex: behindContent ? 0 : 10,
+          mixBlendMode: behindContent ? 'multiply' : 'normal'
+        }}
+      >
+        {positions.map((pos, idx) => renderWatermark(pos.x, pos.y, idx))}
       </div>
     );
   }
@@ -248,9 +278,6 @@ const PDFLivePreview = memo(
                   loading={null}
                   className="shadow-md"
                   onRenderSuccess={(page) => onRenderSuccess(pageNum, page)}
-                  canvasProps={{
-                    style: { width: "100%", height: "auto" },
-                  }}
                 />
                 {isSelected && (
                   <PageOverlay
@@ -310,6 +337,10 @@ const StampPDF = () => {
   const [positionX, setPositionX] = useState(50);
   const [positionY, setPositionY] = useState(50);
 
+  // NEW: Mosaic and Behind Content options
+  const [mosaicMode, setMosaicMode] = useState(false);
+  const [behindContent, setBehindContent] = useState(false);
+
   const [applyToAllPages, setApplyToAllPages] = useState(true);
   const [pageRangeFrom, setPageRangeFrom] = useState(1);
   const [pageRangeTo, setPageRangeTo] = useState(1);
@@ -357,6 +388,8 @@ const StampPDF = () => {
       imageUrl,
       positionX,
       positionY,
+      mosaicMode,
+      behindContent,
     }),
     [
       watermarkType,
@@ -369,6 +402,8 @@ const StampPDF = () => {
       imageUrl,
       positionX,
       positionY,
+      mosaicMode,
+      behindContent,
     ]
   );
 
@@ -407,7 +442,7 @@ const StampPDF = () => {
     }
   };
 
-  /* ---------- Watermark processing – EXACT POSITIONING ---------- */
+  /* ---------- Watermark processing – EXACT POSITIONING + MOSAIC ---------- */
   const hexToRgb = (hex: string) => {
     const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
     return m
@@ -440,6 +475,21 @@ const StampPDF = () => {
 
       setProgress(50);
 
+      // Calculate positions based on mosaic mode (matching preview)
+      const mosaicPositions = [
+        { x: 16.67, y: 83.33 }, // top-left
+        { x: 50, y: 83.33 },    // top-center
+        { x: 83.33, y: 83.33 }, // top-right
+        { x: 16.67, y: 50 },    // middle-left
+        { x: 50, y: 50 },       // center
+        { x: 83.33, y: 50 },    // middle-right
+        { x: 16.67, y: 16.67 }, // bottom-left
+        { x: 50, y: 16.67 },    // bottom-center
+        { x: 83.33, y: 16.67 }, // bottom-right
+      ];
+
+      const positions = mosaicMode ? mosaicPositions : [{ x: positionX, y: positionY }];
+
       if (watermarkType === "text") {
         const fontMap = {
           Helvetica: StandardFonts.HelveticaBold,
@@ -452,18 +502,42 @@ const StampPDF = () => {
         for (const i of indices) {
           const page = pages[i];
           const { width, height } = page.getSize();
-          const x = (positionX / 100) * width;
-          const y = (positionY / 100) * height;
+          
+          // Get text width for proper centering
+          const textWidth = font.widthOfTextAtSize(watermarkText, fontSize);
+          const textHeight = fontSize;
+          
+          for (const pos of positions) {
+            // Calculate position - center the text properly
+            // Convert from preview coordinates (top-left origin) to PDF coordinates (bottom-left origin)
+            const x = (pos.x / 100) * width - (textWidth / 2);
+            const y = ((100 - pos.y) / 100) * height - (textHeight / 2); // Invert Y axis
 
-          page.drawText(watermarkText, {
-            x,
-            y,
-            size: fontSize,
-            font,
-            color: rgb(col.r, col.g, col.b),
-            rotate: degrees(rotation),
-            opacity: opacity / 100,
-          });
+            if (behindContent) {
+              // Insert at beginning of content stream to appear behind
+              page.moveTo(0, 0);
+              page.drawText(watermarkText, {
+                x,
+                y,
+                size: fontSize,
+                font,
+                color: rgb(col.r, col.g, col.b),
+                rotate: degrees(rotation),
+                opacity: opacity / 100,
+              });
+            } else {
+              // Normal drawing on top
+              page.drawText(watermarkText, {
+                x,
+                y,
+                size: fontSize,
+                font,
+                color: rgb(col.r, col.g, col.b),
+                rotate: degrees(rotation),
+                opacity: opacity / 100,
+              });
+            }
+          }
         }
       } else if (watermarkType === "image" && imageWatermark) {
         const imgBuf = await imageWatermark.arrayBuffer();
@@ -477,17 +551,35 @@ const StampPDF = () => {
           const { width, height } = page.getSize();
           const imgW = 200;
           const imgH = (img.height / img.width) * imgW;
-          const x = (positionX / 100) * width - imgW / 2;
-          const y = (positionY / 100) * height - imgH / 2;
 
-          page.drawImage(img, {
-            x,
-            y,
-            width: imgW,
-            height: imgH,
-            rotate: degrees(rotation),
-            opacity: opacity / 100,
-          });
+          for (const pos of positions) {
+            // Convert from preview coordinates (top-left origin) to PDF coordinates (bottom-left origin)
+            const x = (pos.x / 100) * width - imgW / 2;
+            const y = ((100 - pos.y) / 100) * height - imgH / 2; // Invert Y axis
+
+            if (behindContent) {
+              // Insert at beginning to appear behind
+              page.moveTo(0, 0);
+              page.drawImage(img, {
+                x,
+                y,
+                width: imgW,
+                height: imgH,
+                rotate: degrees(rotation),
+                opacity: opacity / 100,
+              });
+            } else {
+              // Normal drawing on top
+              page.drawImage(img, {
+                x,
+                y,
+                width: imgW,
+                height: imgH,
+                rotate: degrees(rotation),
+                opacity: opacity / 100,
+              });
+            }
+          }
         }
       }
 
@@ -505,7 +597,7 @@ const StampPDF = () => {
 
   const downloadFile = () => {
     if (!watermarkedPdf) return;
-    const blob = new Blob([watermarkedPdf], { type: "application/pdf" });
+    const blob = new Blob([new Uint8Array(watermarkedPdf)], { type: "application/pdf" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -523,6 +615,8 @@ const StampPDF = () => {
     setWatermarkText("CONFIDENTIAL");
     setImageWatermark(null);
     setImageUrl(null);
+    setMosaicMode(false);
+    setBehindContent(false);
   };
 
   /* ---------- Render steps ---------- */
@@ -731,6 +825,35 @@ const StampPDF = () => {
           </CardContent>
         </Card>
 
+        {/* NEW: Placement Options */}
+        <Card className="shadow-sm">
+          <CardContent className="p-3 space-y-3">
+            <h3 className="text-sm font-medium flex items-center gap-1">
+              <Grid3x3 className="h-3 w-3" /> Placement
+            </h3>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Grid3x3 className="h-4 w-4 text-muted-foreground" />
+                <Label className="text-xs">Mosaic (3x3 grid)</Label>
+              </div>
+              <Switch
+                checked={mosaicMode}
+                onCheckedChange={setMosaicMode}
+              />
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Layers className="h-4 w-4 text-muted-foreground" />
+                <Label className="text-xs">Behind content</Label>
+              </div>
+              <Switch
+                checked={behindContent}
+                onCheckedChange={setBehindContent}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Position & Rotation */}
         <Card className="shadow-sm">
           <CardContent className="p-3 space-y-3">
@@ -747,6 +870,7 @@ const StampPDF = () => {
                   value={positionX}
                   onChange={(e) => setPositionX(+e.target.value)}
                   className="h-8 text-sm"
+                  disabled={mosaicMode}
                 />
               </div>
               <div className="space-y-1">
@@ -758,6 +882,7 @@ const StampPDF = () => {
                   value={positionY}
                   onChange={(e) => setPositionY(+e.target.value)}
                   className="h-8 text-sm"
+                  disabled={mosaicMode}
                 />
               </div>
             </div>
@@ -908,7 +1033,7 @@ const StampPDF = () => {
             Back
           </Button>
           <div>
-<h1 className="text-3xl font-bold">Stamp PDF</h1>
+            <h1 className="text-3xl font-bold">Stamp PDF</h1>
             <p className="text-muted-foreground">
               Stamp text or an image over your PDF in seconds
             </p>
