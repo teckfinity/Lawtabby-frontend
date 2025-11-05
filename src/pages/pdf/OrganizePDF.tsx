@@ -27,7 +27,8 @@ const OrganizePDF = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [pages, setPages] = useState<PDFPage[]>([]);
-  const [deletedPages, setDeletedPages] = useState<number[]>([]); // New state
+  const [deletedPages, setDeletedPages] = useState<number[]>([]);
+  const [isDownloading, setIsDownloading] = useState(false); // NEW: Loading state
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
@@ -143,6 +144,7 @@ const OrganizePDF = () => {
     toast.success("Page rotated 90° clockwise");
   };
 
+  // FIXED: Proper download implementation
   const saveOrganizedPDF = async () => {
     if (!file) {
       toast.error("No PDF file selected");
@@ -153,25 +155,49 @@ const OrganizePDF = () => {
       return;
     }
 
+    setIsDownloading(true);
+
     try {
       const userOrder = pages.map(page => page.pageNumber);
       const response = await organizePDF(file, userOrder, deletedPages);
 
       const organizedPDFUrl = response.data.organized_data.organize_pdf;
 
-      toast.success("PDF organized successfully!");
+      // NEW: Fetch the PDF as a blob to force download
+      const pdfResponse = await fetch(organizedPDFUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/pdf',
+        },
+      });
 
-      // Directly download the backend file
+      if (!pdfResponse.ok) {
+        throw new Error(`HTTP error! status: ${pdfResponse.status}`);
+      }
+
+      const blob = await pdfResponse.blob();
+
+      // Create a local object URL (same-origin, so download attribute works)
+      const blobUrl = window.URL.createObjectURL(blob);
+
+      // Trigger download
       const link = document.createElement("a");
-      link.href = organizedPDFUrl;
+      link.href = blobUrl;
       link.download = `organized_${file.name}`;
       document.body.appendChild(link);
       link.click();
+
+      // Cleanup
       document.body.removeChild(link);
+      window.URL.revokeObjectURL(blobUrl);
+
+      toast.success("PDF downloaded successfully!");
 
     } catch (error: any) {
       console.error(error);
       toast.error(error.response?.data?.error || "Failed to organize PDF");
+    } finally {
+      setIsDownloading(false);
     }
   };
 
@@ -271,9 +297,23 @@ const OrganizePDF = () => {
                       <p className="text-sm text-muted-foreground">{pages.length} pages loaded</p>
                     </div>
                   </div>
-                  <Button onClick={saveOrganizedPDF} className="bg-primary hover:bg-primary/90">
-                    <Download className="h-4 w-4 mr-2" />
-                    Download Organized PDF
+                  {/* UPDATED: Button with loading state */}
+                  <Button 
+                    onClick={saveOrganizedPDF} 
+                    disabled={isDownloading}
+                    className="bg-primary hover:bg-primary/90"
+                  >
+                    {isDownloading ? (
+                      <>
+                        <Download className="h-4 w-4 mr-2 animate-pulse" />
+                        Downloading...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="h-4 w-4 mr-2" />
+                        Download Organized PDF
+                      </>
+                    )}
                   </Button>
                 </div>
 
@@ -327,7 +367,7 @@ const OrganizePDF = () => {
 
                                 {page.selected && (
                                   <div className="absolute top-1 right-1 w-5 h-5 bg-primary rounded-full flex items-center justify-center">
-                                    <span className="text-white text-xs">Check</span>
+                                    <span className="text-white text-xs">✓</span>
                                   </div>
                                 )}
                               </div>
