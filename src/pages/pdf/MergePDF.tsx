@@ -47,7 +47,7 @@ const MergePDF = () => {
       const trailerBuffer = await file.slice(-1024).arrayBuffer();
       const trailer = new TextDecoder().decode(trailerBuffer);
       if (!trailer.includes("%%EOF")) {
-        console.warn(`⚠️ PDF ${file.name} missing EOF marker, accepting anyway.`);
+        console.warn(`Warning: PDF ${file.name} missing EOF marker, accepting anyway.`);
       }
       return true;
     } catch (error) {
@@ -167,44 +167,43 @@ const MergePDF = () => {
     }
   };
 
-const downloadFile = async () => {
-  const mergedFileUrl = files.find(f => f.mergedFileUrl)?.mergedFileUrl;
-  if (!mergedFileUrl) {
-    toast.error("No merged file available for download.");
-    return;
-  }
-
-  try {
-    // Fetch the PDF file from the mergedFileUrl
-    const response = await fetch(mergedFileUrl, {
-      method: "GET",
-    });
-
-    if (!response.ok) {
-      throw new Error("Failed to fetch merged PDF");
+  const downloadFile = async () => {
+    const mergedFileUrl = files.find(f => f.mergedFileUrl)?.mergedFileUrl;
+    if (!mergedFileUrl) {
+      toast.error("No merged file available for download.");
+      return;
     }
 
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
+    try {
+      // Fetch the PDF file from the mergedFileUrl
+      const response = await fetch(mergedFileUrl, {
+        method: "GET",
+      });
 
-    // Force download
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = processedFileName || `merged_${files.length}_files.pdf`;
-    document.body.appendChild(link);
-    link.click();
+      if (!response.ok) {
+        throw new Error("Failed to fetch merged PDF");
+      }
 
-    // Cleanup
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
 
-    toast.success("Download started!");
-  } catch (error) {
-    console.error("Download failed:", error);
-    toast.error("Failed to download file. Please try again.");
-  }
-};
+      // Force download
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = processedFileName || `merged_${files.length}_files.pdf`;
+      document.body.appendChild(link);
+      link.click();
 
+      // Cleanup
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      toast.success("Download started!");
+    } catch (error) {
+      console.error("Download failed:", error);
+      toast.error("Failed to download file. Please try again.");
+    }
+  };
 
   const printFile = () => {
     const mergedFileUrl = files.find(f => f.mergedFileUrl)?.mergedFileUrl;
@@ -263,7 +262,7 @@ const downloadFile = async () => {
               onDrop={handleDrop}
             >
               <div className="flex flex-col items-center gap-4">
-                <div className="text-4xl text-muted-foreground">📄</div>
+                <div className="text-4xl text-muted-foreground">PDF</div>
                 <h3 className="text-xl font-semibold">Drag and drop PDF here</h3>
                 <p className="text-muted-foreground">or</p>
                 <Button
@@ -406,6 +405,22 @@ const downloadFile = async () => {
           <p className="text-sm text-muted-foreground mb-6">
             Click download to save merged PDF or continue working with more tools below.
           </p>
+          
+          <div className="bg-muted rounded-lg p-6 mb-8">
+            <div className="flex items-center justify-center gap-4">
+              <div className="w-14 h-14 bg-red-100 rounded flex items-center justify-center">
+                <span className="text-red-600 font-bold text-sm">
+                  PDF
+                </span>
+              </div>
+              <div className="text-left">
+                <p className="font-semibold">{processedFileName}</p>
+                <p className="text-xs text-muted-foreground">
+                  Ready to download
+                </p>
+              </div>
+            </div>
+          </div>
           <div className="flex items-center justify-center gap-4 mb-6">
             <Button
               variant="outline"
