@@ -9,6 +9,7 @@ import {
   useCallback,
 } from "react";
 import { Button } from "@/components/ui/button";
+import PDFToolRecommendations from "@/components/PDFToolRecommendations";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Upload,
@@ -21,10 +22,11 @@ import {
   ArrowLeft,
   Grid3x3,
   Layers,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
-import { PDFDocument, rgb, degrees, StandardFonts, PDFPage } from "pdf-lib";
+import { PDFDocument, rgb, degrees, StandardFonts } from "pdf-lib";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import {
@@ -141,7 +143,9 @@ const PageOverlay = memo(
       { x: 83.33, y: 16.67 }, // bottom-right
     ];
 
-    const positions = mosaicMode ? mosaicPositions : [{ x: positionX, y: positionY }];
+    const positions = mosaicMode
+      ? mosaicPositions
+      : [{ x: positionX, y: positionY }]; // ← FIXED typo (desapare)
 
     const renderWatermark = (x: number, y: number, index: number) => (
       <div key={index}>
@@ -192,9 +196,9 @@ const PageOverlay = memo(
     return (
       <div
         className="pointer-events-none absolute inset-0"
-        style={{ 
+        style={{
           zIndex: behindContent ? 0 : 10,
-          mixBlendMode: behindContent ? 'multiply' : 'normal'
+          mixBlendMode: behindContent ? "multiply" : "normal",
         }}
       >
         {positions.map((pos, idx) => renderWatermark(pos.x, pos.y, idx))}
@@ -228,7 +232,9 @@ const PDFLivePreview = memo(
     const { pdfDoc, loading, error } = usePDFDocument(file);
     const containerRef = useRef<HTMLDivElement>(null);
     const [containerWidth, setContainerWidth] = useState(0);
-    const [pageDimensions, setPageDimensions] = useState<Map<number, { width: number; height: number }>>(new Map());
+    const [pageDimensions, setPageDimensions] = useState<
+      Map<number, { width: number; height: number }>
+    >(new Map());
 
     /* Resize observer */
     useEffect(() => {
@@ -242,10 +248,18 @@ const PDFLivePreview = memo(
     }, [containerWidth]);
 
     /* Get page dimensions */
-    const onRenderSuccess = useCallback((pageIndex: number, page: any) => {
-      const viewport = page.getViewport({ scale: 1 });
-      setPageDimensions((prev) => new Map(prev).set(pageIndex, {width: viewport.width,height: viewport.height,}));
-    }, []);
+    const onRenderSuccess = useCallback(
+      (pageIndex: number, page: any) => {
+        const viewport = page.getViewport({ scale: 1 });
+        setPageDimensions((prev) =>
+          new Map(prev).set(pageIndex, {
+            width: viewport.width,
+            height: viewport.height,
+          })
+        );
+      },
+      []
+    );
 
     if (!pdfDoc) return null;
 
@@ -468,7 +482,7 @@ const StampPDF = () => {
 
       setProgress(30);
 
-      const indices: number[] = Array.from(selectedPages).map(p => p - 1);
+      const indices: number[] = Array.from(selectedPages).map((p) => p - 1);
 
       setProgress(50);
 
@@ -485,7 +499,9 @@ const StampPDF = () => {
         { x: 83.33, y: 16.67 }, // bottom-right
       ];
 
-      const positions = mosaicMode ? mosaicPositions : [{ x: positionX, y: positionY }];
+      const positions = mosaicMode
+        ? mosaicPositions
+        : [{ x: positionX, y: positionY }];
 
       if (watermarkType === "text") {
         const fontMap = {
@@ -499,16 +515,16 @@ const StampPDF = () => {
         for (const i of indices) {
           const page = pages[i];
           const { width, height } = page.getSize();
-          
+
           // Get text width for proper centering
           const textWidth = font.widthOfTextAtSize(watermarkText, fontSize);
           const textHeight = fontSize;
-          
+
           for (const pos of positions) {
             // Calculate position - center the text properly
             // Convert from preview coordinates (top-left origin) to PDF coordinates (bottom-left origin)
-            const x = (pos.x / 100) * width - (textWidth / 2);
-            const y = ((100 - pos.y) / 100) * height - (textHeight / 2); // Invert Y axis
+            const x = (pos.x / 100) * width - textWidth / 2;
+            const y = ((100 - pos.y) / 100) * height - textHeight / 2; // Invert Y axis
 
             if (behindContent) {
               // Insert at beginning of content stream to appear behind
@@ -594,7 +610,9 @@ const StampPDF = () => {
 
   const downloadFile = () => {
     if (!watermarkedPdf) return;
-    const blob = new Blob([new Uint8Array(watermarkedPdf)], { type: "application/pdf" });
+    const blob = new Blob([new Uint8Array(watermarkedPdf)], {
+      type: "application/pdf",
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -616,6 +634,11 @@ const StampPDF = () => {
     setBehindContent(false);
   };
 
+  const resetAll = () => {
+    reset();
+    setCurrentStep("upload");
+  };
+
   /* ---------- Render Steps ---------- */
   const renderUploadStep = () => (
     <div className="space-y-6">
@@ -626,7 +649,9 @@ const StampPDF = () => {
               <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8">
                 <Upload className="h-12 w-8 mx-auto text-muted-foreground mb-4" />
                 <h3 className="text-lg font-semibold mb-2">Upload PDF to Stamp</h3>
-                <p className="text-muted-foreground mb-4">Choose a PDF file from your device</p>
+                <p className="text-muted-foreground mb-4">
+                  Choose a PDF file from your device
+                </p>
                 <Button onClick={() => pdfUploadInputRef.current?.click()}>
                   <Upload className="h-4 w-4 mr-2" />
                   Select PDF File
@@ -705,9 +730,7 @@ const StampPDF = () => {
             </div>
             <div className="flex-1 min-w-0">
               <h4 className="text-sm font-medium truncate">{file?.name}</h4>
-              <p className="text-xs text-muted-foreground">
-                {totalPages} pages
-              </p>
+              <p className="text-xs text-muted-foreground">{totalPages} pages</p>
             </div>
             <Button
               variant="outline"
@@ -748,7 +771,10 @@ const StampPDF = () => {
                 <div className="grid grid-cols-2 gap-2">
                   <div className="space-y-1">
                     <Label className="text-xs">Font</Label>
-                    <Select value={fontFamily} onValueChange={(v) => setFontFamily(v as any)}>
+                    <Select
+                      value={fontFamily}
+                      onValueChange={(v) => setFontFamily(v as any)}
+                    >
                       <SelectTrigger className="h-8 text-xs">
                         <SelectValue />
                       </SelectTrigger>
@@ -800,7 +826,8 @@ const StampPDF = () => {
                           className="w-full h-full object-contain"
                         />
                       </div>
-                      <p className="text-xs font-medium truncate">{imageWatermark.name}</p>
+                      <p className="text-xs font-medium truncate">
+                        {imageWatermark.name}</p>
                       <Button
                         variant="outline"
                         size="sm"
@@ -848,9 +875,9 @@ const StampPDF = () => {
                 <Label className="text-xs">Mosaic (3x3 grid)</Label>
               </div>
               <Switch
-                checked={mosaicMode}
+              checked={mosaicMode}
                 onCheckedChange={setMosaicMode}
-              />
+           />
             </div>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -1009,20 +1036,40 @@ const StampPDF = () => {
     <div className="w-full max-w-2xl mx-auto">
       <Card>
         <CardContent className="p-12 text-center space-y-6">
-          <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
-            <Check className="h-10 w-10 text-green-600" />
-          </div>
-          <h3 className="text-2xl font-bold">Done!</h3>
+          <h3 className="text-2xl font-bold">PDF stamp successfully!</h3>
           <p className="text-muted-foreground">
-            Your watermarked PDF is ready
+            Your PDF has been stamped
           </p>
-          <div className="flex gap-4 justify-center">
-            <Button size="lg" onClick={downloadFile}>
-              <Download className="h-5 w-5 mr-2" /> Download PDF
+
+          <div className="bg-muted rounded-lg p-4 mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-purple-100 rounded flex items-center justify-center">
+                <span className="text-purple-600 font-bold text-xs">PDF</span>
+              </div>
+              <div className="flex-1 text-left">
+                <h4 className="font-medium">watermarked_{file?.name}</h4>
+                <p className="text-sm text-muted-foreground">
+                  ready to download
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-center gap-4">
+            <Button variant="outline" size="icon" onClick={resetAll}>
+              <ArrowLeft className="h-5 w-5" />
             </Button>
-            <Button variant="outline" size="lg" onClick={reset}>
-              Watermark Another
+            <Button onClick={downloadFile} className="px-10">
+              <Download className="h-5 w-5 mr-2" />
+              Download PDF
             </Button>
+            <Button variant="outline" size="icon" onClick={resetAll}>
+              <Trash2 className="h-5 w-5" />
+            </Button>
+          </div>
+
+          <div className="mt-10">
+            <PDFToolRecommendations currentTool="edit" />
           </div>
         </CardContent>
       </Card>

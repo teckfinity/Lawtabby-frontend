@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
+import PDFToolRecommendations from "@/components/PDFToolRecommendations";
 import {
   Select,
   SelectContent,
@@ -40,6 +41,7 @@ import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import Draggable from "react-draggable";
+
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 type ProcessStep = "upload" | "processing" | "download";
@@ -146,7 +148,6 @@ const EditPDF = () => {
       toast.error("Please select a valid PDF file");
       return;
     }
-
     setFile(f);
     setAnnotations([]);
     try {
@@ -405,7 +406,6 @@ const EditPDF = () => {
       )
     );
   };
-
   const updateTextSize = (
     id: string,
     newWidth: number,
@@ -427,7 +427,6 @@ const EditPDF = () => {
       )
     );
   };
-
   const updateShapePosition = (id: string, deltaX: number, deltaY: number) => {
     setAnnotations((prev) =>
       prev.map((a) =>
@@ -437,7 +436,6 @@ const EditPDF = () => {
       )
     );
   };
-
   const updateShapeSize = (
     id: string,
     newWidth: number,
@@ -479,7 +477,6 @@ const EditPDF = () => {
       }
     }
   };
-
   const selectSpan = (spanId: string) => {
     setSelectedSpanId(spanId);
     const sel = annotations.find(
@@ -496,7 +493,6 @@ const EditPDF = () => {
       setIsUnderline(span.underline);
     }
   };
-
   const removeAnnotation = (id: string) => {
     setAnnotations((a) => a.filter((x) => x.id !== id));
     if (selectedAnnotationId === id) setSelectedAnnotationId(null);
@@ -651,6 +647,16 @@ const EditPDF = () => {
     }
   };
 
+  /* ---------- RESET (only what is needed for the download step) ---------- */
+  const resetAll = () => {
+    setFile(null);
+    setCurrentStep("upload");
+    setProgress(0);
+    setAnnotations([]);
+    setSelectedAnnotationId(null);
+    setSelectedSpanId(null);
+  };
+
   /* ---------- RENDER CANVAS (annotations only, no drag UI) ---------- */
   useEffect(() => {
     Object.entries(canvasRefs.current).forEach(([pnStr, canvas]) => {
@@ -766,7 +772,6 @@ const EditPDF = () => {
           )}
         </CardContent>
       </Card>
-
       <input
         ref={pdfUploadInputRef}
         id="pdf-upload"
@@ -806,7 +811,11 @@ const EditPDF = () => {
     <div className="max-w-2xl mx-auto">
       <Card className="border-2 border-primary">
         <CardContent className="p-8 text-center">
-          <h3 className="text-xl font-semibold mb-2">Ready!</h3>
+          <h3 className="text-xl font-semibold mb-2">PDF edit successfully!</h3>
+              <p className="text-muted-foreground mb-8">
+      
+               Your PDF has been edited
+          </p>
           <div className="bg-muted rounded-lg p-4 mb-6">
             <div className="flex items-center gap-3">
               <div className="w-12 h-12 bg-purple-100 rounded flex items-center justify-center">
@@ -815,28 +824,25 @@ const EditPDF = () => {
               <div className="flex-1 text-left">
                 <h4 className="font-medium">edited_{file?.name}</h4>
                 <p className="text-sm text-muted-foreground">
-                  {annotations.length} edit(s)
+                  ready to download
                 </p>
               </div>
             </div>
           </div>
-          <div className="flex items-center justify-center gap-4">
-            <Button onClick={downloadFile} className="h-12 px-8">
-              <Download className="h-4 w-4 mr-2" />
-              Download
+          <div className="flex justify-center gap-4">
+            <Button variant="outline" size="icon" onClick={resetAll}>
+              <ArrowLeft className="h-5 w-5" />
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setFile(null);
-                setCurrentStep("upload");
-                setAnnotations([]);
-                setNumPages(0);
-              }}
-              className="h-12 px-8"
-            >
-              Edit Another
+            <Button onClick={downloadFile} className="px-10">
+              <Download className="h-5 w-5 mr-2" />
+              Download PDF
             </Button>
+            <Button variant="outline" size="icon" onClick={resetAll}>
+              <Trash2 className="h-5 w-5" />
+            </Button>
+          </div>
+          <div className="mt-10">
+            <PDFToolRecommendations currentTool="edit" />
           </div>
         </CardContent>
       </Card>
