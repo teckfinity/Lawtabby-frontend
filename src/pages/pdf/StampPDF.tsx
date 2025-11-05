@@ -1031,7 +1031,7 @@ const StampPDF = () => {
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-4xl mx-auto">
         <div className="flex items-center gap-4 mb-8">
           <Button
             variant="ghost"
