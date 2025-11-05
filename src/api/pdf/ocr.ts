@@ -1,13 +1,22 @@
 import { apiClient, API_BASE_URL, getAuthToken } from "../config";
 
-export const convertOCRToPDF = (file: File) => {
+/**
+ * Calls the OCR endpoint.
+ * @param file      – the PDF (or image) file
+ * @param language  – one of: "eng" | "spa" | "fra" | "deu"
+ */
+export const convertOCRToPDF = (file: File, language: string) => {
   if (!file) throw new Error("Image file required for OCR.");
+  if (!language) throw new Error("Language is required.");
+
   const token = getAuthToken();
   const formData = new FormData();
   formData.append("input_pdf", file, file.name);
+  formData.append("language", language);   // ← API expects this field
+
   return apiClient.post("/pdf/ocr_to_pdf/", formData, {
     headers: {
-      "Content-Type": "multipart/form-data",
+      // Let the browser set the correct boundary for multipart/form-data
       ...(token ? { Authorization: `Token ${token}` } : {}),
     },
   });
