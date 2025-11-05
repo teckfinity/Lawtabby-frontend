@@ -1,5 +1,6 @@
 /* ────────────────────────────────────────────────────────────────────────── */
 /*  SignPDF.tsx – frontend-only version with full drag/resize/re-sign       */
+/*  UPLOAD UI NOW IDENTICAL TO StampPDF (only visual change)                */
 /* ────────────────────────────────────────────────────────────────────────── */
 import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import {
   ZoomOut,
   Trash,
   Edit3,
+  FileText,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
@@ -437,8 +439,9 @@ const SignPDF = () => {
   const [progress, setProgress] = useState(0);
   const [numPages, setNumPages] = useState(0);
   const [page, setPage] = useState(1);
-const [scale, setScale] = useState(1.30);
+  const [scale, setScale] = useState(1.30);
   const pageRef = useRef<HTMLDivElement>(null);
+  const pdfUploadInputRef = useRef<HTMLInputElement>(null); // NEW REF
 
   const [mode, setMode] = useState<"single" | "multiple" | null>(null);
   const [signers, setSigners] = useState<Signer[]>([]);
@@ -1002,6 +1005,54 @@ const [scale, setScale] = useState(1.30);
   };
 
   /* ──────────────────────────────────────── */
+  /*  UPLOAD STEP – EXACTLY LIKE StampPDF     */
+  /* ──────────────────────────────────────── */
+  const renderUploadStep = () => (
+    <div className="space-y-6">
+      <Card>
+        <CardContent className="p-8">
+          {!file ? (
+            <div className="text-center">
+              <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8">
+                <Upload className="h-12 w-8 mx-auto text-muted-foreground mb-4" />
+                <h3 className="text-lg font-semibold mb-2">Upload PDF to Sign</h3>
+                <p className="text-muted-foreground mb-4">Choose a PDF file from your device</p>
+                <Button onClick={() => pdfUploadInputRef.current?.click()}>
+                  <Upload className="h-4 w-4 mr-2" />
+                  Select PDF File
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
+              <div className="w-12 h-12 bg-red-100 rounded flex items-center justify-center">
+                <span className="text-red-600 font-bold text-xs">PDF</span>
+              </div>
+              <div className="flex-1">
+                <h4 className="font-medium">{file.name}</h4>
+                <p className="text-sm text-muted-foreground">
+                  {(file.size / 1024 / 1024).toFixed(2)} MB
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => setFile(null)}>
+                Remove
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      <input
+        ref={pdfUploadInputRef}
+        id="pdf-upload"
+        type="file"
+        accept=".pdf"
+        className="hidden"
+        onChange={handleUpload}
+      />
+    </div>
+  );
+
+  /* ──────────────────────────────────────── */
   /*  UI – upload / mode selection            */
   /* ──────────────────────────────────────── */
   const renderUpload = () => (
@@ -1009,33 +1060,7 @@ const [scale, setScale] = useState(1.30);
       {/* LEFT – PDF viewer / upload card */}
       <div className="lg:col-span-3">
         {!file ? (
-          /* ---------- UPLOAD CARD ---------- */
-          <Card className="border-2 border-dashed border-muted-foreground/20 hover:border-primary/50 transition-colors">
-          <CardContent className="text-center space-y-8 p-3">
-                <div className="w-20 h-20 mx-auto bg-primary/10 rounded-full flex items-center justify-center">
-                <Upload className="h-10 w-10 text-primary" />
-              </div>
-              <h3 className="text-2xl font-semibold">Upload PDF to Sign</h3>
-              <p className="text-sm text-muted-foreground max-w-md mx-auto">
-                Drag & drop your PDF here, or click to browse and select a file from your computer.
-              </p>
-              <input
-                id="pdf-upload"
-                type="file"
-                accept=".pdf,application/pdf"
-                className="hidden"
-                onChange={handleUpload}
-              />
-              <Button
-                onClick={() => document.getElementById("pdf-upload")?.click()}
-                size="lg"
-                className="mt-4"
-              >
-                <Upload className="h-5 w-5 mr-2" />
-                Select PDF File
-              </Button>
-            </CardContent>
-          </Card>
+          renderUploadStep()
         ) : mode === null ? (
           /* ---------- CHOOSE WHO SIGNS ---------- */
           <div className="flex justify-center">
