@@ -129,9 +129,6 @@ const PageOverlay = memo(
     mosaicMode: boolean;
     behindContent: boolean;
   }) => {
-    const overlayKey = `${watermarkType}-${watermarkText}-${fontSize}-${fontFamily}-${textColor}-${rotation}-${opacity}-${imageUrl}-${positionX}-${positionY}-${pageWidth}-${pageHeight}-${mosaicMode}-${behindContent}`;
-
-    // Calculate 3x3 grid positions (evenly distributed)
     const mosaicPositions = [
       { x: 16.67, y: 83.33 }, // top-left
       { x: 50, y: 83.33 },    // top-center
@@ -194,7 +191,6 @@ const PageOverlay = memo(
 
     return (
       <div
-        key={overlayKey}
         className="pointer-events-none absolute inset-0"
         style={{ 
           zIndex: behindContent ? 0 : 10,
@@ -248,7 +244,7 @@ const PDFLivePreview = memo(
     /* Get page dimensions */
     const onRenderSuccess = useCallback((pageIndex: number, page: any) => {
       const viewport = page.getViewport({ scale: 1 });
-      setPageDimensions(prev => new Map(prev).set(pageIndex, { width: viewport.width, height: viewport.height }));
+      setPageDimensions((prev) => new Map(prev).set(pageIndex, {width: viewport.width,height: viewport.height,}));
     }, []);
 
     if (!pdfDoc) return null;
@@ -262,7 +258,7 @@ const PDFLivePreview = memo(
         <Document file={file} loading={null}>
           {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => {
             const isSelected = selectedPages.has(pageNum);
-            const dims = pageDimensions.get(pageNum) || { width: 800, height: 1000 };
+            const dims = pageDimensions.get(pageNum) || { width: 800, height: 1100 };
 
             return (
               <div
@@ -293,14 +289,14 @@ const PDFLivePreview = memo(
         </Document>
 
         {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/90 backdrop-blur-sm">
+          <div className="absolute inset-0 flex items-center justify-center bg-white/90 backdrop-blur-sm z-50">
             <div className="text-lg font-medium text-muted-foreground">
               Loading PDF...
             </div>
           </div>
         )}
         {error && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-50 text-red-600 p-4">
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-50 text-red-600 p-4 z-50">
             <p className="font-medium">Failed to load PDF</p>
             <p className="text-sm mt-1 max-w-md text-center">{error}</p>
           </div>
@@ -324,7 +320,7 @@ const StampPDF = () => {
 
   const [watermarkType, setWatermarkType] = useState<WatermarkType>("text");
   const [watermarkText, setWatermarkText] = useState("CONFIDENTIAL");
-  const [fontSize, setFontSize] = useState(48);
+  const [fontSize, setFontSize] = useState(27);
   const [fontFamily, setFontFamily] = useState<
     "Helvetica" | "Times" | "Courier"
   >("Helvetica");
@@ -350,6 +346,7 @@ const StampPDF = () => {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const pdfUploadInputRef = useRef<HTMLInputElement>(null);
 
   /* ---------- Selected pages set ---------- */
   const selectedPages = useMemo(() => {
@@ -619,35 +616,49 @@ const StampPDF = () => {
     setBehindContent(false);
   };
 
-  /* ---------- Render steps ---------- */
-  const renderUpload = () => (
-    <div className="w-full max-w-3xl mx-auto">
+  /* ---------- Render Steps ---------- */
+  const renderUploadStep = () => (
+    <div className="space-y-6">
       <Card>
-        <CardContent className="p-12 text-center">
-          <div className="border-2 border-dashed rounded-xl p-12 bg-muted/30 hover:bg-muted/50 transition-colors">
-            <Upload className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
-            <p className="text-lg font-medium mb-2">Upload PDF to Stamp</p>
-            <p className="text-sm text-muted-foreground mb-6">
-              Drag & drop your PDF here, or click to browse and select a file
-              from your computer.
-            </p>
-            <Button
-              size="lg"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <Upload className="h-5 w-5 mr-2" />
-              Select PDF
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf,application/pdf"
-              className="hidden"
-              onChange={handleFileUpload}
-            />
-          </div>
+        <CardContent className="p-8">
+          {!file ? (
+            <div className="text-center">
+              <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8">
+                <Upload className="h-12 w-8 mx-auto text-muted-foreground mb-4" />
+                <h3 className="text-lg font-semibold mb-2">Upload PDF to Stamp</h3>
+                <p className="text-muted-foreground mb-4">Choose a PDF file from your device</p>
+                <Button onClick={() => pdfUploadInputRef.current?.click()}>
+                  <Upload className="h-4 w-4 mr-2" />
+                  Select PDF File
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
+              <div className="w-12 h-12 bg-red-100 rounded flex items-center justify-center">
+                <span className="text-red-600 font-bold text-xs">PDF</span>
+              </div>
+              <div className="flex-1">
+                <h4 className="font-medium">{file.name}</h4>
+                <p className="text-sm text-muted-foreground">
+                  {(file.size / 1024 / 1024).toFixed(2)} MB
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => setFile(null)}>
+                Remove
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
+      <input
+        ref={pdfUploadInputRef}
+        id="pdf-upload"
+        type="file"
+        accept=".pdf"
+        className="hidden"
+        onChange={handleFileUpload}
+      />
     </div>
   );
 
@@ -1019,28 +1030,25 @@ const StampPDF = () => {
   );
 
   return (
-    <div className="w-full min-h-screen bg-background flex flex-col">
-      <div className="max-w-6xl mx-auto pt-6 pb-10 px-6 lg:px-8">
-        <div className="flex items-center gap-4 mb-6">
+    <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
+      <div className="max-w-5xl mx-auto">
+        <div className="flex items-center gap-4 mb-8">
           <Button
             variant="ghost"
             size="sm"
-            onClick={() =>
-              currentStep === "upload" ? navigate(-1) : setCurrentStep("upload")
-            }
+            onClick={() => currentStep === "upload" ? navigate("/pdf-tools") : setCurrentStep("upload")}
+            className="flex items-center gap-2"
           >
-            <ArrowLeft className="h-4 w-4 mr-1" />
+            <ArrowLeft className="h-4 w-4" />
             Back
           </Button>
           <div>
-            <h1 className="text-3xl font-bold">Stamp PDF</h1>
-            <p className="text-muted-foreground">
-              Stamp text or an image over your PDF in seconds
-            </p>
+            <h1 className="text-3xl font-bold text-foreground">Stamp PDF</h1>
+            <p className="text-muted-foreground">Add text or image watermarks in seconds.</p>
           </div>
         </div>
 
-        {currentStep === "upload" && renderUpload()}
+        {currentStep === "upload" && renderUploadStep()}
         {currentStep === "customize" && renderCustomize()}
         {currentStep === "processing" && renderProcessing()}
         {currentStep === "download" && renderDownload()}
