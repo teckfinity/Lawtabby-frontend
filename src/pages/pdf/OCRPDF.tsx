@@ -1,11 +1,27 @@
+'use client';
+
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ArrowLeft, Upload, ScanText, Languages, Download, CheckCircle } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  ArrowLeft,
+  Upload,
+  ScanText,
+  Languages,
+  Download,
+  Trash2,
+} from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { convertOCRToPDF, downloadOCRPDF } from "@/api";
+import { convertOCRToPDF } from "@/api";
+import PDFToolRecommendations from "@/components/PDFToolRecommendations";
 
 const OCRPDF = () => {
   const navigate = useNavigate();
@@ -13,7 +29,10 @@ const OCRPDF = () => {
   const [file, setFile] = useState<File | null>(null);
   const [selectedLanguage, setSelectedLanguage] = useState("en");
   const [isProcessing, setIsProcessing] = useState(false);
-  const [downloadInfo, setDownloadInfo] = useState<{ pdfUrl: string; fileName: string } | null>(null);
+  const [downloadInfo, setDownloadInfo] = useState<{
+    pdfUrl: string;
+    fileName: string;
+  } | null>(null);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
@@ -32,19 +51,16 @@ const OCRPDF = () => {
     setIsProcessing(true);
 
     try {
-      const response = await convertOCRToPDF(file);
+      const response = await convertOCRToPDF(file, selectedLanguage);
 
       if (response && response.data) {
         const { message, data } = response.data;
         toast.success(message || "OCR completed successfully!");
 
-        const pdfFileName = data?.pdf || "";
-const pdfUrl = data?.pdf || "";
-const fileName = pdfUrl.split("/").pop() || "ocr_output.pdf";
-setDownloadInfo({ pdfUrl, fileName });
+        const pdfUrl = data?.pdf || "";
+        const fileName = `ocr_${file.name.replace(/\.[^/.]+$/, "")}.pdf`;
 
-        //  Set download info to show the download screen
-        setDownloadInfo({ pdfUrl, fileName: pdfFileName });
+        setDownloadInfo({ pdfUrl, fileName });
       } else {
         toast.error("Failed to process OCR. Please try again.");
       }
@@ -56,34 +72,30 @@ setDownloadInfo({ pdfUrl, fileName });
     }
   };
 
-const handleDownload = async () => {
-  if (!downloadInfo?.pdfUrl) return;
+  const handleDownload = async () => {
+    if (!downloadInfo?.pdfUrl) return;
 
-  try {
-    // Fetch the PDF file as a blob
-    const response = await fetch(downloadInfo.pdfUrl, {
-      method: "GET",
-    });
-    const blob = await response.blob();
+    try {
+      const response = await fetch(downloadInfo.pdfUrl, { method: "GET" });
+      const blob = await response.blob();
+      const blobUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = downloadInfo.fileName;
+      link.click();
+      window.URL.revokeObjectURL(blobUrl);
+      toast.success("Downloaded!");
+    } catch (error) {
+      console.error("Download error:", error);
+      toast.error("Failed to download PDF.");
+    }
+  };
 
-    // Create a temporary URL for the blob
-    const blobUrl = window.URL.createObjectURL(blob);
-
-    // Create a link and trigger download
-    const link = document.createElement("a");
-    link.href = blobUrl;
-    link.download = downloadInfo.fileName; // file name from API
-    link.click();
-
-    // Cleanup
-    window.URL.revokeObjectURL(blobUrl);
-  } catch (error) {
-    console.error("Download error:", error);
-    toast.error("Failed to download PDF.");
-  }
-};
-
-
+  const resetAll = () => {
+    setFile(null);
+    setDownloadInfo(null);
+    setSelectedLanguage("en");
+  };
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
@@ -107,40 +119,52 @@ const handleDownload = async () => {
           </div>
         </div>
 
-        {/* ✅ Show download screen after processing */}
+        {/* DOWNLOAD SCREEN – Shows FILENAME, not URL */}
         {downloadInfo ? (
-          <Card className="p-8 text-center shadow-lg">
-            <CardContent>
-              <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-4" />
-              <h2 className="text-2xl font-bold mb-2">OCR Conversion Successful 🎉</h2>
-              <p className="text-muted-foreground mb-6">
-                Your file <strong>{downloadInfo.fileName}</strong> has been converted successfully.
-              </p>
+          <div className="w-full max-w-2xl mx-auto">
+            <Card>
+              <CardContent className="p-12 text-center space-y-6">
+                <h3 className="text-2xl font-bold">OCR completed successfully!</h3>
+                <p className="text-muted-foreground">
+                  Your document is now searchable and editable.
+                </p>
 
-              <div className="flex flex-col items-center gap-4">
-                <Button
-                  onClick={handleDownload}
-                  className="bg-primary hover:bg-primary/90 w-full sm:w-auto"
-                >
-                  <Download className="h-4 w-4 mr-2" /> Download PDF
-                </Button>
+                <div className="bg-muted rounded-lg p-4 mb-6">
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 bg-purple-100 rounded flex items-center justify-center">
+                      <span className="text-purple-600 font-bold text-xs">PDF</span>
+                    </div>
+                    <div className="flex-1 text-left">
+                      <h4 className="font-medium">{downloadInfo.fileName}</h4>
+                      <p className="text-sm text-muted-foreground">
+                        ready to download
+                      </p>
+                    </div>
+                  </div>
+                </div>
 
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setDownloadInfo(null);
-                    setFile(null);
-                  }}
-                  className="w-full sm:w-auto"
-                >
-                  Process Another File
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+                <div className="flex justify-center gap-4">
+                  <Button variant="outline" size="icon" onClick={resetAll}>
+                    <ArrowLeft className="h-5 w-5" />
+                  </Button>
+                  <Button onClick={handleDownload} className="px-10">
+                    <Download className="h-5 w-5 mr-2" />
+                    Download PDF
+                  </Button>
+                  <Button variant="outline" size="icon" onClick={resetAll}>
+                    <Trash2 className="h-5 w-5" />
+                  </Button>
+                </div>
+
+                <div className="mt-10">
+                  <PDFToolRecommendations currentTool="ocr" />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         ) : (
           <>
-            {/* 👇 Your existing file upload + processing UI */}
+            {/* Upload + Settings UI */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
               {/* Left Column (Upload + Settings) */}
               <div className="space-y-6">
@@ -265,23 +289,23 @@ const handleDownload = async () => {
                   <CardContent className="p-6">
                     <h4 className="font-semibold mb-3">How OCR Works</h4>
                     <ul className="text-sm text-muted-foreground space-y-2">
-                  <li>• <strong>Upload:</strong> Select your PDF or image file</li>
-                  <li>• <strong>Language:</strong> Choose document language for best results</li>
-                  <li>• <strong>Process:</strong> AI analyzes and recognizes text</li>
-                  <li>• <strong>Download:</strong> Get your searchable PDF</li>
-                </ul>
-              </CardContent>
-            </Card>
+                      <li>• <strong>Upload:</strong> Select your PDF or image file</li>
+                      <li>• <strong>Language:</strong> Choose document language for best results</li>
+                      <li>• <strong>Process:</strong> AI analyzes and recognizes text</li>
+                      <li>• <strong>Download:</strong> Get your searchable PDF</li>
+                    </ul>
+                  </CardContent>
+                </Card>
 
-            <Card className="bg-muted/50">
-              <CardContent className="p-6">
-                <h4 className="font-semibold mb-3">OCR Features</h4>
-                <ul className="text-sm text-muted-foreground space-y-2">
-                  <li>• <strong>High Accuracy:</strong> Advanced OCR engine with 99%+ accuracy</li>
-                  <li>• <strong>Multi-language:</strong> Support for 10+ languages</li>
-                  <li>• <strong>Searchable PDF:</strong> Create searchable and selectable PDFs</li>
-                  <li>• <strong>Format Preservation:</strong> Maintains document structure</li>
-                  <li>• <strong>Image Support:</strong> Process scanned images and photos</li>
+                <Card className="bg-muted/50">
+                  <CardContent className="p-6">
+                    <h4 className="font-semibold mb-3">OCR Features</h4>
+                    <ul className="text-sm text-muted-foreground space-y-2">
+                      <li>• <strong>High Accuracy:</strong> Advanced OCR engine with 99%+ accuracy</li>
+                      <li>• <strong>Multi-language:</strong> Support for 10+ languages</li>
+                      <li>• <strong>Searchable PDF:</strong> Create searchable and selectable PDFs</li>
+                      <li>• <strong>Format Preservation:</strong> Maintains document structure</li>
+                      <li>• <strong>Image Support:</strong> Process scanned images and photos</li>
                     </ul>
                   </CardContent>
                 </Card>
