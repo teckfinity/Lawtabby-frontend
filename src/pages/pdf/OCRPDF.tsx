@@ -23,11 +23,23 @@ import { toast } from "sonner";
 import { convertOCRToPDF } from "@/api";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
 
+/* ------------------------------------------------------------------ */
+/*  ONLY THESE LANGUAGES ARE SUPPORTED BY THE BACKEND                */
+/* ------------------------------------------------------------------ */
+const LANGUAGE_OPTIONS = [
+  { code: "eng", label: "English" },
+  { code: "spa", label: "Spanish" },
+  { code: "fra", label: "French" },
+  { code: "deu", label: "German" },
+] as const;
+
+type LanguageCode = (typeof LANGUAGE_OPTIONS)[number]["code"];
+
 const OCRPDF = () => {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
-  const [selectedLanguage, setSelectedLanguage] = useState("en");
+  const [selectedLanguage, setSelectedLanguage] = useState<LanguageCode>("eng");
   const [isProcessing, setIsProcessing] = useState(false);
   const [downloadInfo, setDownloadInfo] = useState<{
     pdfUrl: string;
@@ -51,9 +63,10 @@ const OCRPDF = () => {
     setIsProcessing(true);
 
     try {
+      // ---- API call now passes language as second arg ----
       const response = await convertOCRToPDF(file, selectedLanguage);
 
-      if (response && response.data) {
+      if (response?.data) {
         const { message, data } = response.data;
         toast.success(message || "OCR completed successfully!");
 
@@ -66,7 +79,7 @@ const OCRPDF = () => {
       }
     } catch (error: any) {
       console.error("OCR API Error:", error);
-      toast.error("OCR processing failed. Please try again.");
+      toast.error(error?.response?.data?.detail || "OCR processing failed.");
     } finally {
       setIsProcessing(false);
     }
@@ -76,17 +89,17 @@ const OCRPDF = () => {
     if (!downloadInfo?.pdfUrl) return;
 
     try {
-      const response = await fetch(downloadInfo.pdfUrl, { method: "GET" });
-      const blob = await response.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = downloadInfo.fileName;
-      link.click();
-      window.URL.revokeObjectURL(blobUrl);
+      const resp = await fetch(downloadInfo.pdfUrl, { method: "GET" });
+      const blob = await resp.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = downloadInfo.fileName;
+      a.click();
+      window.URL.revokeObjectURL(url);
       toast.success("Downloaded!");
-    } catch (error) {
-      console.error("Download error:", error);
+    } catch (err) {
+      console.error(err);
       toast.error("Failed to download PDF.");
     }
   };
@@ -94,7 +107,7 @@ const OCRPDF = () => {
   const resetAll = () => {
     setFile(null);
     setDownloadInfo(null);
-    setSelectedLanguage("en");
+    setSelectedLanguage("eng");
   };
 
   return (
@@ -136,9 +149,7 @@ const OCRPDF = () => {
                     </div>
                     <div className="flex-1 text-left">
                       <h4 className="font-medium">{downloadInfo.fileName}</h4>
-                      <p className="text-sm text-muted-foreground">
-                        ready to download
-                      </p>
+                      <p className="text-sm text-muted-foreground">ready to download</p>
                     </div>
                   </div>
                 </div>
@@ -225,27 +236,19 @@ const OCRPDF = () => {
                       <div className="space-y-4">
                         <div className="space-y-2">
                           <label className="text-sm font-medium">Document Language</label>
-                          <Select value={selectedLanguage} onValueChange={setSelectedLanguage}>
+                          <Select
+                            value={selectedLanguage}
+                            onValueChange={(v) => setSelectedLanguage(v as LanguageCode)}
+                          >
                             <SelectTrigger>
                               <SelectValue placeholder="Select language" />
                             </SelectTrigger>
                             <SelectContent>
-                              {[
-                                "en",
-                                "es",
-                                "fr",
-                                "de",
-                                "it",
-                                "pt",
-                                "ru",
-                                "zh",
-                                "ja",
-                                "ko",
-                              ].map((code) => (
+                              {LANGUAGE_OPTIONS.map(({ code, label }) => (
                                 <SelectItem key={code} value={code}>
                                   <div className="flex items-center gap-2">
                                     <Languages className="h-4 w-4" />
-                                    {code.toUpperCase()}
+                                    {label}
                                   </div>
                                 </SelectItem>
                               ))}
@@ -266,6 +269,7 @@ const OCRPDF = () => {
                   </Card>
                 )}
 
+                {/* Processing spinner */}
                 {isProcessing && (
                   <Card className="bg-blue-50 border-blue-200">
                     <CardContent className="p-6">
@@ -283,7 +287,7 @@ const OCRPDF = () => {
                 )}
               </div>
 
-              {/* Right Column Info */}
+              {/* ---- RIGHT COLUMN (Info) ---- */}
               <div className="space-y-6">
                 <Card className="bg-muted/50">
                   <CardContent className="p-6">
@@ -302,7 +306,7 @@ const OCRPDF = () => {
                     <h4 className="font-semibold mb-3">OCR Features</h4>
                     <ul className="text-sm text-muted-foreground space-y-2">
                       <li>• <strong>High Accuracy:</strong> Advanced OCR engine with 99%+ accuracy</li>
-                      <li>• <strong>Multi-language:</strong> Support for 10+ languages</li>
+                      <li>• <strong>Multi-language:</strong> Support for English, Spanish, French, German</li>
                       <li>• <strong>Searchable PDF:</strong> Create searchable and selectable PDFs</li>
                       <li>• <strong>Format Preservation:</strong> Maintains document structure</li>
                       <li>• <strong>Image Support:</strong> Process scanned images and photos</li>

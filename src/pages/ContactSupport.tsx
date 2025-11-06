@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useToast } from "@/hooks/use-toast";
 import { ArrowLeft, Mail, MessageSquare, User } from "lucide-react";
+import { ContactUs } from "@/api/contact_us"; 
 
 const contactSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(100, "Name must be less than 100 characters"),
@@ -36,18 +37,29 @@ const ContactSupport = () => {
   });
 
   const onSubmit = async (data: ContactFormData) => {
-    setIsSubmitting(true);
-    
-    // Simulate form submission
-    setTimeout(() => {
-      console.log("Contact form submitted:", data);
+    try {
+      setIsSubmitting(true);
+      // Call actual backend API
+      const response = await ContactUs(data);
+      //  Handle successful response
       toast({
         title: "Message Sent",
-        description: "We've received your message and will get back to you soon.",
+        description: response.data?.message || "We've received your message and will get back to you soon.",
       });
       form.reset();
+    } catch (error: any) {
+      console.error("Contact form error:", error);
+      // Handle API error response
+      toast({
+        title: "Submission Failed",
+        description:
+          error?.response?.data?.message ||
+          "Something went wrong while sending your message. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
       setIsSubmitting(false);
-    }, 1000);
+    }
   };
 
   return (
