@@ -365,14 +365,15 @@ const Subscription = () => {
                 <Zap className="w-4 h-4" />
                 Start Free Trial
               </Button>
-              <Button 
-                variant="outline" 
-                size="lg" 
-                className="border-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/10"
-                onClick={() => navigate('/contact-support')}
-              >
-                Contact Sales
-              </Button>
+                <Button 
+                  variant="secondary" 
+                  size="lg" 
+                  className="gap-2"
+                  onClick={() => navigate('/contact-support')}
+                >
+                  <Zap className="w-4 h-4" />
+                  Contact Sales
+                </Button>
             </div>
           </CardContent>
         </Card>
