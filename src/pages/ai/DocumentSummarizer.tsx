@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -31,6 +31,9 @@ const DocumentSummarizer = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [summary, setSummary] = useState("");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const [settings, setSettings] = useState({
     outputFormat: "irac",
     summaryLength: [60], // 0-100 percentage
@@ -45,6 +48,11 @@ const DocumentSummarizer = () => {
   });
 
   const handleSummarize = () => {
+    if (!file && activeTab === "document") {
+      toast("Please select a file to summarize.");
+      return;
+    }
+
     setIsProcessing(true);
     // Simulate AI processing
     setTimeout(() => {
@@ -159,9 +167,48 @@ KEY HOLDINGS:
                     <p className="text-muted-foreground mb-4">
                       Drag & drop or click to upload PDF, DOC, or TXT files
                     </p>
-                    <Button className="bg-legal-primary hover:bg-legal-primary/90">
+
+                    <Button
+                      className="bg-legal-primary hover:bg-legal-primary/90"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
                       Choose File
                     </Button>
+
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={(e) => {
+                        const selected = e.target.files?.[0];
+                        if (selected) {
+                          if (selected.size > 10 * 1024 * 1024) {
+                            toast("File size exceeds 10MB limit.");
+                            return;
+                          }
+                          setFile(selected);
+                          toast(`Selected: ${selected.name}`);
+                        }
+                      }}
+                      accept=".pdf,.doc,.docx,.txt"
+                      className="hidden"
+                    />
+
+                    {file && (
+                      <div className="mt-4 p-3 bg-muted rounded-lg flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <FileText className="h-4 w-4" />
+                          <span className="truncate max-w-[200px]">{file.name}</span>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setFile(null)}
+                        >
+                          ✕
+                        </Button>
+                      </div>
+                    )}
+
                     <p className="text-xs text-muted-foreground mt-2">
                       Max file size: 10MB | Supported: PDF, DOC, DOCX, TXT
                     </p>

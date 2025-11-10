@@ -192,13 +192,14 @@ const PDFTools = () => {
                 >
                   View Pricing
                 </Button>
-                <Button 
-                  variant="outline" 
+                 <Button 
+                  variant="secondary" 
                   size="lg" 
-                  className="border-white text-white hover:bg-white hover:text-legal-primary"
-                  onClick={() => navigate("/contact-support")}
+                  className="gap-2"
+                  onClick={() => navigate('/contact-support')}
                 >
-                  Learn More
+                  {/* <Zap className="w-4 h-4" /> */}
+                  Contact Sales
                 </Button>
               </div>
             </CardContent>
