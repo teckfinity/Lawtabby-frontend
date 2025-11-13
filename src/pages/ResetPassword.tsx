@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Lock, CheckCircle, ArrowLeft } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { ENDPOINTS } from '@/api';
+import { ValidateToken, ConfirmPassword } from '@/api';
 
 const ResetPassword = () => {
   const navigate = useNavigate();
@@ -32,7 +32,7 @@ const ResetPassword = () => {
     }
 
     setIsLoading(true);
-    fetch(ENDPOINTS.VALIDATE_TOKEN, {
+    fetch(ValidateToken, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: tokenFromUrl }),
@@ -90,7 +90,7 @@ const ResetPassword = () => {
     }
 
     setIsLoading(true);
-    fetch(ENDPOINTS.CONFIRM_PASSWORD, {
+    fetch(ConfirmPassword, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ password, token }),

@@ -7,8 +7,10 @@ export * from "./user";
 
 // PDF APIs
 export * from "./config";
+export * from "./reset_password";
 export * from "./auth";
 export * from "./user";
+export * from "./ai/doc_summary";
 export * from "./pdf/merge";
 export * from "./pdf/split";
 export * from "./pdf/protect";
