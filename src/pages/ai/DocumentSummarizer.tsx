@@ -17,7 +17,6 @@ import {
   Wand2, 
   Clock, 
   CheckCircle,
-  AlertCircle,
   Settings,
   Save,
   Target,
@@ -25,6 +24,7 @@ import {
   Printer
 } from "lucide-react";
 import { toast } from "sonner";
+import { sendLegalChat } from "@/api/ai/doc_summary";
 
 const DocumentSummarizer = () => {
   const [activeTab, setActiveTab] = useState("document");
@@ -32,60 +32,79 @@ const DocumentSummarizer = () => {
   const [summary, setSummary] = useState("");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [textInput, setTextInput] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+const [fullResponse, setFullResponse] = useState<any>(null);
 
   const [settings, setSettings] = useState({
-    outputFormat: "irac",
-    summaryLength: [60], // 0-100 percentage
+    outputFormat: "irac" as "irac" | "executive" | "detailed" | "bullet_points",
+    summaryLength: [60],
     includeKeyFacts: true,
     includeLegalIssues: true,
     includeHoldings: true,
     includeRecommendations: false,
     confidenceThreshold: [75],
     autoSave: true,
-    citationStyle: "bluebook",
-    language: "english"
+    citationStyle: "bluebook" as "bluebook" | "apa" | "mla" | "chicago",
+    language: "english" as "english" | "spanish" | "french" | "german"
   });
 
-  const handleSummarize = () => {
-    if (!file && activeTab === "document") {
-      toast("Please select a file to summarize.");
-      return;
+const handleSummarize = async () => {
+  if (activeTab === "document" && !file) {
+    toast("Please select a file to summarize.");
+    return;
+  }
+  if (activeTab === "text" && !textInput.trim()) {
+    toast("Please enter text to summarize.");
+    return;
+  }
+
+  setIsProcessing(true);
+  setSummary("");
+
+  try {
+    const response = await sendLegalChat(
+      "process",
+      activeTab === "document" ? file! : undefined,
+      activeTab === "text" ? textInput : undefined,
+      settings.outputFormat,
+      settings.summaryLength[0],
+      settings.confidenceThreshold[0],
+      settings.citationStyle,
+      settings.language,
+      settings.autoSave,
+      settings.includeKeyFacts,
+      settings.includeLegalIssues,
+      settings.includeHoldings,
+      settings.includeRecommendations
+    );
+
+    const result = response.data;
+
+    // ✅ Show only the summary text in UI
+    if (result.summary) {
+      setSummary(result.summary);
+    } else {
+      setSummary("No summary text found in response!");
     }
 
-    setIsProcessing(true);
-    // Simulate AI processing
-    setTimeout(() => {
-      setSummary(`
-CASE SUMMARY - Smith v. Johnson (2024)
+    // ✅ Save complete response for copy/download actions
+    setFullResponse(result);
 
-ISSUE: Whether the defendant's failure to disclose material facts constitutes fraudulent misrepresentation under state contract law.
-
-RULE: Under [State] law, fraudulent misrepresentation requires: (1) a false representation of material fact, (2) knowledge of falsity or reckless disregard for truth, (3) intent to induce reliance, and (4) justifiable reliance causing damages.
-
-APPLICATION: Here, Defendant Johnson failed to disclose the property's foundation issues despite direct questioning. The court found this omission constituted a false representation of material fact. Johnson's contractor had identified the issues three months prior, establishing knowledge. The timing of the sale immediately after discovery suggests intent to induce reliance.
-
-CONCLUSION: The court ruled in favor of Smith, finding fraudulent misrepresentation. Johnson is liable for $150,000 in damages plus attorney fees.
-
-KEY HOLDINGS:
-• Failure to disclose known material defects can constitute fraudulent misrepresentation
-• Timing of disclosure obligations is critical in real estate transactions
-• Good faith purchasers are entitled to material fact disclosure
-      `);
-      setIsProcessing(false);
-    }, 3000);
-  };
-
-  const handleSaveSettings = () => {
-    toast("Settings saved successfully!");
-    setIsSettingsOpen(false);
-  };
+    toast("Summary generated successfully!");
+  } catch (error: any) {
+    console.error("API Error:", error);
+    toast(error.response?.data?.detail || "Failed to generate summary. Please try again.");
+  } finally {
+    setIsProcessing(false);
+  }
+};
 
   const outputFormats = [
     { value: "irac", label: "IRAC Format", description: "Issue, Rule, Application, Conclusion" },
     { value: "executive", label: "Executive Summary", description: "Brief overview with key points" },
     { value: "detailed", label: "Detailed Analysis", description: "Comprehensive case breakdown" },
-    { value: "bullet", label: "Bullet Points", description: "Structured list format" }
+    { value: "bullet_points", label: "Bullet Points", description: "Structured list format" }
   ];
 
   const citationStyles = [
@@ -108,6 +127,36 @@ KEY HOLDINGS:
     { label: "Success Rate", value: "98.4%", icon: CheckCircle },
   ];
 
+
+  // Download file from backend URL
+const handleDownload = () => {
+  if (!fullResponse) {
+    toast("Nothing to download yet!");
+    return;
+  }
+  const blob = new Blob([fullResponse.summary || ""], { type: "text/plain" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = "summary.txt"; // You can customize this
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+
+//  Copy full JSON response
+const handleCopy = () => {
+  if (fullResponse) {
+    navigator.clipboard.writeText(JSON.stringify(fullResponse, null, 2));
+    toast("Full response copied to clipboard!");
+  } else {
+    toast.error("Nothing to copy yet!");
+  }
+};
+const handleSaveSettings = () => {
+  toast("Settings saved successfully!");
+  setIsSettingsOpen(false);
+};
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
       <div className="max-w-7xl mx-auto">
@@ -216,10 +265,12 @@ KEY HOLDINGS:
                 </TabsContent>
 
                 <TabsContent value="text" className="mt-6">
-                  <Textarea
-                    placeholder="Paste your legal document text here for AI analysis and IRAC summarization..."
-                    className="min-h-[300px] resize-none"
-                  />
+            <Textarea
+  placeholder="Paste your legal document text here for AI analysis and IRAC summarization..."
+  className="min-h-[300px] resize-none"
+  value={textInput}
+  onChange={(e) => setTextInput(e.target.value)}
+/>
                   <div className="flex items-center justify-between mt-4">
                     <p className="text-xs text-muted-foreground">
                       Character count: 0 / 50,000
@@ -268,12 +319,13 @@ KEY HOLDINGS:
                 </div>
                 {summary && (
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline">
-                      <Copy className="h-4 w-4" />
-                    </Button>
-                    <Button size="sm" variant="outline">
-                      <Download className="h-4 w-4" />
-                    </Button>
+                  <Button variant="outline" size="icon" onClick={handleCopy}>
+                    <Copy className="h-4 w-4" />
+                  </Button>
+                    <Button size="sm" variant="outline"
+                        onClick={handleDownload}>
+                        <Download className="h-4 w-4" />
+                      </Button>
                     <Button size="sm" variant="outline" onClick={() => window.print()}>
                       <Printer className="h-4 w-4" />
                     </Button>
@@ -319,11 +371,11 @@ KEY HOLDINGS:
                     </p>
                   </div>
                   
-                  <div className="prose prose-sm max-w-none">
-                    <pre className="whitespace-pre-wrap text-sm text-foreground font-mono bg-muted/50 rounded-lg p-4 leading-relaxed">
-                      {summary}
-                    </pre>
-                  </div>
+                <div className="prose prose-sm max-w-none">
+                  <pre className="whitespace-pre-wrap text-sm text-foreground font-mono bg-muted/50 rounded-lg p-4 leading-relaxed max-h-[400px] overflow-y-auto">
+                    {summary}
+                  </pre>
+                </div>
 
                   <div className="flex items-center gap-4 text-xs text-muted-foreground">
                     <span>Generated in 2.3s</span>
