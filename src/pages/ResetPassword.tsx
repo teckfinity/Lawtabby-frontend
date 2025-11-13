@@ -33,28 +33,29 @@ const ResetPassword = () => {
     }
 
     setIsLoading(true);
-    ValidateToken({ token: tokenFromUrl }) // Direct Axios function call
-      .then((res) => {
-        setIsLoading(false);
-        if (res.data.valid) { // Adjust based on your API response
-          setToken(tokenFromUrl);
-          setIsTokenValid(true);
-        } else {
-          toast({
-            title: "Invalid Token",
-            description: "This password reset link is invalid or expired",
-            variant: "destructive",
-          });
-        }
-      })
-      .catch(() => {
-        setIsLoading(false);
-        toast({
-          title: "Error",
-          description: "Something went wrong while validating token",
-          variant: "destructive",
-        });
+ValidateToken({ token: tokenFromUrl })
+  .then((res) => {
+    setIsLoading(false);
+    if (res.data.status === "OK") {  // <-- backend response check
+      setToken(tokenFromUrl);
+      setIsTokenValid(true);
+    } else {
+      toast({
+        title: "Invalid Token",
+        description: "This password reset link is invalid or expired",
+        variant: "destructive",
       });
+    }
+  })
+  .catch(() => {
+    setIsLoading(false);
+    toast({
+      title: "Error",
+      description: "Something went wrong while validating token",
+      variant: "destructive",
+    });
+  });
+
   }, [searchParams, toast]);
 
   // Handle reset password
