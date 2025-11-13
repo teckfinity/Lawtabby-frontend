@@ -20,6 +20,7 @@ const ResetPassword = () => {
 
   const [searchParams] = useSearchParams();
 
+  // Validate token on component mount
   useEffect(() => {
     const tokenFromUrl = searchParams.get('token');
     if (!tokenFromUrl) {
@@ -32,15 +33,10 @@ const ResetPassword = () => {
     }
 
     setIsLoading(true);
-    fetch(ValidateToken, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: tokenFromUrl }),
-    })
-      .then(res => res.json())
-      .then((data) => {
+    ValidateToken({ token: tokenFromUrl }) // Direct Axios function call
+      .then((res) => {
         setIsLoading(false);
-        if (data.valid) { // assuming API responds with { valid: true } for valid tokens
+        if (res.data.valid) { // Adjust based on your API response
           setToken(tokenFromUrl);
           setIsTokenValid(true);
         } else {
@@ -61,6 +57,7 @@ const ResetPassword = () => {
       });
   }, [searchParams, toast]);
 
+  // Handle reset password
   const handleResetPassword = () => {
     if (!password || !confirmPassword) {
       toast({
@@ -90,12 +87,7 @@ const ResetPassword = () => {
     }
 
     setIsLoading(true);
-    fetch(ConfirmPassword, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password, token }),
-    })
-      .then(res => res.json())
+    ConfirmPassword({ password, token })
       .then(() => {
         setIsLoading(false);
         setPasswordReset(true);
