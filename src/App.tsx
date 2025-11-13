@@ -43,6 +43,7 @@ import Profile from "./pages/Profile";
 import Subscription from "./pages/Subscription";
 import History from "./pages/History";
 import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import SignIn from "./pages/SignIn";
 import SignUp from "./pages/SignUp";
 import SignOut from "./pages/SignOut";
@@ -92,6 +93,7 @@ const App = () => (
                 <Route path="/signup" element={<SignUp />} />
                 <Route path="/signout" element={<SignOut />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/contact-support" element={<ContactSupport />} />
                 <Route path="/terms-of-service" element={<TermsOfService />} />
                 <Route path="/privacy-policy" element={<PrivacyPolicy />} />
