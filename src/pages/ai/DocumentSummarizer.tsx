@@ -34,7 +34,7 @@ const DocumentSummarizer = () => {
   const [file, setFile] = useState<File | null>(null);
   const [textInput, setTextInput] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
-const [fullResponse, setFullResponse] = useState<any>(null);
+  const [fullResponse, setFullResponse] = useState<any>(null);
 
   const [settings, setSettings] = useState({
     outputFormat: "irac" as "irac" | "executive" | "detailed" | "bullet_points",
@@ -49,59 +49,56 @@ const [fullResponse, setFullResponse] = useState<any>(null);
     language: "english" as "english" | "spanish" | "french" | "german"
   });
 
-const handleSummarize = async () => {
-  if (activeTab === "document" && !file) {
-    toast("Please select a file to summarize.");
-    return;
-  }
-  if (activeTab === "text" && !textInput.trim()) {
-    toast("Please enter text to summarize.");
-    return;
-  }
-
-  setIsProcessing(true);
-  setSummary("");
-
-  try {
-    const response = await sendLegalChat(
-      "process",
-      activeTab === "document" ? file! : undefined,
-      activeTab === "text" ? textInput : undefined,
-      settings.outputFormat,
-      settings.summaryLength[0],
-      settings.confidenceThreshold[0],
-      settings.citationStyle,
-      settings.language,
-      settings.autoSave,
-      settings.includeKeyFacts,
-      settings.includeLegalIssues,
-      settings.includeHoldings,
-      settings.includeRecommendations
-    );
-
-    const result = response.data;
-
-    // ✅ Show only the summary text in UI
-    if (result.summary) {
-      setSummary(result.summary);
-    } else {
-      setSummary("No summary text found in response!");
+  const handleSummarize = async () => {
+    if (activeTab === "document" && !file) {
+      toast("Please select a file to summarize.");
+      return;
+    }
+    if (activeTab === "text" && !textInput.trim()) {
+      toast("Please enter text to summarize.");
+      return;
     }
 
-    // ✅ Save complete response for copy/download actions
-    setFullResponse(result);
+    setIsProcessing(true);
+    setSummary("");
 
-    toast("Summary generated successfully!");
-  } catch (error: any) {
-    console.error("API Error:", error);
-    toast(error.response?.data?.detail || "Failed to generate summary. Please try again.");
-  } finally {
-    setIsProcessing(false);
-  }
-};
+    try {
+      const response = await sendLegalChat(
+        "process",
+        activeTab === "document" ? file! : undefined,
+        activeTab === "text" ? textInput : undefined,
+        settings.outputFormat,
+        settings.summaryLength[0],
+        settings.confidenceThreshold[0],
+        settings.citationStyle,
+        settings.language,
+        settings.autoSave,
+        settings.includeKeyFacts,
+        settings.includeLegalIssues,
+        settings.includeHoldings,
+        settings.includeRecommendations
+      );
+
+      const result = response.data;
+
+      if (result.summary) {
+        setSummary(result.summary);
+      } else {
+        setSummary("No summary text found in response!");
+      }
+
+      setFullResponse(result);
+      toast("Summary generated successfully!");
+    } catch (error: any) {
+      console.error("API Error:", error);
+      toast(error.response?.data?.detail || "Failed to generate summary. Please try again.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const outputFormats = [
-    { value: "irac", label: "IRAC Format", description: "Issue, Rule, Application, Conclusion" },
+    { value: "irac", label: "IRAC Format", description: "Structured legal analysis following IRAC methodology" },
     { value: "executive", label: "Executive Summary", description: "Brief overview with key points" },
     { value: "detailed", label: "Detailed Analysis", description: "Comprehensive case breakdown" },
     { value: "bullet_points", label: "Bullet Points", description: "Structured list format" }
@@ -127,36 +124,35 @@ const handleSummarize = async () => {
     { label: "Success Rate", value: "98.4%", icon: CheckCircle },
   ];
 
+  const handleDownload = () => {
+    if (!summary) {
+      toast("No summary to download!");
+      return;
+    }
 
-  // Download file from backend URL
-const handleDownload = () => {
-  if (!fullResponse) {
-    toast("Nothing to download yet!");
-    return;
-  }
-  const blob = new Blob([fullResponse.summary || ""], { type: "text/plain" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = "summary.txt"; // You can customize this
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-};
+    const blob = new Blob([summary], { type: "text/plain" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "summary.txt";
+    link.click();
+  };
 
+  const handleCopy = () => {
+    if (summary) {
+      navigator.clipboard.writeText(summary);
+      toast("Summary text copied!");
+    } else {
+      toast.error("No summary available to copy!");
+    }
+  };
 
-//  Copy full JSON response
-const handleCopy = () => {
-  if (fullResponse) {
-    navigator.clipboard.writeText(JSON.stringify(fullResponse, null, 2));
-    toast("Full response copied to clipboard!");
-  } else {
-    toast.error("Nothing to copy yet!");
-  }
-};
-const handleSaveSettings = () => {
-  toast("Settings saved successfully!");
-  setIsSettingsOpen(false);
-};
+  const handleSaveSettings = () => {
+    toast("Settings saved successfully!");
+    setIsSettingsOpen(false);
+  };
+
+  const currentOutputFormat = outputFormats.find(f => f.value === settings.outputFormat);
+
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
       <div className="max-w-7xl mx-auto">
@@ -168,7 +164,7 @@ const handleSaveSettings = () => {
             </div>
             <div>
               <h1 className="text-3xl font-bold text-foreground">Document Summarizer</h1>
-              <p className="text-muted-foreground">AI-powered IRAC format summaries for legal documents</p>
+              <p className="text-muted-foreground">AI-powered summaries for legal documents</p>
             </div>
           </div>
 
@@ -315,17 +311,16 @@ const handleSaveSettings = () => {
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Download className="h-5 w-5 text-legal-primary" />
-                  AI Summary (IRAC Format)
+                  AI Summary ({currentOutputFormat?.label})
                 </div>
                 {summary && (
                   <div className="flex gap-2">
-                  <Button variant="outline" size="icon" onClick={handleCopy}>
-                    <Copy className="h-4 w-4" />
-                  </Button>
-                    <Button size="sm" variant="outline"
-                        onClick={handleDownload}>
-                        <Download className="h-4 w-4" />
-                      </Button>
+                    <Button variant="outline" size="icon" onClick={handleCopy}>
+                      <Copy className="h-4 w-4" />
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={handleDownload}>
+                      <Download className="h-4 w-4" />
+                    </Button>
                     <Button size="sm" variant="outline" onClick={() => window.print()}>
                       <Printer className="h-4 w-4" />
                     </Button>
@@ -333,7 +328,7 @@ const handleSaveSettings = () => {
                 )}
               </CardTitle>
               <CardDescription>
-                Structured legal analysis following IRAC methodology
+                {currentOutputFormat?.description}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -344,7 +339,7 @@ const handleSaveSettings = () => {
                     Ready for Analysis
                   </h3>
                   <p className="text-muted-foreground">
-                    Upload a document or paste text to generate an AI-powered IRAC summary
+                    Upload a document or paste text to generate an AI-powered summary
                   </p>
                 </div>
               )}
@@ -354,7 +349,7 @@ const handleSaveSettings = () => {
                   <div className="w-16 h-16 border-4 border-legal-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
                   <h3 className="text-lg font-semibold mb-2">Analyzing Document</h3>
                   <p className="text-muted-foreground">
-                    Our AI is processing your document and generating a comprehensive IRAC summary...
+                    Our AI is processing your document and generating a summary...
                   </p>
                 </div>
               )}
@@ -367,22 +362,22 @@ const handleSaveSettings = () => {
                       <span className="font-semibold">Analysis Complete</span>
                     </div>
                     <p className="text-sm opacity-90">
-                      Document successfully analyzed using IRAC methodology
+                      Document successfully analyzed
                     </p>
                   </div>
                   
-                <div className="prose prose-sm max-w-none">
-                  <pre className="whitespace-pre-wrap text-sm text-foreground font-mono bg-muted/50 rounded-lg p-4 leading-relaxed max-h-[400px] overflow-y-auto">
-                    {summary}
-                  </pre>
-                </div>
+                  <div className="prose prose-sm max-w-none">
+                    <pre className="whitespace-pre-wrap text-sm text-foreground font-mono bg-muted/50 rounded-lg p-4 leading-relaxed max-h-[400px] overflow-y-auto">
+                      {summary}
+                    </pre>
+                  </div>
 
                   <div className="flex items-center gap-4 text-xs text-muted-foreground">
                     <span>Generated in 2.3s</span>
                     <span>•</span>
                     <span>Confidence: 94%</span>
                     <span>•</span>
-                    <span>IRAC Compliant</span>
+                    <span>{settings.outputFormat.toUpperCase()} Compliant</span>
                   </div>
                 </div>
               )}
