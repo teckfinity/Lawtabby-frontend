@@ -10,6 +10,10 @@ interface ConfirmPasswordPayload {
   token: string;
 }
 
+interface PasswordResetRequestPayload {
+  email: string;
+}
+
 // Validate token API
 export const ValidateToken = (data: ValidateTokenPayload) => {
   const { token } = data;
@@ -32,6 +36,19 @@ export const ConfirmPassword = (data: ConfirmPasswordPayload) => {
   }
 
   return apiClient.post("/accounts/password_reset/confirm/", data, {
+    headers: { "Content-Type": "application/json" },
+  });
+};
+
+// request reset password API
+export const RequestPasswordReset = (data: PasswordResetRequestPayload) => {
+  const { email } = data;
+
+  if (!email) {
+    throw new Error("Email is required.");
+  }
+
+  return apiClient.post("/accounts/password_reset/", data, {
     headers: { "Content-Type": "application/json" },
   });
 };

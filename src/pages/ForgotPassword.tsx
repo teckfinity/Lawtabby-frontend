@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Mail, CheckCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { RequestPasswordReset } from '@/api';
 
 const ForgotPassword = () => {
   const navigate = useNavigate();
@@ -14,6 +15,9 @@ const ForgotPassword = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
 
+  // --------------------------
+  // SEND RESET EMAIL
+  // --------------------------
   const handleSendResetEmail = () => {
     if (!email) {
       toast({
@@ -34,31 +38,54 @@ const ForgotPassword = () => {
     }
 
     setIsLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
-      setEmailSent(true);
-      toast({
-        title: "Reset Email Sent",
-        description: "Check your inbox for password reset instructions",
+
+    RequestPasswordReset({ email })
+      .then(() => {
+        setIsLoading(false);
+        setEmailSent(true);
+        toast({
+          title: "Reset Link Sent",
+          description: `Check your inbox for password reset instructions at ${email}`,
+        });
+      })
+      .catch(() => {
+        setIsLoading(false);
+        toast({
+          title: "Error",
+          description: "Failed to send reset link. Please try again.",
+          variant: "destructive",
+        });
       });
-    }, 2000);
   };
 
+  // --------------------------
+  // RESEND RESET EMAIL
+  // --------------------------
   const handleResendEmail = () => {
     setIsLoading(true);
-    setTimeout(() => {
-      setIsLoading(false);
-      toast({
-        title: "Email Resent",
-        description: "Password reset email has been sent again",
+
+    RequestPasswordReset({ email })
+      .then(() => {
+        setIsLoading(false);
+        toast({
+          title: "Email Resent",
+          description: `Password reset email has been sent again to ${email}`,
+        });
+      })
+      .catch(() => {
+        setIsLoading(false);
+        toast({
+          title: "Error",
+          description: "Failed to resend reset email. Please try again.",
+          variant: "destructive",
+        });
       });
-    }, 1000);
   };
 
   return (
     <div className="min-h-screen w-full bg-background flex items-center justify-center p-4 md:p-6">
       <div className="w-full max-w-md mx-auto space-y-6">
+
         {/* Back Button */}
         <Button 
           variant="ghost" 
