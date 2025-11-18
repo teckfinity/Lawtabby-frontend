@@ -10,6 +10,7 @@ export * from "./config";
 export * from "./reset_password";
 export * from "./auth";
 export * from "./user";
+export * from "./google_login";
 export * from "./ai/doc_summary";
 export * from "./pdf/merge";
 export * from "./pdf/split";
