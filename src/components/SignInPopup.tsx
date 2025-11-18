@@ -7,6 +7,7 @@ import { X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useGoogleLogin } from '@react-oauth/google';
 import { GoogleLogin } from '@/api/google_login';
+import { setAuthToken } from '@/api';
 
 interface SignInPopupProps {
   isOpen: boolean;
@@ -27,22 +28,37 @@ const SignInPopup = ({
 
 const googleLogin = useGoogleLogin({
   flow: "auth-code",
-  redirect_uri: "http://localhost:8080", 
+  redirect_uri: window.location.origin,
   onSuccess: async (codeResponse) => {
+    console.log("🔵 Frontend (SignInPopup) - Google OAuth Success:", codeResponse);
+    console.log("🔵 Frontend (SignInPopup) - Redirect URI:", window.location.origin);
+    
     setIsLoading(true);
     try {
       const res = await GoogleLogin(codeResponse.code);
+      console.log("🔵 Frontend (SignInPopup) - Backend response:", res.data);
+      
       const token = res.data.key;
-      localStorage.setItem('token', token);
+      
+      // Store token using the same method as regular login
+      setAuthToken(token);
+      localStorage.setItem('isAuthenticated', 'true');
+      
+      console.log("🔵 Frontend (SignInPopup) - Token stored as authToken:", localStorage.getItem("authToken"));
+      console.log("🔵 Frontend (SignInPopup) - isAuthenticated set to:", localStorage.getItem("isAuthenticated"));
+      
       toast({ title: 'Success!', description: 'Logged in with Google' });
       onClose();
     } catch (err: any) {
+      console.error("🔴 Frontend (SignInPopup) - Google Login Error:", err);
+      console.error("🔴 Frontend (SignInPopup) - Error Response:", err.response?.data);
       toast({ title: 'Login Failed', description: err.response?.data?.non_field_errors?.[0] || 'Google login failed', variant: 'destructive' });
     } finally {
       setIsLoading(false);
     }
   },
   onError: (error) => {
+    console.error("🔴 Frontend (SignInPopup) - Google OAuth Error:", error);
     toast({ title: 'Error', description: 'Google authentication failed', variant: 'destructive' });
   },
 });

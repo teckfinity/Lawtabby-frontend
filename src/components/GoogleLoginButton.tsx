@@ -1,7 +1,7 @@
 import React from "react";
 import { useGoogleLogin } from "@react-oauth/google";
 import axios from "axios";
-import { API_BASE_URL } from "@/api";
+import { API_BASE_URL, setAuthToken } from "@/api";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";   // 👈 use shadcn Button
 
@@ -15,21 +15,46 @@ const GoogleLoginButton: React.FC<GoogleLoginButtonProps> = ({ onSuccess, onErro
 
   const googleLogin = useGoogleLogin({
     flow: "auth-code",
+    redirect_uri: window.location.origin,
     onSuccess: async (codeResponse) => {
+      console.log("🔵 Frontend - Google OAuth Success - Code Response:", codeResponse);
+      console.log("🔵 Frontend - Current origin (redirect_uri):", window.location.origin);
+      
+      const payload = {
+        code: codeResponse.code,
+        redirect_uri: window.location.origin,
+      };
+      
+      console.log("🔵 Frontend - Payload being sent to backend:", JSON.stringify(payload, null, 2));
+      console.log("🔵 Frontend - Backend URL:", `${API_BASE_URL}/accounts/dj-rest-auth/google/login/`);
+      
       try {
-        const res = await axios.post(`${API_BASE_URL}/accounts/dj-rest-auth/google/login/`, {
-          code: codeResponse.code,
-        });
+        const res = await axios.post(`${API_BASE_URL}/accounts/dj-rest-auth/google/login/`, payload);
+        console.log("🔵 Frontend - Backend response:", res.data);
+        
         const token = res.data.key;
-        localStorage.setItem("token", token);
+        
+        // Store token using the same method as regular login
+        setAuthToken(token);
+        localStorage.setItem("isAuthenticated", "true");
+        
+        console.log("🔵 Frontend - Token stored as authToken:", localStorage.getItem("authToken"));
+        console.log("🔵 Frontend - isAuthenticated set to:", localStorage.getItem("isAuthenticated"));
 
-        if (onSuccess) onSuccess(token);
-        navigate("/dashboard");
-      } catch (err) {
+        if (onSuccess) {
+          onSuccess(token);
+          // Don't navigate here - let the parent component handle navigation
+          // navigate("/dashboard");
+        }
+      } catch (err: any) {
+        console.error("🔴 Frontend - Google OAuth Error:", err);
+        console.error("🔴 Frontend - Error Response:", err.response?.data);
+        console.error("🔴 Frontend - Error Status:", err.response?.status);
         if (onError) onError(err);
       }
     },
     onError: (err) => {
+      console.error("🔴 Frontend - Google Login Error:", err);
       if (onError) onError(err);
     },
   });
