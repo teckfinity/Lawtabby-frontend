@@ -7,6 +7,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { registerUser } from '@/api';
+import { useGoogleLogin } from '@react-oauth/google';
+import { GoogleLogin } from '@/api/google_login';
+import { setAuthToken } from '@/api';
 
 interface SignUpPopupProps {
   isOpen: boolean;
@@ -23,6 +26,48 @@ const SignUpPopup = ({ isOpen, onClose, onSwitchToSignIn }: SignUpPopupProps) =>
   });
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
+
+  // Google login
+  const googleLogin = useGoogleLogin({
+    flow: "auth-code",
+    redirect_uri: window.location.origin,
+    onSuccess: async (codeResponse) => {
+      console.log("🔵 Frontend (SignUpPopup) - Google OAuth Success:", codeResponse);
+      console.log("🔵 Frontend (SignUpPopup) - Redirect URI:", window.location.origin);
+
+      setIsLoading(true);
+      try {
+        const res = await GoogleLogin(codeResponse.code);
+        console.log("🔵 Frontend (SignUpPopup) - Backend response:", res.data);
+
+        const token = res.data.key;
+
+        // Store token
+        setAuthToken(token);
+        localStorage.setItem('isAuthenticated', 'true');
+
+        console.log("🔵 Frontend (SignUpPopup) - Token stored as authToken:", localStorage.getItem("authToken"));
+        console.log("🔵 Frontend (SignUpPopup) - isAuthenticated set to:", localStorage.getItem("isAuthenticated"));
+
+        toast({ title: 'Success!', description: 'Logged in with Google' });
+        onClose();
+      } catch (err: any) {
+        console.error("🔴 Frontend (SignUpPopup) - Google Login Error:", err);
+        console.error("🔴 Frontend (SignUpPopup) - Error Response:", err.response?.data);
+        toast({
+          title: 'Login Failed',
+          description: err.response?.data?.non_field_errors?.[0] || 'Google login failed',
+          variant: 'destructive'
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    onError: (error) => {
+      console.error("🔴 Frontend (SignUpPopup) - Google OAuth Error:", error);
+      toast({ title: 'Error', description: 'Google authentication failed', variant: 'destructive' });
+    },
+  });
 
   const handleSignUp = async () => {
     if (!formData.email || !formData.password || !formData.confirmPassword) {
@@ -51,7 +96,7 @@ const SignUpPopup = ({ isOpen, onClose, onSwitchToSignIn }: SignUpPopupProps) =>
       });
       return;
     }
-    
+
     try {
       setIsLoading(true);
       await registerUser({ email: formData.email, password: formData.password });
@@ -73,6 +118,11 @@ const SignUpPopup = ({ isOpen, onClose, onSwitchToSignIn }: SignUpPopupProps) =>
 
   const updateFormData = (field: string, value: string | boolean) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  // Placeholder for Apple & Microsoft buttons
+  const handleSocialSignUp = (provider: string) => {
+    toast({ title: `${provider} login not implemented yet` });
   };
 
   return (
@@ -99,13 +149,13 @@ const SignUpPopup = ({ isOpen, onClose, onSwitchToSignIn }: SignUpPopupProps) =>
             <Button
               variant="outline"
               className="w-full h-12 justify-start gap-3"
-              onClick={() => handleSocialSignUp('Google')}
+              onClick={() => googleLogin()}
               disabled={isLoading}
             >
               <div className="w-5 h-5 bg-red-500 rounded flex items-center justify-center text-white text-xs font-bold">
                 G
               </div>
-              Continue with Google
+              {isLoading ? 'Signing in...' : 'Continue with Google'}
             </Button>
 
             <Button
