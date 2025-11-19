@@ -145,35 +145,36 @@ const PDFTools = () => {
         </div>
 
         {/* PDF Tools Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          {pdfTools.map((tool, index) => (
-            <Card 
-              key={index} 
-              className="shadow-card hover:shadow-legal transition-all duration-300 group cursor-pointer h-full"
-            >
-              <CardHeader className="text-center pb-4">
-                <div className={`w-16 h-16 ${tool.bgColor} rounded-lg flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300`}>
-                  <tool.icon className={`h-8 w-8 ${tool.color}`} />
-                </div>
-                <CardTitle className="text-lg font-semibold group-hover:text-legal-primary transition-colors">
-                  {tool.title}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="text-center pt-0">
-                <CardDescription className="text-sm text-muted-foreground mb-6 min-h-[60px]">
-                  {tool.description}
-                </CardDescription>
-                <Button 
-                  className="w-full bg-legal-primary hover:bg-legal-primary/90"
-                  size="sm"
-                  onClick={() => navigate(tool.path)}
-                >
-                  {tool.action}
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
+<div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+  {pdfTools.map((tool, index) => (
+    <Card 
+      key={index} 
+      className="shadow-card hover:shadow-legal transition-all duration-300 group cursor-pointer h-full flex flex-col"
+    >
+      <CardHeader className="text-center pb-4">
+        <div className={`w-16 h-16 ${tool.bgColor} rounded-lg flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300`}>
+          <tool.icon className={`h-8 w-8 ${tool.color}`} />
         </div>
+        <CardTitle className="text-lg font-semibold group-hover:text-legal-primary transition-colors">
+          {tool.title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="text-center pt-0 flex flex-col justify-between flex-grow">
+        <CardDescription className="text-sm text-muted-foreground mb-6">
+          {tool.description}
+        </CardDescription>
+        <Button 
+          className="w-full bg-legal-primary hover:bg-legal-primary/90 mt-auto"
+          size="sm"
+          onClick={() => navigate(tool.path)}
+        >
+          {tool.action}
+        </Button>
+      </CardContent>
+    </Card>
+  ))}
+</div>
+
 
         {/* Additional Information */}
         <div className="mt-16 text-center">
