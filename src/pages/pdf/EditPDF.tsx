@@ -116,6 +116,12 @@ const EditPDF = () => {
   const [bgColor, setBgColor] = useState("#ffffff00"); // transparent
   const [opacity, setOpacity] = useState(100); // 0-100
   const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
+  const [textSelection, setTextSelection] = useState<{
+    annotationId: string;
+    start: number;
+    end: number;
+  } | null>(null);
+  const [isEditingText, setIsEditingText] = useState<string | null>(null);
   /* draw / shape */
   const [drawColor, setDrawColor] = useState("#000000");
   const [strokeWidth, setStrokeWidth] = useState(4);
@@ -224,6 +230,82 @@ const EditPDF = () => {
       prev.map((a) => (a.id === sel.id ? { ...sel, spans: updatedSpans } : a))
     );
     toast.success("Word style updated");
+  };
+
+
+  const applyFormattingToSelection = () => {
+    if (!textSelection) return;
+    const { annotationId, start, end } = textSelection;
+    const ann = annotations.find(
+      (a): a is TextAnnotation => a.type === "text" && a.id === annotationId
+    );
+    if (!ann) return;
+
+    // Calculate the full text and positions
+    let currentPos = 0;
+    const newSpans: TextSpan[] = [];
+
+    for (const span of ann.spans) {
+      const spanStart = currentPos;
+      const spanEnd = currentPos + span.text.length;
+
+      if (spanEnd <= start || spanStart >= end) {
+        // Span is completely outside selection
+        newSpans.push(span);
+      } else if (spanStart >= start && spanEnd <= end) {
+        // Span is completely inside selection - apply formatting
+        newSpans.push({
+          ...span,
+          fontSize,
+          color: textColor,
+          fontFamily,
+          bold: isBold,
+          italic: isItalic,
+          underline: isUnderline,
+        });
+      } else {
+        // Span is partially selected - split it
+        if (spanStart < start) {
+          // Add the part before selection
+          newSpans.push({
+            ...span,
+            id: `span-${Date.now()}-before`,
+            text: span.text.substring(0, start - spanStart),
+          });
+        }
+
+        // Add the selected part with new formatting
+        const selStart = Math.max(0, start - spanStart);
+        const selEnd = Math.min(span.text.length, end - spanStart);
+        newSpans.push({
+          id: `span-${Date.now()}-selected`,
+          text: span.text.substring(selStart, selEnd),
+          fontSize,
+          color: textColor,
+          fontFamily,
+          bold: isBold,
+          italic: isItalic,
+          underline: isUnderline,
+        });
+
+        if (spanEnd > end) {
+          // Add the part after selection
+          newSpans.push({
+            ...span,
+            id: `span-${Date.now()}-after`,
+            text: span.text.substring(end - spanStart),
+          });
+        }
+      }
+
+      currentPos = spanEnd + 1; // +1 for space between words
+    }
+
+    setAnnotations((prev) =>
+      prev.map((a) => (a.id === annotationId ? { ...ann, spans: newSpans } : a))
+    );
+    setTextSelection(null);
+    toast.success("Formatting applied to selection");
   };
 
   const deleteSelectedSpan = () => {
@@ -462,7 +544,8 @@ const EditPDF = () => {
   const selectAnnotation = (id: string) => {
     setSelectedAnnotationId(id);
     setSelectedSpanId(null);
-    const ann = annotations.find((a) => a.id === id) as TextAnnotation | undefined;
+    setTextSelection(null);
+    const ann = annotations.find((a) => a.id === id) as TextAnnotation | undefined;    
     if (ann?.type === "text") {
       const s = ann.spans[0];
       if (s) {
@@ -992,7 +1075,7 @@ const EditPDF = () => {
                         Add
                       </Button>
                     </div>
-                    {selectedAnnotationId && selectedSpanId && (
+                    {selectedAnnotationId && selectedSpanId && !textSelection && (
                       <div className="flex items-center gap-2 p-2 bg-accent rounded">
                         <span className="text-xs font-medium">Editing word:</span>
                         <Button size="sm" onClick={updateSelectedSpan}>
@@ -1014,10 +1097,27 @@ const EditPDF = () => {
                         </Button>
                       </div>
                     )}
+                    {textSelection && (
+                      <div className="flex items-center gap-2 p-2 bg-accent rounded">
+                        <span className="text-xs font-medium">Text selected ({textSelection.end - textSelection.start} chars):</span>
+                        <Button size="sm" onClick={applyFormattingToSelection}>
+                          Apply Formatting
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setTextSelection(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    )}
                     <p className="text-xs text-muted-foreground">
                       {selectedSpanId
                         ? "Adjust formatting above, then Update Style"
-                        : "Click on the PDF to place text. Click words to edit individually. Drag grip to move."}
+                        : textSelection
+                        ? "Adjust formatting above, then Apply Formatting to selection"
+                        : "Click on the PDF to place text. Double-click text to select and format parts. Drag grip to move."}
                     </p>
                   </CardContent>
                 </Card>
@@ -1257,6 +1357,11 @@ const EditPDF = () => {
                                             <div
                                               className="relative z-10 p-2 cursor-pointer flex items-center justify-start h-full overflow-hidden"
                                               onClick={() => selectAnnotation(ann.id)}
+                                              onDoubleClick={() => {
+                                                setIsEditingText(ann.id);
+                                                setTextSelection(null);
+                                                setSelectedSpanId(null);
+                                              }}
                                             >
                                               {ann.spans.map((sp, idx) => (
                                                 <span
@@ -1266,9 +1371,38 @@ const EditPDF = () => {
                                                     selectAnnotation(ann.id);
                                                     selectSpan(sp.id);
                                                   }}
+                                                  onMouseUp={(e) => {
+                                                    if (isEditingText === ann.id) {
+                                                      e.stopPropagation();
+                                                      const selection = window.getSelection();
+                                                      if (selection && selection.toString().length > 0) {
+                                                        // Calculate character positions
+                                                        let currentPos = 0;
+                                                        let selStart = 0;
+                                                        let selEnd = 0;
+                                                        
+                                                        // Find the full text
+                                                        const fullText = ann.spans.map(s => s.text).join(" ");
+                                                        const selectedText = selection.toString();
+                                                        const selectedIndex = fullText.indexOf(selectedText);
+                                                        
+                                                        if (selectedIndex >= 0) {
+                                                          selStart = selectedIndex;
+                                                          selEnd = selectedIndex + selectedText.length;
+                                                          
+                                                          setTextSelection({
+                                                            annotationId: ann.id,
+                                                            start: selStart,
+                                                            end: selEnd,
+                                                          });
+                                                          setSelectedSpanId(null);
+                                                        }
+                                                      }
+                                                    }
+                                                  }}
                                                   className={`hover:bg-accent/30 rounded px-0.5 ${
                                                     selectedSpanId === sp.id ? "bg-accent/50" : ""
-                                                  }`}
+                                                  } ${isEditingText === ann.id ? "user-select-text" : ""}`}
                                                   style={{
                                                     fontFamily: sp.fontFamily,
                                                     fontSize: `${sp.fontSize}px`,
@@ -1276,6 +1410,7 @@ const EditPDF = () => {
                                                     fontWeight: sp.bold ? "bold" : "normal",
                                                     fontStyle: sp.italic ? "italic" : "normal",
                                                     textDecoration: sp.underline ? "underline" : "none",
+                                                    userSelect: isEditingText === ann.id ? "text" : "none",
                                                   }}
                                                 >
                                                   {sp.text}
@@ -1436,6 +1571,73 @@ const EditPDF = () => {
                                                 <ResizeHandle position="bottom" />
                                                 <ResizeHandle position="left" />
                                                 <ResizeHandle position="right" />
+                                              </>
+                                            )}
+                                            {ann.shapeType === "line" && (
+                                              <>
+                                                <div
+                                                  className="absolute w-3 h-3 bg-primary border-2 border-background rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-move"
+                                                  style={{
+                                                    left: -6,
+                                                    top: "calc(50% - 6px)",
+                                                  }}
+                                                  onMouseDown={(e) => {
+                                                    e.stopPropagation();
+                                                    const startX = e.clientX;
+                                                    const startY = e.clientY;
+                                                    const startWidth = ann.width;
+                                                    const startHeight = ann.height;
+                                                    const startPosX = ann.x;
+                                                    const startPosY = ann.y;
+                                                    const handleMouseMove = (moveEvent: MouseEvent) => {
+                                                      const deltaX = (moveEvent.clientX - startX) / scale;
+                                                      const deltaY = (moveEvent.clientY - startY) / scale;
+                                                      updateShapeSize(
+                                                        ann.id,
+                                                        startWidth - deltaX,
+                                                        startHeight - deltaY,
+                                                        startPosX + deltaX,
+                                                        startPosY + deltaY
+                                                      );
+                                                    };
+                                                    const handleMouseUp = () => {
+                                                      document.removeEventListener("mousemove", handleMouseMove);
+                                                      document.removeEventListener("mouseup", handleMouseUp);
+                                                    };
+                                                    document.addEventListener("mousemove", handleMouseMove);
+                                                    document.addEventListener("mouseup", handleMouseUp);
+                                                  }}
+                                                />
+                                                <div
+                                                  className="absolute w-3 h-3 bg-primary border-2 border-background rounded-full opacity-0 group-hover:opacity-100 transition-opacity cursor-move"
+                                                  style={{
+                                                    right: -6,
+                                                    bottom: ann.height < 0 ? "auto" : -6,
+                                                    top: ann.height < 0 ? -6 : "auto",
+                                                  }}
+                                                  onMouseDown={(e) => {
+                                                    e.stopPropagation();
+                                                    const startX = e.clientX;
+                                                    const startY = e.clientY;
+                                                    const startWidth = ann.width;
+                                                    const startHeight = ann.height;
+                                                    const handleMouseMove = (moveEvent: MouseEvent) => {
+                                                      const deltaX = (moveEvent.clientX - startX) / scale;
+                                                      const deltaY = (moveEvent.clientY - startY) / scale;
+                                                      updateShapeSize(
+                                                        ann.id,
+                                                        startWidth + deltaX,
+                                                        startHeight + deltaY
+                                                      );
+                                                    };
+                                                    const handleMouseUp = () => {
+                                                      document.removeEventListener("mousemove", handleMouseMove);
+                                                      document.removeEventListener("mouseup", handleMouseUp);
+                                                    };
+                                                    document.addEventListener("mousemove", handleMouseMove);
+                                                    document.addEventListener("mouseup", handleMouseUp);
+                                                  }}
+                                                />
                                               </>
                                             )}
                                             {ann.shapeType === "rectangle" && (
