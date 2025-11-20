@@ -13,6 +13,7 @@ import {
   FileText,
 } from "lucide-react";
 import { sendLegalChat } from "@/api/ai_chat";
+import { getUserProfile } from "@/api/user"; 
 
 // Define message type
 interface ChatMessage {
@@ -39,6 +40,7 @@ const Chat = () => {
   const [inputValue, setInputValue] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [userAvatar, setUserAvatar] = useState<string | null>(null);
 
   // Ref to track the bottom of the chat
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -120,13 +122,25 @@ const Chat = () => {
     }
   };
 
-  const quickPrompts = [
-    "Summarize this legal document",
-    "Analyze contract terms",
-    "Research case precedents",
-    "Draft legal memo",
-    "Review compliance issues",
-  ];
+  useEffect(() => {
+  const fetchProfile = async () => {
+    try {
+      const profile = await getUserProfile();
+      setUserAvatar(profile.avatar || null);
+    } catch (err) {
+      console.error("Failed to load user profile:", err);
+    }
+  };
+  fetchProfile();
+  }, []);
+
+  // const quickPrompts = [
+  //   "Summarize this legal document",
+  //   "Analyze contract terms",
+  //   "Research case precedents",
+  //   "Draft legal memo",
+  //   "Review compliance issues",
+  // ];
 
   return (
     <div className="flex-1 flex flex-col h-screen bg-background">
@@ -207,11 +221,22 @@ const Chat = () => {
                 </Card>
               </div>
 
-              {message.type === "user" && (
-                <div className="w-8 h-8 bg-muted rounded-full flex items-center justify-center flex-shrink-0">
-                  <User className="h-4 w-4 text-muted-foreground" />
+           {message.type === "user" && (
+                <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+                  {userAvatar ? (
+                    <img
+                      src={userAvatar}
+                      alt="User"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-muted rounded-full flex items-center justify-center">
+                      <User className="h-4 w-4 text-muted-foreground" />
+                    </div>
+                  )}
                 </div>
               )}
+
             </div>
           ))}
 
@@ -249,7 +274,7 @@ const Chat = () => {
       </div>
 
       {/* Quick Prompts */}
-      {messages.length === 1 && (
+      {/* {messages.length === 1 && (
         <div className="p-4 border-t border-border">
           <div className="max-w-4xl mx-auto">
             <p className="text-sm text-muted-foreground mb-3">
@@ -270,7 +295,7 @@ const Chat = () => {
             </div>
           </div>
         </div>
-      )}
+      )} */}
 
       {/* Input Area */}
       <div className="border-t border-border p-4 bg-background">
