@@ -119,9 +119,9 @@ const DocumentSummarizer = () => {
   ];
 
   const stats = [
-    { label: "Documents Processed", value: "1,247", icon: FileText },
-    { label: "Time Saved", value: "89 hrs", icon: Clock },
-    { label: "Success Rate", value: "98.4%", icon: CheckCircle },
+    // { label: "Documents Processed", value: "1,247", icon: FileText },
+    // { label: "Time Saved", value: "89 hrs", icon: Clock },
+    // { label: "Success Rate", value: "98.4%", icon: CheckCircle },
   ];
 
   const handleDownload = () => {
