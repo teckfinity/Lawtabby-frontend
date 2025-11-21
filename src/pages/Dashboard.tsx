@@ -73,7 +73,7 @@ const Dashboard = () => {
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-foreground mb-2">
-            Welcome to LegalAI Pro
+            Welcome to LegalAI Pro Max
           </h1>
           <p className="text-muted-foreground text-lg">
             Your AI-powered legal assistant for document analysis, case research, and legal automation
