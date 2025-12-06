@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
+import PDFToHTMLEditor from "@/components/PDFToHTMLEditor";
 import {
   Select,
   SelectContent,
@@ -31,8 +32,8 @@ import {
   Underline,
   GripVertical,
   Edit3,
+  FileText,
   Move,
-  Maximize2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Document, Page, pdfjs } from "react-pdf";
@@ -171,11 +172,15 @@ const EditPDF = () => {
     e.target.value = "";
   };
 
+  /* ---------- WORD EDITOR STATE ---------- */
+  const [isWordMode, setIsWordMode] = useState(false);
+
   /* ---------- TOOLBAR ---------- */
   const editingTools = [
-    { id: "text", name: "Add Text", icon: Type },
+    { id: "shapes", name: "Shapes", icon: Square },
     { id: "draw", name: "Draw", icon: Pencil },
-    { id: "shapes", name: "Add Shape", icon: Square },
+    { id: "text", name: "Add Text", icon: Type },
+    { id: "word", name: "Edit PDF", icon: FileText },
   ];
 
   /* ---------- TEXT TOOL ---------- */
@@ -582,6 +587,20 @@ const EditPDF = () => {
     toast.success("Removed");
   };
 
+  /* ---------- CONVERT TO WORD ---------- */
+  const handleWordToolClick = () => {
+    if (!file) {
+      toast.error("Please upload a PDF first");
+      return;
+    }
+    setIsWordMode(true);
+  };
+
+  const cancelWordMode = () => {
+    setIsWordMode(false);
+    setSelectedTool("");
+  };
+
   /* ---------- PROCESSING / DOWNLOAD ---------- */
   const completeEditing = () => {
     if (!file) return toast.error("Upload a PDF first");
@@ -954,12 +973,31 @@ const EditPDF = () => {
           </div>
         </div>
 
-        {currentStep === "upload" && renderUploadStep()}
+        {currentStep === "upload" && !isWordMode && renderUploadStep()}
         {currentStep === "processing" && renderProcessingStep()}
         {currentStep === "download" && renderDownloadStep()}
 
+        {/* Word Editor Mode - PDF to HTML Editor */}
+        {isWordMode && file && (
+          <div className="mt-6">
+            <Card>
+              <CardContent className="p-0 h-[calc(100vh-200px)] min-h-[600px]">
+                <PDFToHTMLEditor
+                  file={file}
+                  onSave={(newFile) => {
+                    setFile(newFile);
+                    setIsWordMode(false);
+                    toast.success("PDF updated successfully!");
+                  }}
+                  onCancel={cancelWordMode}
+                />
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
         {/* Editing UI (only when file is uploaded and step is upload) */}
-        {file && currentStep === "upload" && (
+        {file && currentStep === "upload" && !isWordMode && (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-6">
             {/* LEFT – Tools */}
             <div className="lg:col-span-2 space-y-4">
@@ -971,7 +1009,13 @@ const EditPDF = () => {
                       key={t.id}
                       variant={selectedTool === t.id ? "default" : "ghost"}
                       className="w-full justify-start text-sm h-9"
-                      onClick={() => setSelectedTool(t.id)}
+                      onClick={() => {
+                        if (t.id === "word") {
+                          handleWordToolClick();
+                        } else {
+                          setSelectedTool(t.id);
+                        }
+                      }}
                     >
                       <t.icon className="h-4 w-4 mr-2" />
                       {t.name}
@@ -982,7 +1026,7 @@ const EditPDF = () => {
             </div>
 
             {/* CENTER – Canvas + Controls */}
-            <div className="lg:col-span-7 space-y-4">
+            <div className="lg:col-span-8 space-y-4">
               {selectedTool === "text" && (
                 <Card>
                   <CardContent className="p-3 space-y-3">
@@ -1687,7 +1731,7 @@ const EditPDF = () => {
             </div>
 
             {/* RIGHT – Annotation list */}
-            <div className="lg:col-span-3 space-y-4">
+            <div className="lg:col-span-2 space-y-4">
               <Card>
                 <CardContent className="p-3">
                   <div className="flex items-center justify-between mb-3">
