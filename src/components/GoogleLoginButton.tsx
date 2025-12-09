@@ -14,15 +14,12 @@ const GoogleLoginButton: React.FC<GoogleLoginButtonProps> = ({ onSuccess, onErro
   const navigate = useNavigate();
 
   const googleLogin = useGoogleLogin({
-    flow: "auth-code",
-    redirect_uri: window.location.origin,
-    onSuccess: async (codeResponse) => {
-      console.log("🔵 Frontend - Google OAuth Success - Code Response:", codeResponse);
-      console.log("🔵 Frontend - Current origin (redirect_uri):", window.location.origin);
+    onSuccess: async (tokenResponse) => {
+      console.log("🔵 Frontend - Google OAuth Success - Token Response:", tokenResponse);
+      console.log("🔵 Frontend - Access Token:", tokenResponse.access_token);
       
       const payload = {
-        code: codeResponse.code,
-        redirect_uri: window.location.origin,
+        access_token: tokenResponse.access_token,
       };
       
       console.log("🔵 Frontend - Payload being sent to backend:", JSON.stringify(payload, null, 2));

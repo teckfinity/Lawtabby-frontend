@@ -29,17 +29,15 @@ const SignUpPopup = ({ isOpen, onClose, onSwitchToSignIn }: SignUpPopupProps) =>
 
   // Google login
   const googleLogin = useGoogleLogin({
-    flow: "auth-code",
-    redirect_uri: window.location.origin,
-    onSuccess: async (codeResponse) => {
-      console.log("🔵 Frontend (SignUpPopup) - Google OAuth Success:", codeResponse);
-      console.log("🔵 Frontend (SignUpPopup) - Redirect URI:", window.location.origin);
-
+    onSuccess: async (tokenResponse) => {
+      console.log("🔵 Frontend (SignInPopup) - Google OAuth Success:", tokenResponse);
+      console.log("🔵 Frontend (SignInPopup) - Access Token:", tokenResponse.access_token);
+      
       setIsLoading(true);
       try {
-        const res = await GoogleLogin(codeResponse.code);
+        const res = await GoogleLogin(tokenResponse.access_token);
         console.log("🔵 Frontend (SignUpPopup) - Backend response:", res.data);
-
+        
         const token = res.data.key;
 
         // Store token

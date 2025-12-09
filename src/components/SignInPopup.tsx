@@ -26,42 +26,40 @@ const SignInPopup = ({
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
 
-const googleLogin = useGoogleLogin({
-  flow: "auth-code",
-  redirect_uri: window.location.origin,
-  onSuccess: async (codeResponse) => {
-    console.log("🔵 Frontend (SignInPopup) - Google OAuth Success:", codeResponse);
-    console.log("🔵 Frontend (SignInPopup) - Redirect URI:", window.location.origin);
-    
-    setIsLoading(true);
-    try {
-      const res = await GoogleLogin(codeResponse.code);
-      console.log("🔵 Frontend (SignInPopup) - Backend response:", res.data);
+  const googleLogin = useGoogleLogin({
+    onSuccess: async (tokenResponse) => {
+      console.log("🔵 Frontend (SignInPopup) - Google OAuth Success:", tokenResponse);
+      console.log("🔵 Frontend (SignInPopup) - Access Token:", tokenResponse.access_token);
       
-      const token = res.data.key;
-      
-      // Store token using the same method as regular login
-      setAuthToken(token);
-      localStorage.setItem('isAuthenticated', 'true');
-      
-      console.log("🔵 Frontend (SignInPopup) - Token stored as authToken:", localStorage.getItem("authToken"));
-      console.log("🔵 Frontend (SignInPopup) - isAuthenticated set to:", localStorage.getItem("isAuthenticated"));
-      
-      toast({ title: 'Success!', description: 'Logged in with Google' });
-      onClose();
-    } catch (err: any) {
-      console.error("🔴 Frontend (SignInPopup) - Google Login Error:", err);
-      console.error("🔴 Frontend (SignInPopup) - Error Response:", err.response?.data);
-      toast({ title: 'Login Failed', description: err.response?.data?.non_field_errors?.[0] || 'Google login failed', variant: 'destructive' });
-    } finally {
-      setIsLoading(false);
-    }
-  },
-  onError: (error) => {
-    console.error("🔴 Frontend (SignInPopup) - Google OAuth Error:", error);
+      setIsLoading(true);
+      try {
+        const res = await GoogleLogin(tokenResponse.access_token);
+        console.log("🔵 Frontend (SignInPopup) - Backend response:", res.data);
+        
+        const token = res.data.key;
+        
+        // Store token using the same method as regular login
+        setAuthToken(token);
+        localStorage.setItem('isAuthenticated', 'true');
+        
+        console.log("🔵 Frontend (SignInPopup) - Token stored as authToken:", localStorage.getItem("authToken"));
+        console.log("🔵 Frontend (SignInPopup) - isAuthenticated set to:", localStorage.getItem("isAuthenticated"));
+        
+        toast({ title: 'Success!', description: 'Logged in with Google' });
+        onClose();
+      } catch (err: any) {
+        console.error("🔴 Frontend (SignInPopup) - Google Login Error:", err);
+        console.error("🔴 Frontend (SignInPopup) - Error Response:", err.response?.data);
+        toast({ title: 'Login Failed', description: err.response?.data?.non_field_errors?.[0] || 'Google login failed', variant: 'destructive' });
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    onError: (error) => {
+      console.error("🔴 Frontend (SignInPopup) - Google OAuth Error:", error);
     toast({ title: 'Error', description: 'Google authentication failed', variant: 'destructive' });
-  },
-});
+    },
+  });
 
 
   const handleContinue = () => {
