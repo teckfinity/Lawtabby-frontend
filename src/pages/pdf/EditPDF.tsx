@@ -1700,18 +1700,18 @@ const EditPDF = () => {
                                               <svg
                                                 className="absolute inset-0 pointer-events-none"
                                                 style={{
-                                                  width: ann.width * scale,
+                                                  width: Math.abs(ann.width * scale) + 20,
                                                   height: Math.abs(ann.height * scale) + 20,
                                                 }}
                                               >
-                                                <line
-                                                  x1="0"
-                                                  y1="10"
-                                                  x2={ann.width * scale}
-                                                  y2={(ann.height * scale) + 10}
-                                                  stroke={ann.color}
-                                                  strokeWidth="2"
-                                                />
+                                                  <line
+                                                    x1={ann.width >= 0 ? 10 : Math.abs(ann.width * scale) + 10}
+                                                    y1={ann.height >= 0 ? 10 : Math.abs(ann.height * scale) + 10}
+                                                    x2={ann.width >= 0 ? (Math.abs(ann.width * scale) + 10) : 10}
+                                                    y2={ann.height >= 0 ? (Math.abs(ann.height * scale) + 10) : 10}
+                                                    stroke={ann.color}
+                                                    strokeWidth="2"
+                                                  />
                                               </svg>
                                             )}
                                           </div>
