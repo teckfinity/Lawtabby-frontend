@@ -107,32 +107,26 @@ const ConvertFromPDF = () => {
     }
   };
 
-  const downloadFile = async () => {
-    if (!convertedFileUrl) {
-      toast.info("No converted file available for download.");
-      return;
-    }
+const downloadFile = () => {
+  if (!convertedFileUrl) {
+    toast.info("No converted file available for download.");
+    return;
+  }
 
-    try {
-      const response = await axios.get(convertedFileUrl, { responseType: "blob" });
+  const link = document.createElement("a");
+  link.href = convertedFileUrl;
 
-      // Extract real filename & extension from backend URL
-      const fileNameFromUrl = convertedFileUrl.split("/").pop() || "converted_file";
-      const blob = new Blob([response.data]);
-      const link = document.createElement("a");
+  // Extract filename from URL
+  const fileNameFromUrl = convertedFileUrl.split("/").filter(Boolean).pop() || "converted_file";
+  link.download = fileNameFromUrl;
 
-      link.href = URL.createObjectURL(blob);
-      link.download = fileNameFromUrl; //  keeps .xlsx, .pptx, etc. exactly as in response
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 
-      toast.success("File downloaded successfully!");
-    } catch (error) {
-      console.error("Error downloading file:", error);
-      toast.error("Failed to download the converted file.");
-    }
-  };
+  toast.success("File downloaded successfully!");
+};
+
 
   const printFile = () => {
     toast.success("Opening print dialog...");
