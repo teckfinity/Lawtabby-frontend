@@ -27,6 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { sendLegalResearchAdvanced } from "@/api/Ai_Features_Microsrc/legal_research";
 
 interface LegalFilters {
   jurisdiction: string;
@@ -36,10 +37,17 @@ interface LegalFilters {
   judge: string;
 }
 
+interface KeyAuthority {
+  case_name: string;
+  citation: string;
+  excerpt: string;
+  relevance: string;
+}
+
 interface LegalResponse {
   question: string;
   summary: string;
-  keyAuthorities: string[];
+  keyAuthorities: KeyAuthority[];
   analysis: string;
   citations: string[];
   filters: LegalFilters;
@@ -74,43 +82,53 @@ const LegalResearch = () => {
       toast({
         title: "Question Required",
         description: "Please enter a legal question to research.",
-        variant: "destructive"
+        variant: "destructive",
       });
       return;
     }
 
     setIsLoading(true);
 
-    // Simulate AI response - In production, this would call your AI API
-    setTimeout(() => {
-      const mockResponse: LegalResponse = {
-        question: question,
-        summary: "In employment discrimination cases under Title VII, plaintiffs must establish a prima facie case by showing they belong to a protected class, suffered adverse employment action, and that action was motivated by discriminatory intent. The burden then shifts to the employer to articulate a legitimate, non-discriminatory reason.",
-        keyAuthorities: [
-          "McDonnell Douglas Corp. v. Green, 411 U.S. 792 (1973)",
-          "42 U.S.C. § 2000e-2 (Title VII of the Civil Rights Act)",
-          "Texas Dept. of Community Affairs v. Burdine, 450 U.S. 248 (1981)"
-        ],
-        analysis: "The Supreme Court established the McDonnell Douglas burden-shifting framework, which remains the foundation for Title VII discrimination claims. First, the plaintiff must prove a prima facie case showing: (1) membership in a protected class, (2) qualification for the position, (3) adverse employment action, and (4) circumstances suggesting discriminatory motive. Once established, the burden shifts to the employer to provide a legitimate, non-discriminatory reason. The plaintiff can then demonstrate this reason is pretextual. This framework balances the need to address discrimination while preventing frivolous claims and recognizing employers' legitimate business interests.",
-        citations: [
-          "McDonnell Douglas Corp. v. Green, 411 U.S. 792, 802-05 (1973)",
-          "42 U.S.C. § 2000e-2(a)(1)",
-          "Texas Dept. of Community Affairs v. Burdine, 450 U.S. 248, 252-53 (1981)",
-          "St. Mary's Honor Center v. Hicks, 509 U.S. 502 (1993)"
-        ],
-        filters: { ...filters },
-        timestamp: new Date()
+    try {
+      const payloadFilters = {
+        jurisdiction: filters.jurisdiction,
+        court_level: filters.courtLevel,
+        date_from: filters.dateFrom || null,
+        date_to: filters.dateTo || null,
+        judge_name: filters.judge || null,
       };
 
-      setResponses([mockResponse, ...responses]);
+      const res = await sendLegalResearchAdvanced(question, payloadFilters);
+      const data = res.data;
+
+      const newResponse: LegalResponse = {
+        question,
+        summary: data.summary,
+        keyAuthorities: data.key_authorities || [],
+        analysis: data.analysis,
+        citations: data.citations || [],
+        filters: { ...filters },
+        timestamp: new Date(),
+      };
+
+      setResponses([newResponse, ...responses]);
       setQuestion("");
-      setIsLoading(false);
-      
+
       toast({
         title: "Research Complete",
-        description: "Legal analysis generated successfully."
+        description: "AI legal research completed successfully.",
       });
-    }, 2000);
+
+    } catch (error: any) {
+      console.error(error);
+      toast({
+        title: "Error",
+        description: error?.response?.data?.message || "Something went wrong.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleCopy = (response: LegalResponse, index: number) => {
@@ -122,6 +140,10 @@ FILTERS APPLIED:
 - Judge: ${response.filters.judge || "Any"}
     `.trim();
 
+    const formattedKeyAuthorities = response.keyAuthorities.map((auth, i) => 
+      `${i + 1}. ${auth.case_name} (${auth.citation}) — ${auth.excerpt} [${auth.relevance}]`
+    ).join('\n');
+
     const formattedText = `
 LEGAL RESEARCH RESPONSE
 Question: ${response.question}
@@ -132,7 +154,7 @@ SUMMARY:
 ${response.summary}
 
 KEY AUTHORITIES:
-${response.keyAuthorities.map((auth, i) => `${i + 1}. ${auth}`).join('\n')}
+${formattedKeyAuthorities}
 
 ANALYSIS:
 ${response.analysis}
@@ -433,7 +455,9 @@ DISCLAIMER: This information is for educational purposes only and does not const
                           {response.keyAuthorities.map((authority, i) => (
                             <li key={i} className="flex gap-2">
                               <span className="text-legal-primary font-medium">•</span>
-                              <span className="text-foreground">{authority}</span>
+                              <span className="text-foreground">
+                                {authority.case_name} ({authority.citation}) — {authority.excerpt} [{authority.relevance}]
+                              </span>
                             </li>
                           ))}
                         </ul>
@@ -499,62 +523,62 @@ DISCLAIMER: This information is for educational purposes only and does not const
                 <ScrollArea className="h-[300px]">
                   <div className="space-y-2 pr-4">
                     {exampleQuestions.map((example, index) => (
-                      <Button
+                  <Button
                         key={index}
-                        variant="outline"
+                    variant="outline"
                         className="w-full text-left h-auto py-3 px-3 justify-start"
                         onClick={() => setQuestion(example)}
                         disabled={isLoading}
                       >
                         <span className="text-sm">{example}</span>
-                      </Button>
-                    ))}
+                  </Button>
+                ))}
                   </div>
                 </ScrollArea>
               </CardContent>
             </Card>
 
-            {/* Features */}
+    {/* Features */}
             <Card className="shadow-card bg-gradient-primary text-white">
-              <CardHeader>
-                <CardTitle className="text-base text-white">What You Get</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm">
-                <div className="flex items-start gap-2">
-                  <Check className="h-5 w-5 mt-0.5 flex-shrink-0" />
-                  <span>Verified U.S. case law citations</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Check className="h-5 w-5 mt-0.5 flex-shrink-0" />
-                  <span>Federal & state statutes</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Check className="h-5 w-5 mt-0.5 flex-shrink-0" />
-                  <span>Plain English explanations</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Check className="h-5 w-5 mt-0.5 flex-shrink-0" />
-                  <span>Pinpoint citations included</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Check className="h-5 w-5 mt-0.5 flex-shrink-0" />
-                  <span>Multi-jurisdiction coverage</span>
-                </div>
-              </CardContent>
-            </Card>
+      <CardHeader>
+        <CardTitle className="text-base text-white">What You Get</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <div className="flex items-start gap-2">
+          <Check className="h-5 w-5 mt-0.5 flex-shrink-0" />
+          <span>Verified U.S. case law citations</span>
+        </div>
+        <div className="flex items-start gap-2">
+          <Check className="h-5 w-5 mt-0.5 flex-shrink-0" />
+          <span>Federal & state statutes</span>
+        </div>
+        <div className="flex items-start gap-2">
+          <Check className="h-5 w-5 mt-0.5 flex-shrink-0" />
+          <span>Plain English explanations</span>
+        </div>
+        <div className="flex items-start gap-2">
+          <Check className="h-5 w-5 mt-0.5 flex-shrink-0" />
+          <span>Pinpoint citations included</span>
+        </div>
+        <div className="flex items-start gap-2">
+          <Check className="h-5 w-5 mt-0.5 flex-shrink-0" />
+          <span>Multi-jurisdiction coverage</span>
+        </div>
+      </CardContent>
+    </Card>
 
-            {/* Guidelines */}
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="text-base">Best Practices</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3 text-sm text-muted-foreground">
-                <p>✓ Be specific with your questions</p>
-                <p>✓ Include relevant jurisdiction if needed</p>
-                <p>✓ Mention specific statutes or cases if known</p>
-                <p>✓ Ask about elements, defenses, or procedures</p>
-                <p>✗ Avoid asking for personal legal advice</p>
-                <p>✗ Don't rely solely on AI for case strategy</p>
+    {/* Guidelines */}
+    <Card className="shadow-card">
+      <CardHeader>
+        <CardTitle className="text-base">Best Practices</CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm text-muted-foreground">
+        <p>✓ Be specific with your questions</p>
+        <p>✓ Include relevant jurisdiction if needed</p>
+        <p>✓ Mention specific statutes or cases if known</p>
+        <p>✓ Ask about elements, defenses, or procedures</p>
+        <p>✗ Avoid asking for personal legal advice</p>
+        <p>✗ Don't rely solely on AI for case strategy</p>
               </CardContent>
             </Card>
           </div>
