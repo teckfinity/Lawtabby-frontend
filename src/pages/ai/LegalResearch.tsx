@@ -262,8 +262,8 @@ DISCLAIMER: This information is for educational purposes only and does not const
                             <SelectItem value="supreme">U.S. Supreme Court</SelectItem>
                             <SelectItem value="circuit">Circuit Courts</SelectItem>
                             <SelectItem value="district">District Courts</SelectItem>
-                            <SelectItem value="state-supreme">State Supreme Courts</SelectItem>
-                            <SelectItem value="state-appellate">State Appellate Courts</SelectItem>
+                            {/* <SelectItem value="state-supreme">State Supreme Courts</SelectItem> */}
+                            {/* <SelectItem value="state-appellate">State Appellate Courts</SelectItem> */}
                           </SelectContent>
                         </Select>
                       </div>
