@@ -28,6 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { sendLegalResearchAdvanced } from "@/api/Ai_Features_Microsrc/legal_research";
+import { Trash } from "lucide-react";
 
 interface LegalFilters {
   jurisdiction: string;
@@ -130,6 +131,17 @@ const LegalResearch = () => {
       setIsLoading(false);
     }
   };
+
+
+  const handleDelete = (index: number) => {
+  setResponses((prev) => prev.filter((_, i) => i !== index));
+
+  toast({
+    title: "Research Deleted",
+    description: "The legal research has been deleted.",
+  });
+};
+
 
   const handleCopy = (response: LegalResponse, index: number) => {
     const filterText = `
@@ -434,6 +446,15 @@ DISCLAIMER: This information is for educational purposes only and does not const
                           >
                             <Printer className="h-4 w-4" />
                           </Button>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleDelete(index)}
+                            className="text-red-600 hover:text-red-700 "
+                          >
+                            <Trash className="h-4 w-4" />
+                          </Button>
+
                         </div>
                       </div>
                     </CardHeader>
@@ -458,7 +479,7 @@ DISCLAIMER: This information is for educational purposes only and does not const
                             <li key={i} className="flex gap-2">
                               <span className="text-legal-primary font-medium">•</span>
                               <span className="text-foreground">
-                                <span className="text-red-600 font-bold">{authority.case_name}</span>{" "}
+                                <span className="text-organza-600 font-bold">{authority.case_name}</span>{" "}
                                 <span className="text-sm font-semibold text-legal-primary mb-2 flex items-center gap-2 font-bold italic">{authority.citation}</span> — {authority.excerpt} [{authority.relevance}]
                               </span>
                             </li>
