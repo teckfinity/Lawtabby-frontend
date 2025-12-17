@@ -22,11 +22,12 @@ import {
   Filter
 } from "lucide-react";
 import { getJudgesList, getJudgeCompleteProfile } from "@/api/Ai_Features_Microsrc/judge_analytcs"; // Assuming this is the correct import path for the API functions
+import { useNavigate } from "react-router-dom";
 
 const JudgeAnalytics = () => {
   const [judges, setJudges] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-
+const navigate = useNavigate();
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -349,13 +350,14 @@ const JudgeAnalytics = () => {
 
                         <div className="mt-4 pt-4 border-t border-border">
                           <div className="flex gap-2">
-                            <Button
+                         <Button
                               size="sm"
                               className="bg-legal-primary hover:bg-legal-primary/90"
-                              onClick={() => window.location.href = `/ai/judge/${j.id}`}
+                              onClick={() => navigate(`/ai/judge/${j.id}`)}
                             >
                               View Full Profile
                             </Button>
+
                             <Button
                               size="sm"
                               variant="outline"
