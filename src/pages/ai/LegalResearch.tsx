@@ -71,9 +71,9 @@ const LegalResearch = () => {
   });
 
   const exampleQuestions = [
-    "What is the burden of proof in employment discrimination cases under Title VII?",
-    "How does qualified immunity apply to police officers in § 1983 cases?",
     "What are the elements of negligence in tort law?",
+    "duty of care reasonable person standard foreseeability",
+    "strict liability products liability dangerous activities",
     "Explain the doctrine of promissory estoppel in contract law"
   ];
 
@@ -140,9 +140,11 @@ FILTERS APPLIED:
 - Judge: ${response.filters.judge || "Any"}
     `.trim();
 
-    const formattedKeyAuthorities = response.keyAuthorities.map((auth, i) => 
-      `${i + 1}. ${auth.case_name} (${auth.citation}) — ${auth.excerpt} [${auth.relevance}]`
-    ).join('\n');
+const formattedKeyAuthorities = response.keyAuthorities.map((auth, i) =>
+  `${i + 1}. ${auth.case_name || "Unnamed Case"} (${auth.citation})
+${auth.excerpt}`
+).join('\n\n');
+
 
     const formattedText = `
 LEGAL RESEARCH RESPONSE
@@ -456,7 +458,8 @@ DISCLAIMER: This information is for educational purposes only and does not const
                             <li key={i} className="flex gap-2">
                               <span className="text-legal-primary font-medium">•</span>
                               <span className="text-foreground">
-                                {authority.case_name} ({authority.citation}) — {authority.excerpt} [{authority.relevance}]
+                                <span className="text-red-600 font-bold">{authority.case_name}</span>{" "}
+                                <span className="text-sm font-semibold text-legal-primary mb-2 flex items-center gap-2 font-bold italic">{authority.citation}</span> — {authority.excerpt} [{authority.relevance}]
                               </span>
                             </li>
                           ))}
