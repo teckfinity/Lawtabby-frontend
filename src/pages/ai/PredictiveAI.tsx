@@ -5,11 +5,11 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import { 
-  TrendingUp, 
+import {
+  TrendingUp,
   Search, 
-  Brain, 
-  Target, 
+  Brain,
+  Target,
   BarChart3,
   AlertTriangle,
   CheckCircle,
@@ -20,50 +20,25 @@ import {
   Clock
 } from "lucide-react";
 
+import { sendCasePrediction } from "@/api/Ai_Features_Microsrc/ai_predict";
+
 const PredictiveAI = () => {
-  const [prediction, setPrediction] = useState(null);
+  const [caseType, setCaseType] = useState("");
+  const [jurisdiction, setJurisdiction] = useState("");
+  const [judgeId, setJudgeId] = useState<string>("");
+  const [summary, setSummary] = useState("");
+
+  const [prediction, setPrediction] = useState<any>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // ✅ NEW (safe addition)
+  const [recentPredictions, setRecentPredictions] = useState<any[]>([]);
 
   const caseTypes = [
     { type: "Civil Rights", confidence: 78, color: "bg-legal-success" },
     { type: "Contract Disputes", confidence: 85, color: "bg-legal-primary" },
     { type: "Employment Law", confidence: 72, color: "bg-legal-warning" },
-    { type: "Personal Injury", confidence: 91, color: "bg-legal-info" },
-  ];
-
-  const recentPredictions = [
-    {
-      id: 1,
-      case: "Employment Discrimination Claim",
-      prediction: 73,
-      outcome: "Favorable",
-      confidence: "High",
-      date: "2 hours ago"
-    },
-    {
-      id: 2,
-      case: "Contract Breach Lawsuit",
-      prediction: 45,
-      outcome: "Challenging",
-      confidence: "Medium",
-      date: "1 day ago"
-    },
-    {
-      id: 3,
-      case: "Personal Injury Settlement",
-      prediction: 89,
-      outcome: "Very Favorable",
-      confidence: "Very High",
-      date: "3 days ago"
-    }
-  ];
-
-  const factors = [
-    { factor: "Judge History", weight: 25, impact: "Positive" },
-    { factor: "Case Precedents", weight: 30, impact: "Positive" },
-    { factor: "Evidence Strength", weight: 20, impact: "Neutral" },
-    { factor: "Legal Representation", weight: 15, impact: "Positive" },
-    { factor: "Jurisdiction", weight: 10, impact: "Negative" }
+    { type: "Personal Injury", confidence: 91, color: "bg-legal-info" }
   ];
 
   const stats = [
@@ -73,18 +48,57 @@ const PredictiveAI = () => {
     { label: "Success Improved", value: "+23%", icon: TrendingUp }
   ];
 
-  const handleRunPrediction = () => {
+  const handleRunPrediction = async () => {
     setIsAnalyzing(true);
-    setTimeout(() => {
-      setPrediction({
-        probability: 73,
-        confidence: "High",
-        outcome: "Favorable",
-        factors: factors,
-        riskLevel: "Medium"
+    setPrediction(null);
+
+    try {
+      const response = await sendCasePrediction({
+        case_type: caseType,
+        jurisdiction: jurisdiction,
+        judge_id: judgeId ? Number(judgeId) : 0,
+        brief_summary: summary
       });
+
+      const data = response.data;
+
+      const formattedPrediction = {
+        probability: data.success_probability,
+        outcome: data.predicted_outcome,
+        confidence:
+          data.success_probability >= 80
+            ? "Very High"
+            : data.success_probability >= 60
+            ? "High"
+            : "Medium",
+        factors: data.factors.map((f: any) => ({
+          factor: f.factor,
+          impact:
+            f.impact === "positive"
+              ? "Positive"
+              : f.impact === "negative"
+              ? "Negative"
+              : "Neutral",
+          weight: Math.round(f.weight * 100)
+        }))
+      };
+
+      setPrediction(formattedPrediction);
+
+      // ✅ Add to recent predictions (no UI impact)
+      setRecentPredictions((prev) => [
+        {
+          caseType: caseType || "Untitled Case",
+          outcome: data.predicted_outcome,
+          probability: data.success_probability
+        },
+        ...prev.slice(0, 4)
+      ]);
+    } catch (error) {
+      console.error("Prediction failed", error);
+    } finally {
       setIsAnalyzing(false);
-    }, 3000);
+    }
   };
 
   return (
@@ -336,38 +350,33 @@ const PredictiveAI = () => {
                   <Clock className="h-5 w-5 text-legal-primary" />
                   Recent Predictions
                 </CardTitle>
-                <CardDescription>
-                  Your latest case predictions
-                </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {recentPredictions.map((pred) => (
-                    <div key={pred.id} className="p-3 border border-border rounded-lg">
-                      <div className="flex items-start justify-between mb-2">
-                        <h4 className="font-medium text-sm leading-tight">{pred.case}</h4>
-                        <Badge variant={pred.outcome === 'Very Favorable' ? 'default' : pred.outcome === 'Favorable' ? 'secondary' : 'outline'} className="text-xs">
-                          {pred.outcome}
+                {recentPredictions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No predictions yet.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {recentPredictions.map((item, index) => (
+                      <div key={index} className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-medium">{item.caseType}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {item.probability}% success
+                          </p>
+                        </div>
+                        <Badge variant="outline">
+                          {item.outcome}
                         </Badge>
                       </div>
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>{pred.prediction}% success rate</span>
-                        <span>{pred.date}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <Button 
-                  variant="outline" 
-                  className="w-full mt-4"
-                  onClick={() => window.open('/ai/predictions/all', '_blank')}
-                >
-                  View All Predictions
-                </Button>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
 
-            {/* AI Insights */}
+                        {/* AI Insights */}
             <Card className="shadow-card bg-gradient-primary text-white">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
