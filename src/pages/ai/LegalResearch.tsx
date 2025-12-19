@@ -73,9 +73,9 @@ const LegalResearch = () => {
 
   const exampleQuestions = [
     "What are the elements of negligence in tort law?",
-    "duty of care reasonable person standard foreseeability",
-    "strict liability products liability dangerous activities",
-    "Explain the doctrine of promissory estoppel in contract law"
+    "Trademark dilution blurring tarnishment famous marks?",
+    "Negligence duty of care breach causation damages?",
+    "What are the elements of negligence in tort law?"
   ];
 
   const handleSubmit = async () => {
@@ -546,20 +546,20 @@ DISCLAIMER: This information is for educational purposes only and does not const
               <CardContent>
                 <ScrollArea className="h-[300px]">
                   <div className="space-y-2 pr-4">
-                    {exampleQuestions.map((example, index) => (
-                  <Button
-                        key={index}
-                    variant="outline"
-                        className="w-full text-left h-auto py-3 px-3 justify-start"
-                        onClick={() => setQuestion(example)}
-                        disabled={isLoading}
-                      >
-                        <span className="text-sm">{example}</span>
-                  </Button>
-                ))}
-                  </div>
-                </ScrollArea>
-              </CardContent>
+    {exampleQuestions.map((example, index) => (
+      <Button
+        key={index}
+        variant="outline"
+        className="min-w-[260px] text-left h-auto py-3 px-3 justify-start whitespace-normal"
+        onClick={() => setQuestion(example)}
+        disabled={isLoading}
+      >
+        <span className="text-sm">{example}</span>
+      </Button>
+    ))}
+  </div>
+</ScrollArea>
+</CardContent>
             </Card>
 
     {/* Features */}
