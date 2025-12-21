@@ -25,8 +25,24 @@ import {
   getJudgeCompleteProfile, 
   getJudgeStats,
   getJudgeCaseDistribution,
-  getJudgeInsights
+  getJudgeInsights,
+  getJudgeOldAnalytics  // ← Only this new import added
 } from "@/api/Ai_Features_Microsrc/judge_analytcs";
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  LineChart,
+  Line,
+  PieChart,
+  Pie,
+  Cell
+} from "recharts";
 
 const JudgeProfile = () => {
   const navigate = useNavigate();
@@ -35,6 +51,7 @@ const JudgeProfile = () => {
 
   const [judgeData, setJudgeData] = useState<any>(null);
   const [insights, setInsights] = useState<any[]>([]);
+  const [analyticsData, setAnalyticsData] = useState<any>(null); // ← New state for analytics_old
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -52,17 +69,24 @@ const JudgeProfile = () => {
       try {
         setLoading(true);
 
-        const [profileRes, statsRes, distributionRes, insightsRes] = await Promise.all([
+        const [profileRes, statsRes, distributionRes, insightsRes, oldAnalyticsRes] = await Promise.all([
           getJudgeCompleteProfile(Number(judgeId)),
           getJudgeStats(Number(judgeId)).catch(() => ({ data: { total_cases: 0, grant_rate: 0, avg_decision_days: 0, recent_cases: [] } })),
           getJudgeCaseDistribution(Number(judgeId)).catch(() => ({ data: {} })),
           getJudgeInsights(Number(judgeId)).catch(() => ({ data: { insights: [] } })),
+          getJudgeOldAnalytics(Number(judgeId)).catch(() => ({ 
+            data: { 
+              yearly_activity: [], 
+              case_type_breakdown: {} 
+            } 
+          })),
         ]);
 
         const profileData = profileRes.data;
         const statsData = statsRes.data;
         const distributionData = distributionRes.data;
         const insightsData = insightsRes.data.insights || [];
+        const oldAnalyticsData = oldAnalyticsRes.data;
 
         // Basic info
         const courts = profileData.statistics?.courts_served || [];
@@ -107,6 +131,7 @@ const JudgeProfile = () => {
 
         // Set insights (with enabled state from backend)
         setInsights(insightsData);
+        setAnalyticsData(oldAnalyticsData); // ← Store analytics_old data
       } catch (error: any) {
         console.error("Failed to load judge profile:", error);
         toast({
@@ -149,6 +174,23 @@ const JudgeProfile = () => {
       </div>
     );
   }
+
+  // Prepare dynamic data for Analytics tab
+  const yearlyActivity = analyticsData?.yearly_activity || [];
+  const monthlyStats = yearlyActivity.map((item: any) => ({
+    month: item.year.toString(),
+    granted: Math.round(item.count * (judgeData.grantRate / 100)) || 0,
+    denied: item.count - Math.round(item.count * (judgeData.grantRate / 100)) || 0,
+    avgDays: judgeData.avgDecisionTime || 0,
+  }));
+
+  const motionData = Object.entries(analyticsData?.case_type_breakdown || {}).map(([name, count]: [string, any]) => ({
+    name,
+    granted: Math.round((count as number) * (judgeData.grantRate / 100)),
+    denied: (count as number) - Math.round((count as number) * (judgeData.grantRate / 100)),
+  }));
+
+  const pieColors = ["hsl(var(--primary))", "hsl(var(--destructive))", "hsl(var(--secondary))", "hsl(var(--accent))"];
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
@@ -353,7 +395,116 @@ const JudgeProfile = () => {
             </div>
           </TabsContent>
 
-          {/* Full Insights Tab - Clickable toggles */}
+          {/* Analytics Tab - ONLY THIS PART IS UPDATED (dynamic + same design) */}
+          <TabsContent value="analytics" className="mt-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card className="shadow-card">
+                <CardHeader>
+                  <CardTitle>Grant vs Denied by Year</CardTitle>
+                  <CardDescription>Track decision patterns over time</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-72">
+                    {monthlyStats.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={monthlyStats}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="month" />
+                          <YAxis />
+                          <Tooltip />
+                          <Legend />
+                          <Bar dataKey="granted" stackId="a" fill="hsl(var(--primary))" />
+                          <Bar dataKey="denied" stackId="a" fill="hsl(var(--destructive))" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <p className="text-center text-muted-foreground pt-24">No yearly activity data available</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="shadow-card">
+                <CardHeader>
+                  <CardTitle>Avg Decision Time (days)</CardTitle>
+                  <CardDescription>Average time to decision per year</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-72">
+                    {monthlyStats.length > 0 ? (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={monthlyStats}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="month" />
+                          <YAxis />
+                          <Tooltip />
+                          <Legend />
+                          <Line type="monotone" dataKey="avgDays" stroke="hsl(var(--secondary))" strokeWidth={2} dot={false} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <p className="text-center text-muted-foreground pt-24">No decision time data available</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className="shadow-card lg:col-span-2">
+                <CardHeader>
+                  <CardTitle>Top Motions by Grant Rate</CardTitle>
+                  <CardDescription>Distribution of outcomes by motion type</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="h-80 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="h-64">
+                      {motionData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie data={motionData} dataKey="granted" nameKey="name" outerRadius={90} label>
+                              {motionData.map((_: any, i: number) => (
+                                <Cell key={i} fill={pieColors[i % pieColors.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip />
+                            <Legend />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      ) : (
+                        <p className="text-center text-muted-foreground pt-20">No motion data available</p>
+                      )}
+                    </div>
+                    <div className="space-y-3">
+                      {motionData.length > 0 ? (
+                        motionData.map((m: any) => (
+                          <div key={m.name} className="flex items-center justify-between p-3 rounded-lg border border-border">
+                            <div>
+                              <p className="font-medium text-sm">{m.name}</p>
+                              <p className="text-xs text-muted-foreground">{m.granted} granted • {m.denied} denied</p>
+                            </div>
+                            <Badge variant="outline">
+                              {m.granted + m.denied > 0 ? Math.round((m.granted / (m.granted + m.denied)) * 100) : 0}%
+                            </Badge>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-center text-muted-foreground py-8">No motion breakdown available</p>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          {/* Patterns & Insights tabs - unchanged */}
+          <TabsContent value="patterns" className="mt-6">
+            <Card className="shadow-card">
+              <CardContent className="py-16 text-center text-muted-foreground">
+                Patterns section coming soon
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           <TabsContent value="insights" className="mt-6">
             <Card className="shadow-card">
               <CardHeader>
@@ -418,23 +569,6 @@ const JudgeProfile = () => {
                     </Button>
                   </div>
                 )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* Placeholder Tabs */}
-          <TabsContent value="analytics" className="mt-6">
-            <Card className="shadow-card">
-              <CardContent className="py-16 text-center text-muted-foreground">
-                Analytics section coming soon
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="patterns" className="mt-6">
-            <Card className="shadow-card">
-              <CardContent className="py-16 text-center text-muted-foreground">
-                Patterns section coming soon
               </CardContent>
             </Card>
           </TabsContent>

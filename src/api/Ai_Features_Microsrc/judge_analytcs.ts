@@ -99,3 +99,17 @@ export const getJudgeInsights = (judgeId: number) => {
     headers: { "Content-Type": "application/json" },
   });
 };
+
+
+/* ---------------------------------------------------------
+   NEW: Get Judge Old Analytics Data
+   Endpoint: /judges/{{judge_id}}/analytics_old/
+   Used for: Analytics tab (monthly stats, motion outcomes, etc.)
+--------------------------------------------------------- */
+export const getJudgeOldAnalytics = (judgeId: number) => {
+  if (!judgeId) throw new Error("Judge ID is required.");
+
+  return apiClient.get(`/api/judges/${judgeId}/analytics_old/`, {
+    headers: { "Content-Type": "application/json" },
+  });
+};
