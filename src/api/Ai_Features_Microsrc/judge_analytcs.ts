@@ -132,3 +132,17 @@ export const getJudgePredictionContext = (judgeId: number) => {
     headers: { "Content-Type": "application/json" },
   });
 };
+
+
+/* ---------------------------------------------------------
+   NEW: Get Judge Historical Performance by Case Type
+   Endpoint: /judges/{{judge_id}}/historical_performance/
+   Response: { judge_id, judge_name, performance_by_case_type: [...] }
+--------------------------------------------------------- */
+export const getJudgeHistoricalPerformance = (judgeId: number) => {
+  if (!judgeId) throw new Error("Judge ID is required.");
+
+  return apiClient.get(`/api/judges/${judgeId}/historical_performance/`, {
+    headers: { "Content-Type": "application/json" },
+  });
+};

@@ -20,7 +20,10 @@ import {
   Calculator,
   FileText
 } from "lucide-react";
-import { getJudgePredictionContext } from "@/api/Ai_Features_Microsrc/judge_analytcs";
+import { 
+  getJudgePredictionContext,
+  getJudgeHistoricalPerformance  // ← New import
+} from "@/api/Ai_Features_Microsrc/judge_analytcs";
 
 const JudgePredictions = () => {
   const navigate = useNavigate();
@@ -34,19 +37,40 @@ const JudgePredictions = () => {
     keyFacts: ""
   });
   const [contextData, setContextData] = useState<any>(null);
+  const [historicalData, setHistoricalData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!judgeId) return;
 
-    const fetchContext = async () => {
+    const fetchData = async () => {
       try {
         setLoading(true);
-        const res = await getJudgePredictionContext(Number(judgeId));
-        setContextData(res.data);
+
+        const [contextRes, historicalRes] = await Promise.all([
+          getJudgePredictionContext(Number(judgeId)).catch(() => ({ data: null })),
+          getJudgeHistoricalPerformance(Number(judgeId)).catch(() => ({ data: { performance_by_case_type: [] } })),
+        ]);
+
+        setContextData(contextRes.data || {
+          judge_name: "Unknown Judge",
+          court_name: "Unknown",
+          grant_rate: 0,
+          avg_decision_time: 0,
+          specialty: "General",
+          total_cases: 0
+        });
+
+        const perfData = historicalRes.data.performance_by_case_type || [];
+        setHistoricalData(perfData.map((item: any) => ({
+          caseType: item.case_type,
+          cases: item.total_cases,
+          grantRate: item.grant_rate,
+          avgTime: item.avg_decision_time > 0 ? `${item.avg_decision_time} days` : "N/A"
+        })));
       } catch (error) {
-        console.error("Failed to load prediction context:", error);
-        // Fallback data if API fails
+        console.error("Failed to load prediction data:", error);
+        // Fallback data
         setContextData({
           judge_name: "Unknown Judge",
           court_name: "Unknown",
@@ -55,22 +79,16 @@ const JudgePredictions = () => {
           specialty: "General",
           total_cases: 0
         });
+        setHistoricalData([]);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchContext();
+    fetchData();
   }, [judgeId]);
 
-  // Static historical data (as you said it's from a different API)
-  const historicalData = [
-    { caseType: "Contract Disputes", cases: 156, grantRate: 82, avgTime: "42 days" },
-    { caseType: "Employment Law", cases: 89, grantRate: 71, avgTime: "38 days" },
-    { caseType: "Civil Rights", cases: 67, grantRate: 85, avgTime: "52 days" },
-    { caseType: "Corporate Law", cases: 234, grantRate: 79, avgTime: "41 days" }
-  ];
-
+  // Mock recent trends (can be replaced later)
   const recentTrends = [
     { metric: "Grant Rate Trend", value: "+5.2%", trend: "up", description: "Increasing over past 6 months" },
     { metric: "Decision Speed", value: "-8 days", trend: "up", description: "Faster decisions recently" },
@@ -365,19 +383,25 @@ const JudgePredictions = () => {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {historicalData.map((data, index) => (
-                  <div key={index} className="space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm font-medium">{data.caseType}</span>
-                      <span className="text-sm text-muted-foreground">{data.grantRate}%</span>
+                {historicalData.length > 0 ? (
+                  historicalData.map((data: any, index: number) => (
+                    <div key={index} className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm font-medium">{data.caseType}</span>
+                        <span className="text-sm text-muted-foreground">{data.grantRate}%</span>
+                      </div>
+                      <Progress value={data.grantRate} className="h-2" />
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>{data.cases} cases</span>
+                        <span>{data.avgTime}</span>
+                      </div>
                     </div>
-                    <Progress value={data.grantRate} className="h-2" />
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>{data.cases} cases</span>
-                      <span>{data.avgTime}</span>
-                    </div>
-                  </div>
-                ))}
+                  ))
+                ) : (
+                  <p className="text-center text-muted-foreground py-8">
+                    No historical performance data available.
+                  </p>
+                )}
               </CardContent>
             </Card>
 
