@@ -57,3 +57,45 @@ export const getJudgeAnalyticsOverview = () => {
     headers: { "Content-Type": "application/json" },
   });
 };
+
+
+/* ---------------------------------------------------------
+   NEW: Get Judge Stats by ID
+   Endpoint: /judges/{{judge_id}}/stats/
+   Used for: Top cards on judge profile page
+--------------------------------------------------------- */
+export const getJudgeStats = (judgeId: number) => {
+  if (!judgeId) throw new Error("Judge ID is required.");
+
+  return apiClient.get(`/api/judges/${judgeId}/stats/`, {
+    headers: { "Content-Type": "application/json" },
+  });
+};
+
+
+/* ---------------------------------------------------------
+   NEW: Get Judge Case Distribution by Category
+   Endpoint: /judges/{{judge_id}}/case_distribution/
+   Response: { "Corporate Law": 0, "Civil Rights": 0, ... }
+--------------------------------------------------------- */
+export const getJudgeCaseDistribution = (judgeId: number) => {
+  if (!judgeId) throw new Error("Judge ID is required.");
+
+  return apiClient.get(`/api/judges/${judgeId}/case_distribution/`, {
+    headers: { "Content-Type": "application/json" },
+  });
+};
+
+
+/* ---------------------------------------------------------
+   NEW: Get Judge Insights
+   Endpoint: /judges/{{judge_id}}/insights/
+   Response: { "insights": [ { id, title, description, metric, enabled } ] }
+--------------------------------------------------------- */
+export const getJudgeInsights = (judgeId: number) => {
+  if (!judgeId) throw new Error("Judge ID is required.");
+
+  return apiClient.get(`/api/judges/${judgeId}/insights/`, {
+    headers: { "Content-Type": "application/json" },
+  });
+};
