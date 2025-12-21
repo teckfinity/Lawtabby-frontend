@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
+import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import {
   ArrowLeft,
@@ -23,7 +24,8 @@ import {
 import { 
   getJudgeCompleteProfile, 
   getJudgeStats,
-  getJudgeCaseDistribution
+  getJudgeCaseDistribution,
+  getJudgeInsights
 } from "@/api/Ai_Features_Microsrc/judge_analytcs";
 
 const JudgeProfile = () => {
@@ -32,6 +34,7 @@ const JudgeProfile = () => {
   const { toast } = useToast();
 
   const [judgeData, setJudgeData] = useState<any>(null);
+  const [insights, setInsights] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -49,29 +52,19 @@ const JudgeProfile = () => {
       try {
         setLoading(true);
 
-        // Always fetch these two — they are critical
-        const [profileRes, statsRes] = await Promise.all([
+        const [profileRes, statsRes, distributionRes, insightsRes] = await Promise.all([
           getJudgeCompleteProfile(Number(judgeId)),
-          getJudgeStats(Number(judgeId)).catch(err => {
-            console.warn("Stats API failed:", err);
-            return { data: { total_cases: 0, grant_rate: 0, avg_decision_days: 0, recent_cases: [] } };
-          }),
+          getJudgeStats(Number(judgeId)).catch(() => ({ data: { total_cases: 0, grant_rate: 0, avg_decision_days: 0, recent_cases: [] } })),
+          getJudgeCaseDistribution(Number(judgeId)).catch(() => ({ data: {} })),
+          getJudgeInsights(Number(judgeId)).catch(() => ({ data: { insights: [] } })),
         ]);
 
         const profileData = profileRes.data;
         const statsData = statsRes.data;
+        const distributionData = distributionRes.data;
+        const insightsData = insightsRes.data.insights || [];
 
-        // Optional: Case distribution — don't break the page if it fails
-        let distributionData = {};
-        try {
-          const distRes = await getJudgeCaseDistribution(Number(judgeId));
-          distributionData = distRes.data;
-        } catch (err) {
-          console.warn("Case distribution API failed (non-critical):", err);
-          // distributionData remains {} → will show "No case breakdown"
-        }
-
-        // Basic info from profile
+        // Basic info
         const courts = profileData.statistics?.courts_served || [];
         const courtDisplay = courts.length > 0 ? courts.join(", ") : "N/A";
 
@@ -83,7 +76,7 @@ const JudgeProfile = () => {
           ? profileData.education.join(" • ")
           : "N/A";
 
-        // Build case categories from distribution endpoint
+        // Case Distribution
         const totalCases = statsData.total_cases || 0;
         const caseCategories = Object.keys(distributionData).length > 0
           ? Object.entries(distributionData).map(([category, cases]: [string, any]) => ({
@@ -111,8 +104,11 @@ const JudgeProfile = () => {
           caseCategories,
           trend,
         });
+
+        // Set insights (with enabled state from backend)
+        setInsights(insightsData);
       } catch (error: any) {
-        console.error("Critical error loading judge profile:", error);
+        console.error("Failed to load judge profile:", error);
         toast({
           variant: "destructive",
           title: "Profile Not Found",
@@ -307,56 +303,37 @@ const JudgeProfile = () => {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    {judgeData.grantRate >= 60 && (
-                      <div className="p-3 rounded-lg bg-legal-success/5 border border-legal-success/20">
-                        <div className="flex items-start gap-3">
-                          <TrendingUp className="h-5 w-5 text-legal-success mt-0.5" />
-                          <div>
-                            <h4 className="font-medium text-sm">High Grant Rate</h4>
-                            <p className="text-xs text-muted-foreground">
-                              {judgeData.grantRate}% grant rate in motion hearings
-                            </p>
+                    {insights.filter((i: any) => i.enabled).length > 0 ? (
+                      insights
+                        .filter((i: any) => i.enabled)
+                        .map((insight: any) => (
+                          <div
+                            key={insight.id}
+                            className="p-3 rounded-lg bg-legal-success/5 border border-legal-success/20"
+                          >
+                            <div className="flex items-start gap-3">
+                              <TrendingUp className="h-5 w-5 text-legal-success mt-0.5 flex-shrink-0" />
+                              <div>
+                                <h4 className="font-medium text-sm">{insight.title}</h4>
+                                <p className="text-xs text-muted-foreground">{insight.description}</p>
+                                {insight.metric && (
+                                  <p className="text-xs font-semibold mt-1 text-legal-success">
+                                    {insight.metric}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {judgeData.avgDecisionTime > 0 && judgeData.avgDecisionTime <= 45 && (
-                      <div className="p-3 rounded-lg bg-legal-success/5 border border-legal-success/20">
-                        <div className="flex items-start gap-3">
-                          <Clock className="h-5 w-5 text-legal-success mt-0.5" />
-                          <div>
-                            <h4 className="font-medium text-sm">Fast Decisions</h4>
-                            <p className="text-xs text-muted-foreground">
-                              Decisions typically made within {judgeData.avgDecisionTime} days
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {judgeData.specialty !== "General" && (
-                      <div className="p-3 rounded-lg bg-muted/50 border">
-                        <div className="flex items-start gap-3">
-                          <Scale className="h-5 w-5 mt-0.5 text-muted-foreground" />
-                          <div>
-                            <h4 className="font-medium text-sm">Specialization</h4>
-                            <p className="text-xs text-muted-foreground">
-                              Expertise in {judgeData.specialty} matters
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {judgeData.totalCases === 0 && (
+                        ))
+                    ) : (
                       <p className="text-center text-muted-foreground text-sm py-4">
-                        Limited case history available for detailed insights.
+                        No active insights for this judge.
                       </p>
                     )}
                   </CardContent>
                 </Card>
 
+                {/* Actions */}
                 <Card className="shadow-card">
                   <CardHeader>
                     <CardTitle>Actions</CardTitle>
@@ -376,15 +353,91 @@ const JudgeProfile = () => {
             </div>
           </TabsContent>
 
-          {["analytics", "patterns", "insights"].map((tab) => (
-            <TabsContent key={tab} value={tab} className="mt-6">
-              <Card className="shadow-card">
-                <CardContent className="py-16 text-center text-muted-foreground">
-                  <p className="capitalize">{tab} section coming soon</p>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          ))}
+          {/* Full Insights Tab - Clickable toggles */}
+          <TabsContent value="insights" className="mt-6">
+            <Card className="shadow-card">
+              <CardHeader>
+                <CardTitle>AI-Powered Insights</CardTitle>
+                <CardDescription>
+                  Toggle insights to include in your analysis report
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {insights.length > 0 ? (
+                  insights.map((insight: any) => (
+                    <div
+                      key={insight.id}
+                      className="flex items-center justify-between p-4 rounded-lg border bg-card"
+                    >
+                      <div className="flex-1 pr-6">
+                        <div className="flex items-center gap-3 mb-2">
+                          <TrendingUp className="h-5 w-5 text-legal-primary" />
+                          <h4 className="font-medium text-foreground">{insight.title}</h4>
+                        </div>
+                        <p className="text-sm text-muted-foreground">{insight.description}</p>
+                        {insight.metric && (
+                          <p className="text-sm font-semibold mt-2 text-legal-primary">
+                            {insight.metric}
+                          </p>
+                        )}
+                      </div>
+                      <Switch
+                        checked={insight.enabled}
+                        onCheckedChange={(checked) => {
+                          setInsights(prev =>
+                            prev.map(i => i.id === insight.id ? { ...i, enabled: checked } : i)
+                          );
+                          toast({
+                            title: checked ? "Insight Added" : "Insight Removed",
+                            description: `"${insight.title}" has been ${checked ? "added to" : "removed from"} your report.`,
+                          });
+                        }}
+                      />
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <AlertCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>No insights available for this judge.</p>
+                  </div>
+                )}
+
+                {insights.length > 0 && (
+                  <div className="pt-4 border-t">
+                    <Button
+                      className="w-full"
+                      onClick={() => {
+                        const selected = insights.filter((i: any) => i.enabled);
+                        toast({
+                          title: "Report Updated",
+                          description: `${selected.length} insight(s) included in your analysis.`,
+                        });
+                      }}
+                    >
+                      Apply Selected Insights to Report
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Placeholder Tabs */}
+          <TabsContent value="analytics" className="mt-6">
+            <Card className="shadow-card">
+              <CardContent className="py-16 text-center text-muted-foreground">
+                Analytics section coming soon
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="patterns" className="mt-6">
+            <Card className="shadow-card">
+              <CardContent className="py-16 text-center text-muted-foreground">
+                Patterns section coming soon
+              </CardContent>
+            </Card>
+          </TabsContent>
         </Tabs>
       </div>
     </div>
