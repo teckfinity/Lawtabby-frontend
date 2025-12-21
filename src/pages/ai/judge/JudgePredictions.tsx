@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,27 +20,50 @@ import {
   Calculator,
   FileText
 } from "lucide-react";
+import { getJudgePredictionContext } from "@/api/Ai_Features_Microsrc/judge_analytcs";
 
 const JudgePredictions = () => {
   const navigate = useNavigate();
-  const { judgeId } = useParams();
+  const { judgeId } = useParams<{ judgeId: string }>();
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [prediction, setPrediction] = useState(null);
+  const [prediction, setPrediction] = useState<any>(null);
   const [caseDetails, setCaseDetails] = useState({
     caseType: "",
     caseDescription: "",
     clientPosition: "",
     keyFacts: ""
   });
+  const [contextData, setContextData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-  const judgeData = {
-    name: "Hon. Sarah Mitchell",
-    court: "Superior Court of California",
-    grantRate: 78,
-    avgDecisionTime: "45 days",
-    specialty: "Corporate Law"
-  };
+  useEffect(() => {
+    if (!judgeId) return;
 
+    const fetchContext = async () => {
+      try {
+        setLoading(true);
+        const res = await getJudgePredictionContext(Number(judgeId));
+        setContextData(res.data);
+      } catch (error) {
+        console.error("Failed to load prediction context:", error);
+        // Fallback data if API fails
+        setContextData({
+          judge_name: "Unknown Judge",
+          court_name: "Unknown",
+          grant_rate: 0,
+          avg_decision_time: 0,
+          specialty: "General",
+          total_cases: 0
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchContext();
+  }, [judgeId]);
+
+  // Static historical data (as you said it's from a different API)
   const historicalData = [
     { caseType: "Contract Disputes", cases: 156, grantRate: 82, avgTime: "42 days" },
     { caseType: "Employment Law", cases: 89, grantRate: 71, avgTime: "38 days" },
@@ -58,16 +81,16 @@ const JudgePredictions = () => {
   const handleRunPrediction = () => {
     setIsAnalyzing(true);
     setTimeout(() => {
-      const baseGrantRate = judgeData.grantRate;
-      const caseTypeBonus = caseDetails.caseType.toLowerCase().includes("corporate") ? 5 : 0;
-      const strengthBonus = caseDetails.keyFacts.length > 100 ? 3 : 0;
+      const baseGrantRate = contextData?.grant_rate || 0;
+      const caseTypeBonus = caseDetails.caseType.toLowerCase().includes(contextData?.specialty?.toLowerCase()) ? 8 : 0;
+      const strengthBonus = caseDetails.keyFacts.length > 100 ? 5 : 0;
       
-      const finalPrediction = Math.min(95, baseGrantRate + caseTypeBonus + strengthBonus + Math.floor(Math.random() * 10));
+      const finalPrediction = Math.min(95, baseGrantRate + caseTypeBonus + strengthBonus + Math.floor(Math.random() * 15));
       
       setPrediction({
         probability: finalPrediction,
         confidence: finalPrediction > 80 ? "High" : finalPrediction > 60 ? "Medium" : "Low",
-        timeEstimate: "42-48 days",
+        timeEstimate: contextData?.avg_decision_time > 0 ? `${Math.max(30, contextData.avg_decision_time - 10)}-${contextData.avg_decision_time + 10} days` : "N/A",
         keyFactors: [
           { factor: "Judge's Historical Grant Rate", impact: baseGrantRate, weight: 40 },
           { factor: "Case Type Alignment", impact: caseTypeBonus > 0 ? "Positive" : "Neutral", weight: 25 },
@@ -75,21 +98,29 @@ const JudgePredictions = () => {
           { factor: "Recent Trends", impact: "Favorable", weight: 15 }
         ],
         recommendations: [
-          "Emphasize precedent cases that align with judge's previous rulings",
-          "Prepare for potential settlement discussion - judge encourages settlements in 68% of cases",
-          "Focus on factual clarity - judge prefers well-documented cases"
+          `Leverage precedents from ${contextData?.specialty || "similar"} cases`,
+          "Prepare strong factual evidence - judge values clarity",
+          contextData?.grant_rate > 70 ? "Strong position - push for favorable ruling" : "Consider settlement options early"
         ]
       });
       setIsAnalyzing(false);
     }, 3000);
   };
 
-  const handleInputChange = (field, value) => {
+  const handleInputChange = (field: string, value: string) => {
     setCaseDetails(prev => ({
       ...prev,
       [field]: value
     }));
   };
+
+  if (loading) {
+    return (
+      <div className="w-full min-h-screen flex items-center justify-center">
+        <p className="text-muted-foreground">Loading prediction context...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
@@ -112,7 +143,7 @@ const JudgePredictions = () => {
             <div>
               <h1 className="text-3xl font-bold text-foreground">Judge Predictions</h1>
               <p className="text-muted-foreground">
-                AI-powered predictions for case outcomes with {judgeData.name}
+                AI-powered predictions for case outcomes with {contextData?.judge_name || "this judge"}
               </p>
             </div>
           </div>
@@ -234,7 +265,7 @@ const JudgePredictions = () => {
                           Contributing Factors
                         </h4>
                         <div className="space-y-3">
-                          {prediction.keyFactors.map((factor, index) => (
+                          {prediction.keyFactors.map((factor: any, index: number) => (
                             <div key={index} className="space-y-2">
                               <div className="flex items-center justify-between">
                                 <span className="text-sm font-medium">{factor.factor}</span>
@@ -263,7 +294,7 @@ const JudgePredictions = () => {
                           Strategic Recommendations
                         </h4>
                         <div className="space-y-3">
-                          {prediction.recommendations.map((rec, index) => (
+                          {prediction.recommendations.map((rec: string, index: number) => (
                             <div key={index} className="flex items-start gap-3 p-3 bg-legal-info/5 rounded-lg border border-legal-info/20">
                               <CheckCircle className="h-4 w-4 text-legal-info mt-0.5 flex-shrink-0" />
                               <p className="text-sm text-muted-foreground">{rec}</p>
@@ -299,23 +330,25 @@ const JudgePredictions = () => {
                   Judge Context
                 </CardTitle>
                 <CardDescription>
-                  Key information about {judgeData.name}
+                  Key information about {contextData?.judge_name || "this judge"}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4 text-center">
                   <div className="p-3 bg-muted/50 rounded-lg">
-                    <div className="text-lg font-bold text-legal-primary">{judgeData.grantRate}%</div>
+                    <div className="text-lg font-bold text-legal-primary">{contextData?.grant_rate || 0}%</div>
                     <p className="text-xs text-muted-foreground">Grant Rate</p>
                   </div>
                   <div className="p-3 bg-muted/50 rounded-lg">
-                    <div className="text-lg font-bold text-legal-info">{judgeData.avgDecisionTime}</div>
+                    <div className="text-lg font-bold text-legal-info">
+                      {contextData?.avg_decision_time > 0 ? `${contextData.avg_decision_time} days` : "N/A"}
+                    </div>
                     <p className="text-xs text-muted-foreground">Avg Decision</p>
                   </div>
                 </div>
                 <div>
-                  <p className="text-sm"><strong>Specialty:</strong> {judgeData.specialty}</p>
-                  <p className="text-sm"><strong>Court:</strong> {judgeData.court}</p>
+                  <p className="text-sm"><strong>Specialty:</strong> {contextData?.specialty || "General"}</p>
+                  <p className="text-sm"><strong>Court:</strong> {contextData?.court_name || "Unknown"}</p>
                 </div>
               </CardContent>
             </Card>

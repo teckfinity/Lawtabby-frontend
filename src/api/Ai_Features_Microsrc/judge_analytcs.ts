@@ -113,3 +113,22 @@ export const getJudgeOldAnalytics = (judgeId: number) => {
     headers: { "Content-Type": "application/json" },
   });
 };
+
+
+
+
+
+
+/*--------------------------------------------Judge  Pridiction apis__________________________________________
+/* ---------------------------------------------------------
+   NEW: Get Judge Prediction Context
+   Endpoint: /judges/{{judge_id}}/prediction_context/
+   Used for: Right sidebar cards on Predictions page (except Historical Performance)
+--------------------------------------------------------- */
+export const getJudgePredictionContext = (judgeId: number) => {
+  if (!judgeId) throw new Error("Judge ID is required.");
+
+  return apiClient.get(`/api/judges/${judgeId}/prediction_context/`, {
+    headers: { "Content-Type": "application/json" },
+  });
+};
