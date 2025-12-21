@@ -45,3 +45,15 @@ export const getJudgeAnalyticsSummary = () => {
     headers: { "Content-Type": "application/json" },
   });
 };
+
+
+/* ---------------------------------------------------------
+   NEW: Get Judge Analytics Overview 
+   Endpoint: /judge-analytics/overview/
+   Used for: Case Type Analysis, Quick Insights, AI Prediction Teaser
+--------------------------------------------------------- */
+export const getJudgeAnalyticsOverview = () => {
+  return apiClient.get("/api/judge-analytics/overview/", {
+    headers: { "Content-Type": "application/json" },
+  });
+};

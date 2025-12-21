@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,12 +18,12 @@ import {
   Scale,
   BarChart3,
   Users,
-  Calendar,
-  Filter} from "lucide-react";
+} from "lucide-react";
 import { 
   getJudgesList, 
   getJudgeCompleteProfile, 
-  getJudgeAnalyticsSummary  // ← New import
+  getJudgeAnalyticsSummary,
+  getJudgeAnalyticsOverview  // ← New import
 } from "@/api/Ai_Features_Microsrc/judge_analytcs";
 import { useNavigate } from "react-router-dom";
 
@@ -35,14 +35,10 @@ const JudgeAnalytics = () => {
   const [judges, setJudges] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [summaryLoading, setSummaryLoading] = useState(true);
+  const [overviewLoading, setOverviewLoading] = useState(true);
 
-  // Search input (raw value while typing)
   const [query, setQuery] = useState("");
-  // Debounced search value (used for API call)
   const [debouncedQuery, setDebouncedQuery] = useState("");
-
-  const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
-  const [dateRange, setDateRange] = useState<DateRange | undefined>();
 
   const totalPages = Math.ceil(totalCount / pageSize);
 
@@ -58,7 +54,7 @@ const JudgeAnalytics = () => {
 
   const navigate = useNavigate();
 
-  // State for summary data
+  // Summary for top cards
   const [summary, setSummary] = useState({
     judges_analyzed: 0,
     cases_tracked: 0,
@@ -66,7 +62,20 @@ const JudgeAnalytics = () => {
     success_rate: 0,
   });
 
-  // Fetch summary data (once on mount)
+  // Overview data for right panel
+  const [overview, setOverview] = useState({
+    case_type_analysis: [] as any[],
+    quick_insights: [] as Array<{ title: string; description: string; metric: string }>,
+    ai_prediction_teaser: {
+      title: "",
+      description: "",
+      available_judges: 0,
+      accuracy_rate: 0,
+      cta_text: "",
+    },
+  });
+
+  // Fetch summary (top stats)
   useEffect(() => {
     const fetchSummary = async () => {
       try {
@@ -83,17 +92,33 @@ const JudgeAnalytics = () => {
     fetchSummary();
   }, []);
 
+  // Fetch overview (right panel: case types, insights, AI teaser)
+  useEffect(() => {
+    const fetchOverview = async () => {
+      try {
+        setOverviewLoading(true);
+        const res = await getJudgeAnalyticsOverview();
+        setOverview(res.data);
+      } catch (error) {
+        console.error("Error fetching judge analytics overview:", error);
+      } finally {
+        setOverviewLoading(false);
+      }
+    };
+    fetchOverview();
+  }, []);
+
   // Debounce search
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedQuery(query.trim());
-      setPage(1); // Reset to first page on new search
+      setPage(1);
     }, 600);
 
     return () => clearTimeout(timer);
   }, [query]);
 
-  // Fetch data when page or debounced search changes
+  // Fetch judges list
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -102,7 +127,7 @@ const JudgeAnalytics = () => {
         const listRes = await getJudgesList({
           page,
           limit: pageSize,
-          search: debouncedQuery || undefined, // Only send if not empty
+          search: debouncedQuery || undefined,
         });
 
         const judgesList = listRes.data.results || [];
@@ -113,10 +138,7 @@ const JudgeAnalytics = () => {
           return;
         }
 
-        const detailsPromises = judgesList.map((j: any) =>
-          getJudgeCompleteProfile(j.id)
-        );
-
+        const detailsPromises = judgesList.map((j: any) => getJudgeCompleteProfile(j.id));
         const details = await Promise.all(detailsPromises);
         const fullJudges = judgesList.map((j: any, i: number) => ({
           ...j,
@@ -134,63 +156,16 @@ const JudgeAnalytics = () => {
     fetchData();
   }, [page, debouncedQuery, pageSize]);
 
-  // Aggregated data
-  const aggregatedCases = useMemo(() => {
-    const types: { [key: string]: { granted: number; denied: number; total: number } } = {};
-    judges.forEach((j) => {
-      Object.entries(j.details.case_types_breakdown || {}).forEach(([type, data]: [string, any]) => {
-        if (!types[type]) types[type] = { granted: 0, denied: 0, total: 0 };
-        types[type].granted += data.granted || 0;
-        types[type].denied += data.denied || 0;
-        types[type].total += data.total || 0;
-      });
-    });
-    return Object.entries(types).map(([type, data]) => ({
-      type,
-      granted: data.total ? Math.round((data.granted / data.total) * 100) : 0,
-      denied: data.total ? Math.round((data.denied / data.total) * 100) : 0,
-      total: data.total,
-    }));
-  }, [judges]);
+  const filteredJudges = judges.filter((j) => {
+    const d = j.details;
+    const name = d.basic_info.full_name || "";
+    const court = d.statistics.courts_served?.join(", ") || "";
+    const specialty = Object.keys(d.case_types_breakdown || {}).join(", ");
 
-  const avgDays = useMemo(() => {
-    return judges.length
-      ? Math.round(
-          judges.reduce((sum, j) => sum + (j.details.statistics.average_decision_days || 0), 0) / judges.length
-        )
-      : 0;
-  }, [judges]);
-
-  const highSuccessType = useMemo(() => {
-    if (!aggregatedCases.length) return null;
-    return aggregatedCases.reduce((max, c) => (c.granted > max.granted ? c : max), aggregatedCases[0]);
-  }, [aggregatedCases]);
-
-  const toggleFilter = (tag: string) => {
-    setSelectedFilters((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
-    );
-    setPage(1); // Reset page when filter changes
-  };
-
-  const judgeHasTag = (j: any, tag: string) => {
-    // Keep your existing logic
-    return false; // Placeholder since filters are disabled
-  };
-
-  const filteredJudges = useMemo(() => {
-    return judges.filter((j) => {
-      const d = j.details;
-      const name = d.basic_info.full_name || "";
-      const court = d.statistics.courts_served?.join(", ") || "";
-      const specialty = Object.keys(d.case_types_breakdown || {}).join(", ");
-      const matchesQuery = debouncedQuery.length
-        ? [name, court, specialty].some((f) => f.toLowerCase().includes(debouncedQuery.toLowerCase()))
-        : true;
-
-      return matchesQuery;
-    });
-  }, [judges, debouncedQuery]);
+    return debouncedQuery.length
+      ? [name, court, specialty].some((f) => f.toLowerCase().includes(debouncedQuery.toLowerCase()))
+      : true;
+  });
 
   // Dynamic stats from backend summary endpoint
   const stats = [
@@ -240,7 +215,7 @@ const JudgeAnalytics = () => {
             ))}
           </div>
         </div>
-        
+
         {/* Search and Filters */}
         <Card className="shadow-card mb-8">
           <CardHeader>
@@ -250,7 +225,7 @@ const JudgeAnalytics = () => {
             </CardTitle>
             <CardDescription>
               Search for judges by name, court, or specialty area
-            </CardDescription>
+              </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex gap-4 mb-4">
@@ -263,18 +238,6 @@ const JudgeAnalytics = () => {
                   onChange={(e) => setQuery(e.target.value)}
                 />
               </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {allFilters.map((tag) => (
-                <Badge
-                  key={tag}
-                  variant={selectedFilters.includes(tag) ? "default" : "secondary"}
-                  className="cursor-pointer"
-                  onClick={() => toggleFilter(tag)}
-                >
-                  {tag}
-                </Badge>
-              ))}
             </div>
           </CardContent>
         </Card>
@@ -290,7 +253,7 @@ const JudgeAnalytics = () => {
                 </CardTitle>
                 <CardDescription>
                   Detailed performance analytics and ruling patterns
-                </CardDescription>
+                  </CardDescription>
               </CardHeader>
               <CardContent>
                 {loading && <div className="text-center py-8 text-muted-foreground">Loading judges...</div>}
@@ -369,7 +332,7 @@ const JudgeAnalytics = () => {
 
                 {totalPages > 1 && (
                   <div className="flex w-full items-center justify-end gap-2 mt-8 pr-32">
-                    <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(prev => Math.max(prev - 1, 1))}>
+                    <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(p => Math.max(p - 1, 1))}>
                       Previous
                     </Button>
 
@@ -384,7 +347,7 @@ const JudgeAnalytics = () => {
                         {p}
                       </Button>
                     ))}
-                    <Button variant="outline" size="sm" disabled={page === totalPages} onClick={() => setPage(prev => Math.min(prev + 1, totalPages))}>
+                    <Button variant="outline" size="sm" disabled={page === totalPages} onClick={() => setPage(p => Math.min(p + 1, totalPages))}>
                       Next
                     </Button>
                   </div>
@@ -405,26 +368,33 @@ const JudgeAnalytics = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {aggregatedCases.map((caseType, index) => (
-                    <div key={index} className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium">{caseType.type}</span>
-                        <span className="text-sm text-muted-foreground">{caseType.total} cases</span>
+                  {overview.case_type_analysis.length > 0 ? (
+                    overview.case_type_analysis.map((caseType: any, index: number) => (
+                      <div key={index} className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm font-medium">{caseType.type}</span>
+                          <span className="text-sm text-muted-foreground">{caseType.total} cases</span>
+                        </div>
+                        <div className="w-full bg-muted rounded-full h-2">
+                          <div
+                            className="bg-legal-success h-2 rounded-full"
+                            style={{ width: `${caseType.granted}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>{caseType.granted}% Granted</span>
+                          <span>{caseType.denied}% Denied</span>
+                        </div>
                       </div>
-                      <div className="w-full bg-muted rounded-full h-2">
-                        <div className="bg-legal-success h-2 rounded-full" style={{ width: `${caseType.granted}%` }} />
-                      </div>
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>{caseType.granted}% Granted</span>
-                        <span>{caseType.denied}% Denied</span>
-                      </div>
-                    </div>
-                  ))}
-                  {!aggregatedCases.length && <p className="text-center text-muted-foreground">No case type data available</p>}
+                    ))
+                  ) : (
+                    <p className="text-center text-muted-foreground">No case type data available</p>
+                  )}
                 </div>
               </CardContent>
             </Card>
 
+            {/* Quick Insights */}
             <Card className="shadow-card">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -433,51 +403,52 @@ const JudgeAnalytics = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="p-3 bg-legal-success/10 rounded-lg border border-legal-success/20">
-                  <div className="flex items-center gap-2 mb-1">
-                    <TrendingUp className="h-4 w-4 text-legal-success" />
-                    <span className="text-sm font-medium">High Success Rate</span>
+                {overview.quick_insights.map((insight, index) => (
+                  <div
+                    key={index}
+                    className={`p-3 rounded-lg border ${
+                      index === 0
+                        ? "bg-legal-success/10 border-legal-success/20"
+                        : index === 1
+                        ? "bg-legal-warning/10 border-legal-warning/20"
+                        : "bg-legal-info/10 border-legal-info/20"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      {index === 0 ? <TrendingUp className="h-4 w-4 text-legal-success" /> :
+                       index === 1 ? <Clock className="h-4 w-4 text-legal-warning" /> :
+                                     <BarChart3 className="h-4 w-4 text-legal-info" />}
+                      <span className="text-sm font-medium">{insight.title}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{insight.description}</p>
+                    {insight.metric && (
+                      <p className="text-xs font-medium mt-1">{insight.metric}</p>
+                    )}
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {highSuccessType ? `${highSuccessType.type} cases show ${highSuccessType.granted}% average grant rate` : "No data available"}
-                  </p>
-                </div>
-                <div className="p-3 bg-legal-warning/10 rounded-lg border border-legal-warning/20">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Clock className="h-4 w-4 text-legal-warning" />
-                    <span className="text-sm font-medium">Decision Speed</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">Decisions average {avgDays} days</p>
-                </div>
-                <div className="p-3 bg-legal-info/10 rounded-lg border border-legal-info/20">
-                  <div className="flex items-center gap-2 mb-1">
-                    <BarChart3 className="h-4 w-4 text-legal-info" />
-                    <span className="text-sm font-medium">Trending Pattern</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Overall success rate at {summary.success_rate.toFixed(1)}%
-                  </p>
-                </div>
+                ))}
               </CardContent>
             </Card>
 
+            {/* AI Predictions Teaser */}
             <Card className="shadow-card bg-gradient-primary text-white">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <TrendingUp className="h-5 w-5" />
-                  AI Predictions
+                  {overview.ai_prediction_teaser.title || "AI Predictions"}
                 </CardTitle>
                 <CardDescription className="text-white/80">
-                  Outcome likelihood for your case
+                  {overview.ai_prediction_teaser.description}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="text-center mb-4">
-                  <div className="text-3xl font-bold mb-1">73%</div>
-                  <p className="text-sm opacity-90">Predicted Success Rate</p>
+                  <div className="text-3xl font-bold mb-1">
+                    {overview.ai_prediction_teaser.accuracy_rate.toFixed(1)}%
+                  </div>
+                  <p className="text-sm opacity-90">Model Accuracy</p>
                 </div>
                 <Button variant="secondary" className="w-full">
-                  Get Detailed Prediction
+                  {overview.ai_prediction_teaser.cta_text || "Get Detailed Prediction"}
                 </Button>
               </CardContent>
             </Card>
