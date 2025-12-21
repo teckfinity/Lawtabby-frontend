@@ -1,3 +1,4 @@
+import React, { useMemo, useState, useEffect } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +9,6 @@ import { Calendar as DateRangeCalendar } from "@/components/ui/calendar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { format } from "date-fns";
 import type { DateRange } from "react-day-picker";
-import { useMemo, useState, useEffect } from "react";
 import {
   Gavel,
   Search,
@@ -21,34 +21,91 @@ import {
   Calendar,
   Filter
 } from "lucide-react";
-import { getJudgesList, getJudgeCompleteProfile } from "@/api/Ai_Features_Microsrc/judge_analytcs"; // Assuming this is the correct import path for the API functions
+import { getJudgesList, getJudgeCompleteProfile } from "@/api/Ai_Features_Microsrc/judge_analytcs";
 import { useNavigate } from "react-router-dom";
 
 const JudgeAnalytics = () => {
+  const [page, setPage] = useState(1);
+  const [pageSize] = useState(3);
+  const [totalCount, setTotalCount] = useState(0);
+
   const [judges, setJudges] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-const navigate = useNavigate();
+
+  // Search input (raw value while typing)
+  const [query, setQuery] = useState("");
+  // Debounced search value (used for API call)
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+
+  const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
+  const [dateRange, setDateRange] = useState<DateRange | undefined>();
+
+  const totalPages = Math.ceil(totalCount / pageSize);
+
+  // Fixed filter list (was commented out before)
+  const allFilters = [
+    // "Federal Courts",
+    // "State Courts",
+    // "Appellate",
+    // "District",
+    // "Civil",
+    // "Criminal",
+  ] as const;
+
+  const navigate = useNavigate();
+
+  // Debounce logic: update debouncedQuery only after user stops typing for 600ms
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedQuery(query.trim());
+      setPage(1); // Reset to first page on new search
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  // Fetch data when page or debounced search changes
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const listRes = await getJudgesList();
-        const judgesList = listRes.data.results;
-        const detailsPromises = judgesList.map((j: any) => getJudgeCompleteProfile(j.id));
+        setLoading(true);
+
+        const listRes = await getJudgesList({
+          page,
+          limit: pageSize,
+          search: debouncedQuery || undefined, // Only send if not empty
+        });
+
+        const judgesList = listRes.data.results || [];
+        setTotalCount(listRes.data.count || 0);
+
+        if (judgesList.length === 0) {
+          setJudges([]);
+          return;
+        }
+
+        const detailsPromises = judgesList.map((j: any) =>
+          getJudgeCompleteProfile(j.id)
+        );
+
         const details = await Promise.all(detailsPromises);
         const fullJudges = judgesList.map((j: any, i: number) => ({
           ...j,
-          details: details[i].data
+          details: details[i].data,
         }));
         setJudges(fullJudges);
       } catch (error) {
         console.error("Error fetching judges data:", error);
+        setJudges([]);
       } finally {
         setLoading(false);
       }
     };
-    fetchData();
-  }, []);
 
+    fetchData();
+  }, [page, debouncedQuery, pageSize]);
+
+  // Aggregated data
   const aggregatedCases = useMemo(() => {
     const types: { [key: string]: { granted: number; denied: number; total: number } } = {};
     judges.forEach((j) => {
@@ -95,24 +152,13 @@ const navigate = useNavigate();
     return aggregatedCases.reduce((max, c) => (c.granted > max.granted ? c : max), aggregatedCases[0]);
   }, [aggregatedCases]);
 
-  const allFilters = [
-    "Federal Courts",
-    "State Courts",
-    "Appellate",
-    "District",
-    "Civil",
-    "Criminal",
-  ] as const;
-
-  const [query, setQuery] = useState("");
-  const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
-  const [dateRange, setDateRange] = useState<DateRange | undefined>();
-
   const toggleFilter = (tag: string) => {
     setSelectedFilters((prev) =>
       prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
     );
+    setPage(1); // Reset page when filter changes
   };
+
   const judgeHasTag = (j: any, tag: string) => {
     const court = (j.details.statistics.courts_served?.join(", ") || "").toLowerCase();
     const specialty = Object.keys(j.details.case_types_breakdown || {}).join(", ").toLowerCase();
@@ -126,12 +172,7 @@ const navigate = useNavigate();
       case "District":
         return court.includes("district");
       case "Civil":
-        return (
-          specialty.includes("corporate") ||
-          specialty.includes("contract") ||
-          specialty.includes("family") ||
-          specialty.includes("civil")
-        );
+        return specialty.includes("corporate") || specialty.includes("contract") || specialty.includes("family") || specialty.includes("civil");
       case "Criminal":
         return specialty.includes("criminal");
       default:
@@ -145,8 +186,8 @@ const navigate = useNavigate();
       const name = d.basic_info.full_name || "";
       const court = d.statistics.courts_served?.join(", ") || "";
       const specialty = Object.keys(d.case_types_breakdown || {}).join(", ");
-      const matchesQuery = query.trim().length
-        ? [name, court, specialty].some((f) => f.toLowerCase().includes(query.toLowerCase()))
+      const matchesQuery = debouncedQuery.length
+        ? [name, court, specialty].some((f) => f.toLowerCase().includes(debouncedQuery.toLowerCase()))
         : true;
 
       const matchesFilters = selectedFilters.length
@@ -155,7 +196,7 @@ const navigate = useNavigate();
 
       const matchesDate = dateRange?.from && dateRange?.to
         ? (() => {
-            const activityDate = new Date(j.created_at); // Using created_at as proxy for lastActivity
+            const activityDate = new Date(j.created_at);
             const from = new Date(dateRange.from!);
             from.setHours(0, 0, 0, 0);
             const to = new Date(dateRange.to!);
@@ -166,9 +207,9 @@ const navigate = useNavigate();
 
       return matchesQuery && matchesFilters && matchesDate;
     });
-  }, [judges, query, selectedFilters, dateRange]);
+  }, [judges, debouncedQuery, selectedFilters, dateRange]);
 
-  if (loading) {
+  if (loading && judges.length === 0) {
     return <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">Loading...</div>;
   }
 
@@ -229,43 +270,6 @@ const navigate = useNavigate();
                   onChange={(e) => setQuery(e.target.value)}
                 />
               </div>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline">
-                    <Filter className="h-4 w-4 mr-2" />
-                    Filters
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent>
-                  <div className="space-y-2">
-                    {allFilters.map((tag) => (
-                      <div key={tag} className="flex items-center gap-2">
-                        <Checkbox
-                          id={tag}
-                          checked={selectedFilters.includes(tag)}
-                          onCheckedChange={() => toggleFilter(tag)}
-                        />
-                        <label htmlFor={tag}>{tag}</label>
-                      </div>
-                    ))}
-                  </div>
-                </PopoverContent>
-              </Popover>
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Button variant="outline">
-                    <Calendar className="h-4 w-4 mr-2" />
-                    Date Range
-                    {dateRange?.from && dateRange?.to && ` (${format(dateRange.from, "PP")} - ${format(dateRange.to, "PP")})`}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="p-0">
-                  <DateRangeCalendar
-                    date={dateRange}
-                    onSelect={setDateRange}
-                  />
-                </PopoverContent>
-              </Popover>
             </div>
             <div className="flex flex-wrap gap-2">
               {allFilters.map((tag) => (
@@ -296,6 +300,7 @@ const navigate = useNavigate();
                 </CardDescription>
               </CardHeader>
               <CardContent>
+                {loading && <div className="text-center py-8 text-muted-foreground">Loading judges...</div>}
                 <div className="space-y-6">
                   {filteredJudges.map((j) => {
                     const d = j.details;
@@ -350,7 +355,7 @@ const navigate = useNavigate();
 
                         <div className="mt-4 pt-4 border-t border-border">
                           <div className="flex gap-2">
-                         <Button
+                            <Button
                               size="sm"
                               className="bg-legal-primary hover:bg-legal-primary/90"
                               onClick={() => navigate(`/ai/judge/${j.id}`)}
@@ -377,10 +382,49 @@ const navigate = useNavigate();
                       </div>
                     );
                   })}
+                  {filteredJudges.length === 0 && !loading && (
+                    <p className="text-center text-muted-foreground py-8">No judges found matching your criteria.</p>
+                  )}
                 </div>
+
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="flex w-full items-center justify-end gap-2 mt-8 pr-32">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={page === 1}
+                      onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
+                    >
+                      Previous
+                    </Button>
+
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                      <Button
+                        key={p}
+                        size="sm"
+                        variant={p === page ? "default" : "outline"}
+                        onClick={() => setPage(p)}
+                        className="min-w-[36px]"
+                      >
+                        {p}
+                      </Button>
+                    ))}
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={page === totalPages}
+                      onClick={() => setPage((prev) => Math.min(prev + 1, totalPages))}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
+
           {/* Analytics Panel */}
           <div className="space-y-6">
             {/* Case Type Analysis */}
@@ -418,6 +462,7 @@ const navigate = useNavigate();
                 </div>
               </CardContent>
             </Card>
+
             {/* Quick Insights */}
             <Card className="shadow-card">
               <CardHeader>
@@ -456,6 +501,7 @@ const navigate = useNavigate();
                 </div>
               </CardContent>
             </Card>
+
             {/* AI Predictions */}
             <Card className="shadow-card bg-gradient-primary text-white">
               <CardHeader>
@@ -483,4 +529,5 @@ const navigate = useNavigate();
     </div>
   );
 };
+
 export default JudgeAnalytics;

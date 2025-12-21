@@ -1,8 +1,27 @@
 import { apiClient } from "./ai_mics_config";
 
 
-export const getJudgesList = () => {
+export const getJudgesList = ({
+  page = 1,
+  limit = 3,
+  search,
+}: {
+  page?: number;
+  limit?: number;
+  search?: string;
+}) => {
+  const params: Record<string, any> = {
+    page,
+    limit,
+  };
+
+  //  Only add search if it has value
+  if (search && search.trim().length > 0) {
+    params.search = search.trim();
+  }
+
   return apiClient.get("/api/judges/", {
+    params,
     headers: { "Content-Type": "application/json" },
   });
 };
