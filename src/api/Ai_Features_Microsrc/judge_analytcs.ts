@@ -146,3 +146,26 @@ export const getJudgeHistoricalPerformance = (judgeId: number) => {
     headers: { "Content-Type": "application/json" },
   });
 };
+
+
+
+/* ---------------------------------------------------------
+   NEW: POST Predict Outcome for a Judge
+   Endpoint: /judges/{{judge_id}}/predict_outcome/
+   Body: { case_type, client_position, case_description, key_facts }
+--------------------------------------------------------- */
+export const postJudgePredictOutcome = (
+  judgeId: number,
+  payload: {
+    case_type: string;
+    client_position: string;
+    case_description: string;
+    key_facts: string[];
+  }
+) => {
+  if (!judgeId) throw new Error("Judge ID is required.");
+
+  return apiClient.post(`/api/judges/${judgeId}/predict_outcome/`, payload, {
+    headers: { "Content-Type": "application/json" },
+  });
+};
