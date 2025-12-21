@@ -36,3 +36,12 @@ export const getJudgeCompleteProfile = (judgeId: number) => {
     headers: { "Content-Type": "application/json" },
   });
 };
+
+/* ---------------------------------------------------------
+   NEW: Get Judge Analytics Summary (for top cards)
+--------------------------------------------------------- */
+export const getJudgeAnalyticsSummary = () => {
+  return apiClient.get("/api/judge-analytics/summary/", {
+    headers: { "Content-Type": "application/json" },
+  });
+};
