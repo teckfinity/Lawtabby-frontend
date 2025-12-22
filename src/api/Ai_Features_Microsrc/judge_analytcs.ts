@@ -192,3 +192,16 @@ export const getJudgeCaseHistory = (
     headers: { "Content-Type": "application/json" },
   });
 };
+
+
+/* ---------------------------------------------------------
+   NEW: Get Judge Decision Patterns & Behavioral Analysis
+   Endpoint: /judges/{{judge_id}}/patterns/
+--------------------------------------------------------- */
+export const getJudgePatterns = (judgeId: number) => {
+  if (!judgeId) throw new Error("Judge ID is required.");
+
+  return apiClient.get(`/api/judges/${judgeId}/patterns/`, {
+    headers: { "Content-Type": "application/json" },
+  });
+};
