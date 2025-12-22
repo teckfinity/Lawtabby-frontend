@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,135 +20,128 @@ import {
   Download,
   Printer
 } from "lucide-react";
+import { getJudgeCaseHistory } from "@/api/Ai_Features_Microsrc/judge_analytcs";
 
 const CaseHistory = () => {
   const navigate = useNavigate();
-  const { judgeId } = useParams();
+  const { judgeId } = useParams<{ judgeId: string }>();
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedCase, setSelectedCase] = useState(null);
+  const [selectedCase, setSelectedCase] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
-  const judgeData = {
-    name: "Hon. Sarah Mitchell",
-    court: "Superior Court of California"
+  const [caseHistory, setCaseHistory] = useState<any>({
+    judge: { full_name: "Loading..." },
+    statistics: { total_cases: 0, active_cases: 0, closed_cases: 0, avg_decision_days: 0 },
+    cases: []
+  });
+
+  useEffect(() => {
+    if (!judgeId) return;
+
+    const fetchCaseHistory = async () => {
+      try {
+        setLoading(true);
+        const res = await getJudgeCaseHistory(Number(judgeId), {
+          search: searchTerm || undefined,
+          limit: 10,
+          page: 1
+        });
+        setCaseHistory(res.data);
+      } catch (error) {
+        console.error("Failed to load case history:", error);
+        setCaseHistory({
+          judge: { full_name: "Unknown Judge" },
+          statistics: { total_cases: 0, active_cases: 0, closed_cases: 0, avg_decision_days: 0 },
+          cases: []
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCaseHistory();
+  }, [judgeId, searchTerm]);
+
+
+  // 🔒 SAFE NORMALIZATION (OPTION 2 FIX)
+const statistics =
+  caseHistory?.statistics ||
+  caseHistory?.summary || {
+    total_cases: 0,
+    active_cases: 0,
+    closed_cases: 0,
+    avg_decision_days: 0,
+    avg_decision_time: 0,
   };
 
-  const cases = [
-    {
-      id: 1,
-      caseNumber: "CV-2024-001234",
-      title: "TechCorp Inc. v. StartupXYZ LLC",
-      type: "Contract Dispute",
-      plaintiff: "TechCorp Inc.",
-      defendant: "StartupXYZ LLC",
-      filedDate: "2024-01-15",
-      decisionDate: "2024-03-10",
-      status: "Closed",
-      outcome: "Granted",
-      summary: "Motion for summary judgment regarding breach of software licensing agreement",
-      amount: "$2,500,000",
-      duration: "55 days",
-      precedentValue: "High"
-    },
-    {
-      id: 2,
-      caseNumber: "CV-2024-001189",
-      title: "Employee Rights Coalition v. MegaCorp",
-      type: "Employment Law",
-      plaintiff: "Employee Rights Coalition", 
-      defendant: "MegaCorp",
-      filedDate: "2024-01-08",
-      decisionDate: "2024-02-28",
-      status: "Closed",
-      outcome: "Denied",
-      summary: "Class action regarding overtime compensation and working conditions",
-      amount: "$15,000,000",
-      duration: "51 days",
-      precedentValue: "Medium"
-    },
-    {
-      id: 3,
-      caseNumber: "CV-2024-000987",
-      title: "Johnson v. City Planning Commission",
-      type: "Civil Rights",
-      plaintiff: "Robert Johnson",
-      defendant: "City Planning Commission",
-      filedDate: "2023-11-20",
-      decisionDate: "2024-01-15",
-      status: "Closed", 
-      outcome: "Granted",
-      summary: "Constitutional challenge to zoning restrictions on religious buildings",
-      amount: "$500,000",
-      duration: "56 days",
-      precedentValue: "High"
-    },
-    {
-      id: 4,
-      caseNumber: "CV-2024-001456",
-      title: "DataSecure Inc. v. Former Employee",
-      type: "Intellectual Property",
-      plaintiff: "DataSecure Inc.",
-      defendant: "John Mitchell", 
-      filedDate: "2024-02-01",
-      decisionDate: "Pending",
-      status: "Active",
-      outcome: "Pending",
-      summary: "Injunction request for trade secret misappropriation",
-      amount: "$1,200,000",
-      duration: "22 days",
-      precedentValue: "Medium"
-    },
-    {
-      id: 5,
-      caseNumber: "CV-2023-009876",
-      title: "Green Energy Solutions v. State Regulatory Board",
-      type: "Administrative Law",
-      plaintiff: "Green Energy Solutions",
-      defendant: "State Regulatory Board",
-      filedDate: "2023-09-15",
-      decisionDate: "2023-12-08",
-      status: "Closed",
-      outcome: "Granted",
-      summary: "Challenge to renewable energy permit denial",
-      amount: "$8,750,000", 
-      duration: "84 days",
-      precedentValue: "High"
-    }
-  ];
+const judge = caseHistory?.judge || { full_name: "Unknown Judge" };
+const cases = caseHistory?.cases || [];
 
-  const stats = [
-    { label: "Total Cases", value: cases.length.toString(), icon: FileText },
-    { label: "Closed Cases", value: cases.filter(c => c.status === "Closed").length.toString(), icon: CheckCircle },
-    { label: "Active Cases", value: cases.filter(c => c.status === "Active").length.toString(), icon: Clock },
-    { label: "Avg Decision Time", value: "59 days", icon: TrendingUp }
-  ];
+// avg field backend / frontend mismatch fix
+const avgDecisionDays =
+  statistics.avg_decision_days ??
+  statistics.avg_decision_time ??
+  0;
 
-  const filteredCases = cases.filter(case_ =>
-    case_.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    case_.caseNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    case_.type.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+const stats = [
+  {
+    label: "Total Cases",
+    value: statistics.total_cases.toString(),
+    icon: FileText,
+  },
+  {
+    label: "Closed Cases",
+    value: statistics.closed_cases.toString(),
+    icon: CheckCircle,
+  },
+  {
+    label: "Active Cases",
+    value: statistics.active_cases.toString(),
+    icon: Clock,
+  },
+  {
+    label: "Avg Decision Time",
+    value: avgDecisionDays > 0 ? `${avgDecisionDays} days` : "N/A",
+    icon: TrendingUp,
+  },
+];
 
-  const getOutcomeIcon = (outcome) => {
-    switch(outcome) {
-      case "Granted": return <CheckCircle className="h-4 w-4 text-legal-success" />;
-      case "Denied": return <XCircle className="h-4 w-4 text-destructive" />;
-      default: return <Clock className="h-4 w-4 text-legal-warning" />;
-    }
+  const getOutcomeIcon = (outcome: string) => {
+    if (outcome?.toLowerCase().includes('grant')) return <CheckCircle className="h-4 w-4 text-legal-success" />;
+    if (outcome?.toLowerCase().includes('deny')) return <XCircle className="h-4 w-4 text-destructive" />;
+    return <Clock className="h-4 w-4 text-legal-warning" />;
   };
 
-  const getOutcomeColor = (outcome) => {
-    switch(outcome) {
-      case "Granted": return "bg-legal-success/10 text-legal-success border-legal-success/20";
-      case "Denied": return "bg-destructive/10 text-destructive border-destructive/20";
-      default: return "bg-legal-warning/10 text-legal-warning border-legal-warning/20";
-    }
+  const getOutcomeColor = (outcome: string) => {
+    if (outcome?.toLowerCase().includes('grant')) return "bg-legal-success/10 text-legal-success border-legal-success/20";
+    if (outcome?.toLowerCase().includes('deny')) return "bg-destructive/10 text-destructive border-destructive/20";
+    return "bg-legal-warning/10 text-legal-warning border-legal-warning/20";
   };
+
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return "N/A";
+    return new Date(dateStr).toLocaleDateString();
+  };
+
+  // Safe print function - no page reload
+  const handlePrint = () => {
+    window.print();
+  };
+
+  if (loading) {
+    return (
+      <div className="w-full min-h-screen flex items-center justify-center">
+        <p className="text-muted-foreground">Loading case history...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
+          {/* Fixed: Using navigate() instead of window.location.href */}
           <Button 
             variant="ghost" 
             onClick={() => navigate(`/ai/judge/${judgeId}`)}
@@ -165,7 +158,7 @@ const CaseHistory = () => {
             <div>
               <h1 className="text-3xl font-bold text-foreground">Case History</h1>
               <p className="text-muted-foreground">
-                Complete case history for {judgeData.name}
+                Complete case history for {judge.full_name}
               </p>
             </div>
           </div>
@@ -216,7 +209,9 @@ const CaseHistory = () => {
                 </Button>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Badge variant="secondary">All Cases ({filteredCases.length})</Badge>
+                <Badge variant="secondary">
+                  All Cases ({statistics.total_cases})
+                </Badge>
                 <Badge variant="outline">Contract Disputes</Badge>
                 <Badge variant="outline">Employment Law</Badge>
                 <Badge variant="outline">Civil Rights</Badge>
@@ -229,127 +224,146 @@ const CaseHistory = () => {
 
         {/* Cases List */}
         <div className="space-y-4">
-          {filteredCases.map((case_) => (
-            <Card key={case_.id} className="shadow-card hover:shadow-legal transition-all cursor-pointer">
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-lg font-semibold text-foreground">{case_.title}</h3>
-                      <Badge variant="outline" className="text-xs">
-                        {case_.caseNumber}
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground mb-2">{case_.summary}</p>
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      <span>Filed: {new Date(case_.filedDate).toLocaleDateString()}</span>
-                      {case_.decisionDate !== "Pending" && (
-                        <span>Decided: {new Date(case_.decisionDate).toLocaleDateString()}</span>
-                      )}
-                      <span>Duration: {case_.duration}</span>
-                      <span>Amount: {case_.amount}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className={`px-3 py-1 rounded-full border text-xs font-medium ${getOutcomeColor(case_.outcome)}`}>
-                      <div className="flex items-center gap-1">
-                        {getOutcomeIcon(case_.outcome)}
-                        {case_.outcome}
+          {cases.length > 0 ? (
+            cases.map((case_: any) => (
+              <Card key={case_.docket_id} className="shadow-card hover:shadow-legal transition-all cursor-pointer">
+                <CardContent className="p-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <h3 className="text-lg font-semibold text-foreground">{case_.case_name}</h3>
+                        <Badge variant="outline" className="text-xs">
+                          {case_.case_number}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground mb-2">
+                        {case_.opinion_excerpt || "No summary available"}
+                      </p>
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                        <span>Filed: {formatDate(case_.date_filed)}</span>
+                        {case_.date_decided && (
+                          <span>Decided: {formatDate(case_.date_decided)}</span>
+                        )}
+                        <span>Duration: {case_.duration_days ? `${case_.duration_days} days` : "Ongoing"}</span>
+                        <span>Court: {case_.court}</span>
                       </div>
                     </div>
-                    <Badge variant="secondary" className="text-xs">
-                      {case_.type}
-                    </Badge>
+                    <div className="flex items-center gap-3">
+                      <div className={`px-3 py-1 rounded-full border text-xs font-medium ${getOutcomeColor(case_.outcome || case_.status)}`}>
+                        <div className="flex items-center gap-1">
+                          {getOutcomeIcon(case_.outcome || case_.status)}
+                          {case_.status}
+                        </div>
+                      </div>
+                      <Badge variant="secondary" className="text-xs">
+                        {case_.case_type}
+                      </Badge>
+                    </div>
                   </div>
-                </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                  <div className="text-sm">
-                    <span className="font-medium text-muted-foreground">Plaintiff:</span>
-                    <p className="text-foreground">{case_.plaintiff}</p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div className="text-sm">
+                      <span className="font-medium text-muted-foreground">Parties:</span>
+                      <p className="text-foreground">
+                        {case_.parties?.length > 0 ? case_.parties.join(" vs ") : "Not available"}
+                      </p>
+                    </div>
+                    <div className="text-sm">
+                      <span className="font-medium text-muted-foreground">Citations:</span>
+                      <p className="text-foreground">{case_.citations?.total || 0}</p>
+                    </div>
+                    <div className="text-sm">
+                      <span className="font-medium text-muted-foreground">Precedent Value:</span>
+                      <p className="text-foreground">{case_.precedent_value}</p>
+                    </div>
                   </div>
-                  <div className="text-sm">
-                    <span className="font-medium text-muted-foreground">Defendant:</span>
-                    <p className="text-foreground">{case_.defendant}</p>
-                  </div>
-                  <div className="text-sm">
-                    <span className="font-medium text-muted-foreground">Precedent Value:</span>
-                    <p className="text-foreground">{case_.precedentValue}</p>
-                  </div>
-                </div>
 
-                <div className="flex items-center justify-between pt-4 border-t border-border">
-                  <div className="flex items-center gap-2">
-                    <Badge 
-                      variant={case_.status === "Active" ? "default" : "secondary"}
-                      className="text-xs"
-                    >
-                      {case_.status}
-                    </Badge>
-                    <Badge variant="outline" className="text-xs">
-                      Precedent: {case_.precedentValue}
-                    </Badge>
+                  <div className="flex items-center justify-between pt-4 border-t border-border">
+                    <div className="flex items-center gap-2">
+                      <Badge 
+                        variant={case_.status === "Active" ? "default" : "secondary"}
+                        className="text-xs"
+                      >
+                        {case_.status}
+                      </Badge>
+                      <Badge variant="outline" className="text-xs">
+                        Precedent: {case_.precedent_value}
+                      </Badge>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => setSelectedCase(case_)}
+                      >
+                        <Eye className="h-4 w-4 mr-1" />
+                        View Details
+                      </Button>
+                      <Button size="sm" variant="outline">
+                        <Download className="h-4 w-4 mr-1" />
+                        Documents
+                      </Button>
+                      {/* Fixed: Safe print using function */}
+                      <Button size="sm" variant="outline" onClick={handlePrint}>
+                        <Printer className="h-4 w-4 mr-1" />
+                        Print
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      onClick={() => setSelectedCase(case_)}
-                    >
-                      <Eye className="h-4 w-4 mr-1" />
-                      View Details
-                    </Button>
-                    <Button size="sm" variant="outline">
-                      <Download className="h-4 w-4 mr-1" />
-                      Documents
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => window.print()}>
-                      <Printer className="h-4 w-4 mr-1" />
-                      Print
-                    </Button>
-                  </div>
-                </div>
+                </CardContent>
+              </Card>
+            ))
+          ) : (
+            <Card className="shadow-card">
+              <CardContent className="p-8 text-center">
+                <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-semibold mb-2">No Cases Found</h3>
+                <p className="text-muted-foreground">
+                  No cases match your search criteria. Try adjusting your filters.
+                </p>
               </CardContent>
             </Card>
-          ))}
+          )}
         </div>
 
-        {/* Case Detail Modal (Simple version for now) */}
+        {/* Case Detail Modal */}
         {selectedCase && (
           <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <Card className="w-full max-w-2xl max-h-[80vh] overflow-y-auto">
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <CardTitle>{selectedCase.title}</CardTitle>
+                  <CardTitle>{selectedCase.case_name}</CardTitle>
                   <Button variant="ghost" size="sm" onClick={() => setSelectedCase(null)}>
                     ×
                   </Button>
                 </div>
-                <CardDescription>{selectedCase.caseNumber}</CardDescription>
+                <CardDescription>{selectedCase.case_number}</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   <div>
                     <h4 className="font-semibold mb-2">Case Summary</h4>
-                    <p className="text-sm text-muted-foreground">{selectedCase.summary}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {selectedCase.opinion_excerpt || "No summary available"}
+                    </p>
                   </div>
                   
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <h4 className="font-semibold text-sm mb-1">Case Type</h4>
-                      <p className="text-sm text-muted-foreground">{selectedCase.type}</p>
+                      <p className="text-sm text-muted-foreground">{selectedCase.case_type}</p>
                     </div>
                     <div>
                       <h4 className="font-semibold text-sm mb-1">Status</h4>
                       <p className="text-sm text-muted-foreground">{selectedCase.status}</p>
                     </div>
                     <div>
-                      <h4 className="font-semibold text-sm mb-1">Outcome</h4>
-                      <p className="text-sm text-muted-foreground">{selectedCase.outcome}</p>
+                      <h4 className="font-semibold text-sm mb-1">Court</h4>
+                      <p className="text-sm text-muted-foreground">{selectedCase.court}</p>
                     </div>
                     <div>
-                      <h4 className="font-semibold text-sm mb-1">Amount</h4>
-                      <p className="text-sm text-muted-foreground">{selectedCase.amount}</p>
+                      <h4 className="font-semibold text-sm mb-1">Precedent Value</h4>
+                      <p className="text-sm text-muted-foreground">{selectedCase.precedent_value}</p>
                     </div>
                   </div>
                   
@@ -358,7 +372,8 @@ const CaseHistory = () => {
                       <Download className="h-4 w-4 mr-2" />
                       Download Full Case
                     </Button>
-                    <Button variant="outline" onClick={() => window.print()}>
+                    {/* Fixed: Safe print */}
+                    <Button variant="outline" onClick={handlePrint}>
                       <Printer className="h-4 w-4 mr-2" />
                       Print Case
                     </Button>
@@ -371,19 +386,6 @@ const CaseHistory = () => {
               </CardContent>
             </Card>
           </div>
-        )}
-
-        {/* Empty State */}
-        {filteredCases.length === 0 && (
-          <Card className="shadow-card">
-            <CardContent className="p-8 text-center">
-              <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No Cases Found</h3>
-              <p className="text-muted-foreground">
-                No cases match your search criteria. Try adjusting your filters.
-              </p>
-            </CardContent>
-          </Card>
         )}
       </div>
     </div>

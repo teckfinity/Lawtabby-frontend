@@ -169,3 +169,26 @@ export const postJudgePredictOutcome = (
     headers: { "Content-Type": "application/json" },
   });
 };
+
+/* ---------------------------------------------------------
+   NEW: Get Judge Case History with Filters & Pagination
+   Endpoint: /judges/{{judge_id}}/case_history/
+   Query Params: search, case_type, status, limit, page
+--------------------------------------------------------- */
+export const getJudgeCaseHistory = (
+  judgeId: number,
+  params: {
+    search?: string;
+    case_type?: string;
+    status?: string; // 'active' | 'closed'
+    limit?: number;
+    page?: number;
+  } = {}
+) => {
+  if (!judgeId) throw new Error("Judge ID is required.");
+
+  return apiClient.get(`/api/judges/${judgeId}/case_history/`, {
+    params,
+    headers: { "Content-Type": "application/json" },
+  });
+};
