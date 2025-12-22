@@ -28,7 +28,63 @@ interface ChatMessage {
 }
 
 const Chat = () => {
-  const [messages, setMessages] = useState<ChatMessage[]>([
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [inputValue, setInputValue] = useState("");
+  const [isTyping, setIsTyping] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [userAvatar, setUserAvatar] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isTyping]);
+
+  // Load session ID and saved messages on mount
+  useEffect(() => {
+    const storedSession = localStorage.getItem("legal_chat_session_id");
+    const storedMessages = localStorage.getItem("legal_chat_messages");
+
+    if (storedSession) {
+      setSessionId(storedSession);
+    } else {
+      const newSession = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      localStorage.setItem("legal_chat_session_id", newSession);
+      setSessionId(newSession);
+    }
+
+    // Load saved messages or start with welcome message
+    if (storedMessages) {
+      try {
+        const parsed = JSON.parse(storedMessages);
+        setMessages(parsed);
+      } catch (e) {
+        // If corrupted, start fresh
+        setMessages(getWelcomeMessage());
+      }
+    } else {
+      setMessages(getWelcomeMessage());
+    }
+
+    // Load user avatar
+    const fetchProfile = async () => {
+      try {
+        const profile = await getUserProfile();
+        setUserAvatar(profile.avatar || null);
+      } catch (err) {
+        console.error("Failed to load user profile:", err);
+      }
+    };
+    fetchProfile();
+  }, []);
+
+  // Helper to get welcome message
+  const getWelcomeMessage = (): ChatMessage[] => [
     {
       id: 1,
       type: "ai",
@@ -36,53 +92,36 @@ const Chat = () => {
         "Hello! I'm your AI legal assistant. I can help you analyze documents, summarize cases, research legal precedents, and answer questions about legal matters. How can I assist you today?",
       timestamp: "Just now",
     },
-  ]);
-  const [inputValue, setInputValue] = useState("");
-  const [isTyping, setIsTyping] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [userAvatar, setUserAvatar] = useState<string | null>(null);
+  ];
 
-  // Ref to track the bottom of the chat
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Scroll to bottom function
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  // Auto-scroll whenever messages or typing state changes
+  // Save messages to localStorage whenever they change
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, isTyping]);
+    if (messages.length > 0) {
+      localStorage.setItem("legal_chat_messages", JSON.stringify(messages));
+    }
+  }, [messages]);
 
-  // Clear chat handler
   const handleClearChat = () => {
-    setMessages([
-      {
-        id: 1,
-        type: "ai",
-        content:
-          "Hello! I'm your AI legal assistant. How can I assist you today?",
-        timestamp: "Just now",
-      },
-    ]);
+    setMessages(getWelcomeMessage());
+    // New session on clear
+    const newSession = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    localStorage.setItem("legal_chat_session_id", newSession);
+    localStorage.removeItem("legal_chat_messages"); // Clear old history
+    setSessionId(newSession);
   };
 
-  // File select handler
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) setSelectedFile(file);
   };
 
-  // Send message handler (supports file display)
   const handleSendMessage = async () => {
     if (!inputValue.trim() && !selectedFile) return;
 
     const hasFile = !!selectedFile;
 
-    // Create user message (includes file if uploaded)
     const newMessage: ChatMessage = {
-      id: messages.length + 1,
+      id: Date.now(),
       type: "user",
       content: inputValue || (hasFile ? "Uploaded a file" : ""),
       file: hasFile ? { name: selectedFile!.name, type: selectedFile!.type } : null,
@@ -94,14 +133,19 @@ const Chat = () => {
     setIsTyping(true);
 
     try {
-      const response = await sendLegalChat(inputValue, selectedFile || undefined);
+      const response = await sendLegalChat(
+        inputValue,
+        selectedFile || undefined,
+        sessionId || undefined
+      );
+
       const aiReply =
         response.data?.response ||
         response.data?.message ||
         "AI responded, but no detailed message was returned.";
 
       const aiMessage: ChatMessage = {
-        id: messages.length + 2,
+        id: Date.now() + 1,
         type: "ai",
         content: aiReply,
         timestamp: "Just now",
@@ -110,7 +154,7 @@ const Chat = () => {
       setMessages((prev) => [...prev, aiMessage]);
     } catch (error: any) {
       const aiError: ChatMessage = {
-        id: messages.length + 2,
+        id: Date.now() + 1,
         type: "ai",
         content: "Sorry, there was an issue contacting the legal assistant.",
         timestamp: "Just now",
@@ -174,10 +218,7 @@ const Chat = () => {
               )}
 
               <div
-                className={`max-w-2xl ${
-                  message.type === "user" ? "order-first" : ""
-                }`}
-              >
+               className={`max-w-2xl ${message.type === "user" ? "order-first" : ""}`}>
                 <Card
                   className={`${
                     message.type === "user"
@@ -221,7 +262,7 @@ const Chat = () => {
                 </Card>
               </div>
 
-           {message.type === "user" && (
+              {message.type === "user" && (
                 <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
                   {userAvatar ? (
                     <img
@@ -250,18 +291,10 @@ const Chat = () => {
                   <div className="flex items-center gap-2">
                     <div className="flex gap-1">
                       <div className="w-2 h-2 bg-legal-primary rounded-full animate-bounce" />
-                      <div
-                        className="w-2 h-2 bg-legal-primary rounded-full animate-bounce"
-                        style={{ animationDelay: "0.1s" }}
-                      />
-                      <div
-                        className="w-2 h-2 bg-legal-primary rounded-full animate-bounce"
-                        style={{ animationDelay: "0.2s" }}
-                      />
+                      <div className="w-2 h-2 bg-legal-primary rounded-full animate-bounce" style={{ animationDelay: "0.1s" }} />
+                      <div className="w-2 h-2 bg-legal-primary rounded-full animate-bounce" style={{ animationDelay: "0.2s" }} />
                     </div>
-                    <span className="text-sm text-muted-foreground">
-                      AI is typing...
-                    </span>
+                    <span className="text-sm text-muted-foreground">AI is typing...</span>
                   </div>
                 </CardContent>
               </Card>
