@@ -26,7 +26,8 @@ import {
   getJudgeStats,
   getJudgeCaseDistribution,
   getJudgeInsights,
-  getJudgeOldAnalytics  // ← Only this new import added
+  getJudgeOldAnalytics,
+  getJudgePatterns  // ← Only this new import added
 } from "@/api/Ai_Features_Microsrc/judge_analytcs";
 import {
   ResponsiveContainer,
@@ -51,7 +52,8 @@ const JudgeProfile = () => {
 
   const [judgeData, setJudgeData] = useState<any>(null);
   const [insights, setInsights] = useState<any[]>([]);
-  const [analyticsData, setAnalyticsData] = useState<any>(null); // ← New state for analytics_old
+  const [analyticsData, setAnalyticsData] = useState<any>(null);
+  const [patternsData, setPatternsData] = useState<any>(null); // ← New state for patterns
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -69,7 +71,7 @@ const JudgeProfile = () => {
       try {
         setLoading(true);
 
-        const [profileRes, statsRes, distributionRes, insightsRes, oldAnalyticsRes] = await Promise.all([
+        const [profileRes, statsRes, distributionRes, insightsRes, oldAnalyticsRes, patternsRes] = await Promise.all([
           getJudgeCompleteProfile(Number(judgeId)),
           getJudgeStats(Number(judgeId)).catch(() => ({ data: { total_cases: 0, grant_rate: 0, avg_decision_days: 0, recent_cases: [] } })),
           getJudgeCaseDistribution(Number(judgeId)).catch(() => ({ data: {} })),
@@ -80,6 +82,14 @@ const JudgeProfile = () => {
               case_type_breakdown: {} 
             } 
           })),
+          getJudgePatterns(Number(judgeId)).catch(() => ({ 
+            data: { 
+              decision_timing: { avg_decision_days: 0, fast_decisions_pct: 0, slow_decisions_pct: 0 },
+              case_type_preferences: {},
+              grant_rate_by_type: [],
+              behavioral_patterns: []
+            } 
+          })),
         ]);
 
         const profileData = profileRes.data;
@@ -87,6 +97,7 @@ const JudgeProfile = () => {
         const distributionData = distributionRes.data;
         const insightsData = insightsRes.data.insights || [];
         const oldAnalyticsData = oldAnalyticsRes.data;
+        const patternsDataRes = patternsRes.data;
 
         // Basic info
         const courts = profileData.statistics?.courts_served || [];
@@ -129,9 +140,9 @@ const JudgeProfile = () => {
           trend,
         });
 
-        // Set insights (with enabled state from backend)
         setInsights(insightsData);
-        setAnalyticsData(oldAnalyticsData); // ← Store analytics_old data
+        setAnalyticsData(oldAnalyticsData);
+        setPatternsData(patternsDataRes); // ← Save patterns data
       } catch (error: any) {
         console.error("Failed to load judge profile:", error);
         toast({
@@ -496,13 +507,109 @@ const JudgeProfile = () => {
             </div>
           </TabsContent>
 
-          {/* Patterns & Insights tabs - unchanged */}
+          {/* ONLY THIS TAB IS CHANGED — NOW FULLY DYNAMIC */}
           <TabsContent value="patterns" className="mt-6">
-            <Card className="shadow-card">
-              <CardContent className="py-16 text-center text-muted-foreground">
-                Patterns section coming soon
-              </CardContent>
-            </Card>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Decision Timing */}
+              <Card className="shadow-card lg:col-span-1">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Clock className="h-5 w-5 text-legal-primary" />
+                    Decision Timing
+                  </CardTitle>
+                  <CardDescription>Average speed of rulings</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="text-center">
+                    <div className="text-3xl font-bold text-legal-primary">
+                      {patternsData?.decision_timing?.avg_decision_days ?? 0}
+                    </div>
+                    <p className="text-sm text-muted-foreground">Average Days to Decision</p>
+                  </div>
+                  <div className="space-y-3">
+                    <div className="flex justify-between text-sm">
+                      <span>Fast Decisions (&lt;30 days)</span>
+                      <Badge variant="outline">
+                        {patternsData?.decision_timing?.fast_decisions_pct ?? 0}%
+                      </Badge>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span>Slow Decisions (&gt;180 days)</span>
+                      <Badge variant="outline">
+                        {patternsData?.decision_timing?.slow_decisions_pct ?? 0}%
+                      </Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Behavioral Patterns */}
+              <Card className="shadow-card lg:col-span-2">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5 text-legal-primary" />
+                    Behavioral Patterns
+                  </CardTitle>
+                  <CardDescription>AI-detected decision tendencies</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {patternsData?.behavioral_patterns?.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {patternsData.behavioral_patterns.map((pattern: any, idx: number) => (
+                        <div
+                          key={idx}
+                          className="p-4 rounded-lg border bg-card hover:shadow-md transition-shadow"
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="font-semibold text-foreground">{pattern.pattern}</h4>
+                            <Badge variant={pattern.strength === "High" ? "default" : "secondary"}>
+                              {pattern.strength}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">{pattern.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-center text-muted-foreground py-8">
+                      No significant behavioral patterns detected yet.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Grant Rate by Case Type */}
+              <Card className="shadow-card lg:col-span-3">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5 text-legal-primary" />
+                    Grant Rate by Case Type
+                  </CardTitle>
+                  <CardDescription>Historical grant rates across different case categories</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {patternsData?.grant_rate_by_type?.length > 0 ? (
+                    <div className="space-y-4">
+                      {patternsData.grant_rate_by_type.map((item: any, i: number) => (
+                        <div key={i} className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span className="font-medium">{item.case_type}</span>
+                            <span className="text-muted-foreground">
+                              {item.grant_rate}% ({item.total_cases} cases)
+                            </span>
+                          </div>
+                          <Progress value={item.grant_rate} className="h-3" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-center text-muted-foreground py-8">
+                      No grant rate data available by case type.
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
 
           <TabsContent value="insights" className="mt-6">
