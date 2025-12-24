@@ -107,8 +107,17 @@ const JudgeProfile = () => {
         const appointedYear = positions.length > 0 ? positions[0].start_year || "N/A" : "N/A";
         const specialty = positions.length > 0 ? positions[0].specialty || "General" : "General";
 
-        const education = profileData.education && profileData.education.length > 0
-          ? profileData.education.join(" • ")
+        // FIXED EDUCATION HANDLING
+        const education = profileData.education && Array.isArray(profileData.education) && profileData.education.length > 0
+          ? profileData.education
+              .map((edu: any) => {
+                const degree = edu.degree?.toUpperCase() || "";
+                const school = edu.school || "";
+                const year = edu.year ? ` (${edu.year})` : "";
+                return `${degree} from ${school}${year}`.trim();
+              })
+              .filter(Boolean)
+              .join(" ,  ")
           : "N/A";
 
         // Case Distribution
@@ -142,7 +151,7 @@ const JudgeProfile = () => {
 
         setInsights(insightsData);
         setAnalyticsData(oldAnalyticsData);
-        setPatternsData(patternsDataRes); // ← Save patterns data
+        setPatternsData(patternsDataRes);
       } catch (error: any) {
         console.error("Failed to load judge profile:", error);
         toast({
