@@ -12,12 +12,16 @@ import {
   RefreshCw,
   FileText,
 } from "lucide-react";
-import { sendLegalChat } from "@/api/ai_chat";
-import { getUserProfile } from "@/api/user"; 
+import { getUserProfile } from "@/api/user";
+import {
+  createConversation,
+  sendChatMessage,
+  getConversation,
+} from "@/api/ai_chat";
 
 // Define message type
 interface ChatMessage {
-  id: number;
+  id?: number;
   type: "user" | "ai";
   content: string;
   timestamp: string;
@@ -33,7 +37,8 @@ const Chat = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [conversationId, setConversationId] = useState<number | null>(null);
+  const [isLoadingConversation, setIsLoadingConversation] = useState(true);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -47,29 +52,48 @@ const Chat = () => {
 
   // Load session ID and saved messages on mount
   useEffect(() => {
-    const storedSession = localStorage.getItem("legal_chat_session_id");
-    const storedMessages = localStorage.getItem("legal_chat_messages");
+    const initConversation = async () => {
+      setIsLoadingConversation(true);
+      const storedConvId = localStorage.getItem("legal_chat_conversation_id");
 
-    if (storedSession) {
-      setSessionId(storedSession);
-    } else {
-      const newSession = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      localStorage.setItem("legal_chat_session_id", newSession);
-      setSessionId(newSession);
-    }
+      let convId: number;
 
-    // Load saved messages or start with welcome message
-    if (storedMessages) {
-      try {
-        const parsed = JSON.parse(storedMessages);
-        setMessages(parsed);
-      } catch (e) {
-        // If corrupted, start fresh
+      if (storedConvId) {
+        convId = parseInt(storedConvId, 10);
+        setConversationId(convId);
+
+        try {
+          const data = await getConversation(convId);
+          const backendMessages: ChatMessage[] = data.messages.map((msg: any) => ({
+            id: msg.id || Date.now(),
+            type: msg.role === "ai" ? "ai" : "user",
+            content: msg.content,
+            timestamp: formatTime(msg.created_at),
+            file: null, // backend doesn't return file info
+          }));
+
+          setMessages(backendMessages.length > 0 ? backendMessages : getWelcomeMessage());
+        } catch (err) {
+          console.error("Failed to load conversation, starting new");
+          convId = await createNewConversation();
+        }
+      } else {
+        convId = await createNewConversation();
         setMessages(getWelcomeMessage());
       }
-    } else {
-      setMessages(getWelcomeMessage());
-    }
+
+      setIsLoadingConversation(false);
+    };
+
+    const createNewConversation = async (): Promise<number> => {
+      const response = await createConversation();
+      const newConvId = response.conversation_id;
+      localStorage.setItem("legal_chat_conversation_id", newConvId.toString());
+      setConversationId(newConvId);
+      return newConvId;
+    };
+
+    initConversation();
 
     // Load user avatar
     const fetchProfile = async () => {
@@ -83,7 +107,17 @@ const Chat = () => {
     fetchProfile();
   }, []);
 
-  // Helper to get welcome message
+  const formatTime = (isoString: string): string => {
+    try {
+      return new Date(isoString).toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "Just now";
+    }
+  };
+
   const getWelcomeMessage = (): ChatMessage[] => [
     {
       id: 1,
@@ -94,20 +128,19 @@ const Chat = () => {
     },
   ];
 
-  // Save messages to localStorage whenever they change
-  useEffect(() => {
-    if (messages.length > 0) {
-      localStorage.setItem("legal_chat_messages", JSON.stringify(messages));
-    }
-  }, [messages]);
+  const handleClearChat = async () => {
+    if (isLoadingConversation) return;
 
-  const handleClearChat = () => {
-    setMessages(getWelcomeMessage());
-    // New session on clear
-    const newSession = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    localStorage.setItem("legal_chat_session_id", newSession);
-    localStorage.removeItem("legal_chat_messages"); // Clear old history
-    setSessionId(newSession);
+    try {
+      const response = await createConversation();
+      const newConvId = response.conversation_id;
+      localStorage.setItem("legal_chat_conversation_id", newConvId.toString());
+      setConversationId(newConvId);
+      setMessages(getWelcomeMessage());
+      setSelectedFile(null);
+    } catch (err) {
+      console.error("Failed to create new conversation");
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -117,67 +150,49 @@ const Chat = () => {
 
   const handleSendMessage = async () => {
     if (!inputValue.trim() && !selectedFile) return;
+    if (!conversationId || isLoadingConversation) return;
 
     const hasFile = !!selectedFile;
+    const messageContent = inputValue || (hasFile ? "Uploaded a file" : "");
 
-    const newMessage: ChatMessage = {
+    const newUserMessage: ChatMessage = {
       id: Date.now(),
       type: "user",
-      content: inputValue || (hasFile ? "Uploaded a file" : ""),
+      content: messageContent,
       file: hasFile ? { name: selectedFile!.name, type: selectedFile!.type } : null,
       timestamp: "Just now",
     };
 
-    setMessages((prev) => [...prev, newMessage]);
+    setMessages((prev) => [...prev, newUserMessage]);
     setInputValue("");
     setIsTyping(true);
+    setSelectedFile(null); // Clear file after showing in UI
 
     try {
-      const response = await sendLegalChat(
-        inputValue,
-        selectedFile || undefined,
-        sessionId || undefined
-      );
-
-      const aiReply =
-        response.data?.response ||
-        response.data?.message ||
-        "AI responded, but no detailed message was returned.";
+      // Note: Currently backend doesn't support file, so sending only text
+      // When backend adds file support, we'll update sendChatMessage to accept file
+      const aiResponse = await sendChatMessage(conversationId, inputValue || "Uploaded a file");
 
       const aiMessage: ChatMessage = {
-        id: Date.now() + 1,
+        id: aiResponse.id,
         type: "ai",
-        content: aiReply,
-        timestamp: "Just now",
+        content: aiResponse.content,
+        timestamp: formatTime(aiResponse.created_at),
       };
 
       setMessages((prev) => [...prev, aiMessage]);
     } catch (error: any) {
-      const aiError: ChatMessage = {
-        id: Date.now() + 1,
+      const errorMessage: ChatMessage = {
         type: "ai",
         content: "Sorry, there was an issue contacting the legal assistant.",
         timestamp: "Just now",
       };
-      setMessages((prev) => [...prev, aiError]);
+      setMessages((prev) => [...prev, errorMessage]);
+      console.error("Chat error:", error);
     } finally {
       setIsTyping(false);
-      setSelectedFile(null);
     }
   };
-
-  useEffect(() => {
-  const fetchProfile = async () => {
-    try {
-      const profile = await getUserProfile();
-      setUserAvatar(profile.avatar || null);
-    } catch (err) {
-      console.error("Failed to load user profile:", err);
-    }
-  };
-  fetchProfile();
-  }, []);
-
   // const quickPrompts = [
   //   "Summarize this legal document",
   //   "Analyze contract terms",
@@ -193,7 +208,12 @@ const Chat = () => {
         <div className="flex items-center justify-between max-w-4xl mx-auto">
           <div className="flex items-center gap-3"></div>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="ghost" onClick={handleClearChat}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={handleClearChat}
+              disabled={isLoadingConversation}
+            >
               <RefreshCw className="h-4 w-4 mr-1" />
               Clear Chat
             </Button>
@@ -204,83 +224,88 @@ const Chat = () => {
       {/* Chat Messages */}
       <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:pl-12">
         <div className="max-w-4xl mx-auto space-y-6">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className={`flex gap-4 ${
-                message.type === "user" ? "justify-end" : "justify-start"
-              }`}
-            >
-              {message.type === "ai" && (
-                <div className="w-8 h-8 bg-legal-primary rounded-full flex items-center justify-center flex-shrink-0">
-                  <Bot className="h-4 w-4 text-white" />
-                </div>
-              )}
-
-              <div
-               className={`max-w-2xl ${message.type === "user" ? "order-first" : ""}`}>
-                <Card
-                  className={`${
-                    message.type === "user"
-                      ? "bg-legal-primary text-white"
-                      : "bg-card"
-                  } shadow-sm`}
-                >
-                  <CardContent className="p-4">
-                    <div className="text-sm leading-relaxed space-y-2">
-                      <p>{message.content}</p>
-
-                      {/* Show file preview if exists */}
-                      {message.file && (
-                        <div className="flex items-center gap-2 p-2 border rounded-md bg-background/50">
-                          <FileText className="h-4 w-4 text-legal-primary" />
-                          <span className="text-xs text-muted-foreground truncate max-w-[200px]">
-                            {message.file.name}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2 mt-2">
-                      <span
-                        className={`text-xs ${
-                          message.type === "user"
-                            ? "text-white/70"
-                            : "text-muted-foreground"
-                        }`}
-                      >
-                        {message.timestamp}
-                      </span>
-                      {message.type === "ai" && (
-                        <Badge variant="secondary" className="text-xs">
-                          <Sparkles className="h-3 w-3 mr-1" />
-                          AI
-                        </Badge>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              {message.type === "user" && (
-                <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
-                  {userAvatar ? (
-                    <img
-                      src={userAvatar}
-                      alt="User"
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <div className="w-full h-full bg-muted rounded-full flex items-center justify-center">
-                      <User className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                  )}
-                </div>
-              )}
-
+          {isLoadingConversation ? (
+            <div className="text-center text-muted-foreground py-10">
+              Loading conversation...
             </div>
-          ))}
+          ) : (
+            messages.map((message, index) => (
+              <div
+                key={message.id || index}
+                className={`flex gap-4 ${
+                  message.type === "user" ? "justify-end" : "justify-start"
+                }`}
+              >
+                {message.type === "ai" && (
+                  <div className="w-8 h-8 bg-legal-primary rounded-full flex items-center justify-center flex-shrink-0">
+                    <Bot className="h-4 w-4 text-white" />
+                  </div>
+                )}
 
+                <div className={`max-w-2xl ${message.type === "user" ? "order-first" : ""}`}>
+                  <Card
+                    className={`${
+                      message.type === "user"
+                        ? "bg-legal-primary text-white"
+                        : "bg-card"
+                    } shadow-sm`}
+                  >
+                    <CardContent className="p-4">
+                      <div className="text-sm leading-relaxed space-y-2">
+                        <p>{message.content}</p>
+
+                        {/* Show file preview if exists */}
+                        {message.file && (
+                          <div className="flex items-center gap-2 p-2 border rounded-md bg-background/50">
+                            <FileText className="h-4 w-4 text-legal-primary" />
+                            <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                              {message.file.name}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 mt-2">
+                        <span
+                          className={`text-xs ${
+                            message.type === "user"
+                              ? "text-white/70"
+                              : "text-muted-foreground"
+                          }`}
+                        >
+                          {message.timestamp}
+                        </span>
+                        {message.type === "ai" && (
+                          <Badge variant="secondary" className="text-xs">
+                            <Sparkles className="h-3 w-3 mr-1" />
+                            AI
+                          </Badge>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {message.type === "user" && (
+                  <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
+                    {userAvatar ? (
+                      <img
+                        src={userAvatar}
+                        alt="User"
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-full h-full bg-muted rounded-full flex items-center justify-center">
+                        <User className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+
+          {/* Typing Indicator */}
           {isTyping && (
             <div className="flex gap-4 justify-start">
               <div className="w-8 h-8 bg-legal-primary rounded-full flex items-center justify-center flex-shrink-0">
@@ -354,7 +379,13 @@ const Chat = () => {
               onChange={(e) => setInputValue(e.target.value)}
               placeholder="Write a message..."
               className="flex-1 border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
-              onKeyPress={(e) => e.key === "Enter" && !e.shiftKey && handleSendMessage()}
+              onKeyPress={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSendMessage();
+                }
+              }}
+              disabled={isLoadingConversation}
             />
             <Button
               size="sm"
