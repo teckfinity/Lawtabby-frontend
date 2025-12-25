@@ -330,9 +330,15 @@ const JudgeAnalytics = () => {
                   )}
                 </div>
 
+                {/* FIXED: Removed pr-32, now properly aligned */}
                 {totalPages > 1 && (
-                  <div className="flex w-full items-center justify-end gap-2 mt-8 pr-32">
-                    <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(p => Math.max(p - 1, 1))}>
+                  <div className="flex items-center justify-center gap-2 mt-8">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      disabled={page === 1} 
+                      onClick={() => setPage(p => Math.max(p - 1, 1))}
+                    >
                       Previous
                     </Button>
 
@@ -347,7 +353,13 @@ const JudgeAnalytics = () => {
                         {p}
                       </Button>
                     ))}
-                    <Button variant="outline" size="sm" disabled={page === totalPages} onClick={() => setPage(p => Math.min(p + 1, totalPages))}>
+
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      disabled={page === totalPages} 
+                      onClick={() => setPage(p => Math.min(p + 1, totalPages))}
+                    >
                       Next
                     </Button>
                   </div>
@@ -368,7 +380,25 @@ const JudgeAnalytics = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {overview.case_type_analysis.length > 0 ? (
+                  {(overviewLoading || overview.case_type_analysis.length === 0) ? (
+                    <>
+                      {["Civil Rights", "Contract Disputes", "Employment", "Personal Injury"].map((type, i) => (
+                        <div key={i} className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm font-medium text-muted-foreground">{type}</span>
+                            <span className="text-sm text-muted-foreground">—</span>
+                          </div>
+                          <div className="w-full bg-muted/50 rounded-full h-2">
+                            <div className="bg-muted h-2 rounded-full" style={{ width: "0%" }} />
+                          </div>
+                          <div className="flex justify-between text-xs text-muted-foreground">
+                            <span>No data yet</span>
+                            <span>No data yet</span>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  ) : (
                     overview.case_type_analysis.map((caseType: any, index: number) => (
                       <div key={index} className="space-y-2">
                         <div className="flex justify-between items-center">
@@ -387,8 +417,6 @@ const JudgeAnalytics = () => {
                         </div>
                       </div>
                     ))
-                  ) : (
-                    <p className="text-center text-muted-foreground">No case type data available</p>
                   )}
                 </div>
               </CardContent>
@@ -403,29 +431,55 @@ const JudgeAnalytics = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {overview.quick_insights.map((insight, index) => (
-                  <div
-                    key={index}
-                    className={`p-3 rounded-lg border ${
-                      index === 0
-                        ? "bg-legal-success/10 border-legal-success/20"
-                        : index === 1
-                        ? "bg-legal-warning/10 border-legal-warning/20"
-                        : "bg-legal-info/10 border-legal-info/20"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 mb-1">
-                      {index === 0 ? <TrendingUp className="h-4 w-4 text-legal-success" /> :
-                       index === 1 ? <Clock className="h-4 w-4 text-legal-warning" /> :
-                                     <BarChart3 className="h-4 w-4 text-legal-info" />}
-                      <span className="text-sm font-medium">{insight.title}</span>
+                {(overviewLoading || overview.quick_insights.length === 0) ? (
+                  <>
+                    <div className="p-3 rounded-lg border bg-legal-success/10 border-legal-success/20">
+                      <div className="flex items-center gap-2 mb-1">
+                        <TrendingUp className="h-4 w-4 text-legal-success" />
+                        <span className="text-sm font-medium text-muted-foreground">High Success Rate</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">Data not available yet</p>
                     </div>
-                    <p className="text-xs text-muted-foreground">{insight.description}</p>
-                    {insight.metric && (
-                      <p className="text-xs font-medium mt-1">{insight.metric}</p>
-                    )}
-                  </div>
-                ))}
+                    <div className="p-3 rounded-lg border bg-legal-warning/10 border-legal-warning/20">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Clock className="h-4 w-4 text-legal-warning" />
+                        <span className="text-sm font-medium text-muted-foreground">Decision Speed</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">Data not available yet</p>
+                    </div>
+                    <div className="p-3 rounded-lg border bg-legal-info/10 border-legal-info/20">
+                      <div className="flex items-center gap-2 mb-1">
+                        <BarChart3 className="h-4 w-4 text-legal-info" />
+                        <span className="text-sm font-medium text-muted-foreground">Trending Pattern</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">Data not available yet</p>
+                    </div>
+                  </>
+                ) : (
+                  overview.quick_insights.map((insight, index) => (
+                    <div
+                      key={index}
+                      className={`p-3 rounded-lg border ${
+                        index === 0
+                          ? "bg-legal-success/10 border-legal-success/20"
+                          : index === 1
+                          ? "bg-legal-warning/10 border-legal-warning/20"
+                          : "bg-legal-info/10 border-legal-info/20"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        {index === 0 ? <TrendingUp className="h-4 w-4 text-legal-success" /> :
+                         index === 1 ? <Clock className="h-4 w-4 text-legal-warning" /> :
+                                       <BarChart3 className="h-4 w-4 text-legal-info" />}
+                        <span className="text-sm font-medium">{insight.title}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{insight.description}</p>
+                      {insight.metric && (
+                        <p className="text-xs font-medium mt-1">{insight.metric}</p>
+                      )}
+                    </div>
+                  ))
+                )}
               </CardContent>
             </Card>
 
@@ -437,17 +491,17 @@ const JudgeAnalytics = () => {
                   {overview.ai_prediction_teaser.title || "AI Predictions"}
                 </CardTitle>
                 <CardDescription className="text-white/80">
-                  {overview.ai_prediction_teaser.description}
+                  {overview.ai_prediction_teaser.description || "Outcome likelihood for your case"}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="text-center mb-4">
                   <div className="text-3xl font-bold mb-1">
-                    {overview.ai_prediction_teaser.accuracy_rate.toFixed(1)}%
+                    {(overview.ai_prediction_teaser.accuracy_rate || 0).toFixed(1)}%
                   </div>
-                  <p className="text-sm opacity-90">Model Accuracy</p>
+                  <p className="text-sm opacity-90">Predicted Success Rate</p>
                 </div>
-                <Button variant="secondary" className="w-full">
+                <Button variant="secondary" className="w-full" disabled={overviewLoading}>
                   {overview.ai_prediction_teaser.cta_text || "Get Detailed Prediction"}
                 </Button>
               </CardContent>
