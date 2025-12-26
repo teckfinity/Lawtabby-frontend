@@ -8,8 +8,8 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { registerUser } from '@/api';
-import GoogleLoginButton from '@/components/GoogleLoginButton';  // ✅ import Google button
+import { registerUser, clearAuthToken } from '@/api';
+import GoogleLoginButton from '@/components/GoogleLoginButton';
 
 const SignUp = () => {
   const navigate = useNavigate();
@@ -56,6 +56,7 @@ const SignUp = () => {
     
     try {
       setIsLoading(true);
+      clearAuthToken();
       await registerUser({ email: formData.email, password: formData.password });
       toast({
         title: "Account Created!",
@@ -65,7 +66,7 @@ const SignUp = () => {
     } catch (error: any) {
       toast({
         title: "Registration Failed",
-        description: error.response?.data?.message || "Something went wrong",
+        description: error.response?.data?.message || error.message || "Something went wrong",
         variant: "destructive"
       });
     } finally {
@@ -96,7 +97,6 @@ const SignUp = () => {
           <CardContent className="px-6 pb-8">
             {/* Social Sign Up Buttons */}
             <div className="space-y-3 mb-6">
-              {/* ✅ Replace old Google button with GoogleLoginButton */}
               <GoogleLoginButton 
                 onSuccess={(token) => {
                   toast({
