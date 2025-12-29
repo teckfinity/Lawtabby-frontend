@@ -41,6 +41,45 @@ export const getCaseTypeAnalysis = () => {
   });
 };
 
+/* GET: Unified Judge Profile */
+export const getJudgeProfile = (judgeId: number) => {
+  if (!judgeId) throw new Error("Judge ID is required.");
+
+  return apiClient.get(`/api/judges/${judgeId}/profile/`, {
+    headers: { "Content-Type": "application/json" },
+  });
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 /* ---------------------------------------------------------
