@@ -15,8 +15,24 @@ export const apiClient = axios.create({
 
 apiClient.interceptors.request.use(
   (config) => {
-    const token = getAuthToken();
-    if (token) config.headers.Authorization = `Token ${token}`;
+    // List of endpoints that should NOT include the auth token
+    const publicEndpoints = [
+      '/accounts/register/',
+      '/accounts/login/',
+      '/accounts/password_reset/',
+    ];
+
+    const isPublic = publicEndpoints.some(endpoint => 
+      config.url?.endsWith(endpoint)
+    );
+
+    if (!isPublic) {
+      const token = getAuthToken();
+      if (token) {
+        config.headers.Authorization = `Token ${token}`;
+      }
+    }
+
     return config;
   },
   (error) => Promise.reject(error)

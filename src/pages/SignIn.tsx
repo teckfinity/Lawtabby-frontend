@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -21,7 +21,10 @@ const SignIn = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Actual login API call
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
+
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -78,18 +81,22 @@ const SignIn = () => {
   };
 
   return (
-    <div className="min-h-screen w-full bg-background flex items-center justify-center p-4 md:p-6">
-      <div className="w-full max-w-[480px] mx-auto space-y-6">
-        <Button 
-          variant="ghost" 
-          className="gap-2"
-          onClick={() => navigate('/')}
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back
-        </Button>
+    <div className="min-h-screen w-full bg-background flex flex-col">
+      {/* -------- Fixed Logo at Top-Left -------- */}
+      <div className="fixed top-0 left-0 z-50 px-6 md:px-8 lg:px-12 pt-8 pb-8 bg-background">
+        <img
+          src="/logo.svg"
+          alt="LexOrbit Logo"
+          className="h-20 md:h-24 lg:h-28 object-contain"
+        />
+      </div>
 
-        <Card className="border-border">
+      {/* -------- Main Content Area – form thoda upper (Contact page jaisa) -------- */}
+      <div className="flex-1 flex items-start justify-center px-6 md:px-8 lg:px-12 pt-20 pb-12">  {/* ← pt-20 kiya (Contact mein pt-32 tha, yahan thoda upper ke liye kam) */}
+        <div className="w-full max-w-[480px] space-y-8">  {/* space-y-8 se back button aur card ke beech gap */}
+
+          {/* -------- Login Card -------- */}
+        <Card className="border-border shadow-lg">
           <CardHeader className="text-center space-y-2 px-6 pt-8 pb-6">
             <CardTitle className="text-3xl font-bold">Welcome Back</CardTitle>
             <CardDescription className="text-base">
@@ -106,7 +113,6 @@ const SignIn = () => {
                     description: "You are now signed in with Google",
                   });
                   localStorage.setItem("isAuthenticated", "true");
-                  console.log("Google login successful. isAuthenticated:", localStorage.getItem("isAuthenticated"));
                   navigate("/dashboard");
                 }}
                 onError={(err) => {
@@ -227,6 +233,32 @@ const SignIn = () => {
             </div>
           </CardContent>
         </Card>
+
+          {/* -------- Back Button – exactly center bottom of the form -------- */}
+          <div className="flex justify-center">
+            <Button 
+              variant="ghost" 
+              className="gap-2"
+              onClick={() => navigate('/')}
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back
+            </Button>
+          </div>
+
+          {/* -------- Footer -------- */}
+          <div className="mt-10 text-center text-xs text-muted-foreground">
+            This project is developed by{" "}
+            <a
+              href="https://getlexorbit.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:text-primary"
+            >
+              LexOrbit.com
+            </a>
+          </div>
+        </div>
       </div>
     </div>
   );
