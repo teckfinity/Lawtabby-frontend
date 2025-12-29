@@ -49,7 +49,9 @@ export const getJudgeProfile = (judgeId: number) => {
     headers: { "Content-Type": "application/json" },
   });
 };
-
+/* ---------------------------------------------------------
+   POST: judge predictive ai
+--------------------------------------------------------- */
 export const postJudgePredictOutcome = (
   judgeId: number,
   payload: {
@@ -66,46 +68,57 @@ export const postJudgePredictOutcome = (
   });
 };
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /* ---------------------------------------------------------
-   GET: Fetch Complete Judge Profile by ID
+   GET: judge case history
 --------------------------------------------------------- */
-export const getJudgeCompleteProfile = (judgeId: number) => {
+export const getJudgeCaseHistory = (
+  judgeId: number,
+  params: {
+    search?: string;
+    case_type?: string;
+    status?: string;
+    limit?: number;
+    page?: number;
+  } = {}
+) => {
   if (!judgeId) throw new Error("Judge ID is required.");
 
-  return apiClient.get(`/api/judges/${judgeId}/complete_profile/`, {
+  return apiClient.get(`/api/judges/${judgeId}/case-history/`, {
+    params,
     headers: { "Content-Type": "application/json" },
   });
 };
+
+// esky nechy tumhara nhi
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /* ---------------------------------------------------------
    GET: Judge Analytics Summary (top stats cards)
@@ -193,26 +206,10 @@ export const getJudgeHistoricalPerformance = (judgeId: number) => {
 
 
 
-/* ---------------------------------------------------------
-   GET: Judge Case History with Filters & Pagination
---------------------------------------------------------- */
-export const getJudgeCaseHistory = (
-  judgeId: number,
-  params: {
-    search?: string;
-    case_type?: string;
-    status?: string;
-    limit?: number;
-    offset?: number; // changed from page to offset to match backend
-  } = {}
-) => {
-  if (!judgeId) throw new Error("Judge ID is required.");
 
-  return apiClient.get(`/api/judges/${judgeId}/case_history/`, {
-    params,
-    headers: { "Content-Type": "application/json" },
-  });
-};
+
+
+
 
 
 /* ---------------------------------------------------------

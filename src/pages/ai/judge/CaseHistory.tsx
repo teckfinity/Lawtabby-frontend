@@ -12,8 +12,6 @@ import {
   FileText,
   Scale,
   Clock,
-  TrendingUp,
-  TrendingDown,
   CheckCircle,
   XCircle,
   Eye,
@@ -26,32 +24,49 @@ const CaseHistory = () => {
   const navigate = useNavigate();
   const { judgeId } = useParams<{ judgeId: string }>();
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedCase, setSelectedCase] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   const [caseHistory, setCaseHistory] = useState<any>({
-    judge: { full_name: "Loading..." },
-    statistics: { total_cases: 0, active_cases: 0, closed_cases: 0, avg_decision_days: 0 },
+    total_cases: 0,
+    active_cases: 0,
+    closed_cases: 0,
+    avg_decision_time: 0,
     cases: []
   });
 
+  // Debounce search input - no page flicker while typing
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
+
+  // Fetch data only on mount and when debounced search changes
   useEffect(() => {
     if (!judgeId) return;
 
     const fetchCaseHistory = async () => {
       try {
-        setLoading(true);
+        // Show loading only on first load
+        if (caseHistory.cases.length === 0) {
+          setLoading(true);
+        }
+
         const res = await getJudgeCaseHistory(Number(judgeId), {
-          search: searchTerm || undefined,
-          limit: 10,
-          page: 1
+          search: debouncedSearch || undefined,
         });
         setCaseHistory(res.data);
       } catch (error) {
         console.error("Failed to load case history:", error);
         setCaseHistory({
-          judge: { full_name: "Unknown Judge" },
-          statistics: { total_cases: 0, active_cases: 0, closed_cases: 0, avg_decision_days: 0 },
+          total_cases: 0,
+          active_cases: 0,
+          closed_cases: 0,
+          avg_decision_time: 0,
           cases: []
         });
       } finally {
@@ -60,51 +75,23 @@ const CaseHistory = () => {
     };
 
     fetchCaseHistory();
-  }, [judgeId, searchTerm]);
+  }, [judgeId, debouncedSearch]);
 
-
-  // 🔒 SAFE NORMALIZATION (OPTION 2 FIX)
-const statistics =
-  caseHistory?.statistics ||
-  caseHistory?.summary || {
-    total_cases: 0,
-    active_cases: 0,
-    closed_cases: 0,
-    avg_decision_days: 0,
-    avg_decision_time: 0,
+  const statistics = {
+    total_cases: caseHistory.total_cases || 0,
+    active_cases: caseHistory.active_cases || 0,
+    closed_cases: caseHistory.closed_cases || 0,
+    avg_decision_time: caseHistory.avg_decision_time || 0,
   };
 
-const judge = caseHistory?.judge || { full_name: "Unknown Judge" };
-const cases = caseHistory?.cases || [];
+  const cases = caseHistory.cases || [];
 
-// avg field backend / frontend mismatch fix
-const avgDecisionDays =
-  statistics.avg_decision_days ??
-  statistics.avg_decision_time ??
-  0;
-
-const stats = [
-  {
-    label: "Total Cases",
-    value: statistics.total_cases.toString(),
-    icon: FileText,
-  },
-  {
-    label: "Closed Cases",
-    value: statistics.closed_cases.toString(),
-    icon: CheckCircle,
-  },
-  {
-    label: "Active Cases",
-    value: statistics.active_cases.toString(),
-    icon: Clock,
-  },
-  {
-    label: "Avg Decision Time",
-    value: avgDecisionDays > 0 ? `${avgDecisionDays} days` : "N/A",
-    icon: TrendingUp,
-  },
-];
+  const stats = [
+    { label: "Total Cases", value: statistics.total_cases.toString(), icon: FileText },
+    { label: "Closed Cases", value: statistics.closed_cases.toString(), icon: CheckCircle },
+    { label: "Active Cases", value: statistics.active_cases.toString(), icon: Clock },
+    { label: "Avg Decision Time", value: statistics.avg_decision_time > 0 ? `${statistics.avg_decision_time} days` : "N/A", icon: Scale },
+  ];
 
   const getOutcomeIcon = (outcome: string) => {
     if (outcome?.toLowerCase().includes('grant')) return <CheckCircle className="h-4 w-4 text-legal-success" />;
@@ -118,17 +105,21 @@ const stats = [
     return "bg-legal-warning/10 text-legal-warning border-legal-warning/20";
   };
 
-  const formatDate = (dateStr: string | null) => {
-    if (!dateStr) return "N/A";
-    return new Date(dateStr).toLocaleDateString();
+  const formatDate = (dateStr: string) => {
+    if (!dateStr || dateStr === "Active") return "Active";
+    return new Date(dateStr).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric"
+    });
   };
 
-  // Safe print function - no page reload
   const handlePrint = () => {
     window.print();
   };
 
-  if (loading) {
+  // Show loading only on initial load
+  if (loading && caseHistory.cases.length === 0) {
     return (
       <div className="w-full min-h-screen flex items-center justify-center">
         <p className="text-muted-foreground">Loading case history...</p>
@@ -141,7 +132,6 @@ const stats = [
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          {/* Fixed: Using navigate() instead of window.location.href */}
           <Button 
             variant="ghost" 
             onClick={() => navigate(`/ai/judge/${judgeId}`)}
@@ -158,7 +148,7 @@ const stats = [
             <div>
               <h1 className="text-3xl font-bold text-foreground">Case History</h1>
               <p className="text-muted-foreground">
-                Complete case history for {judge.full_name}
+                Complete case history for this judge
               </p>
             </div>
           </div>
@@ -212,11 +202,9 @@ const stats = [
                 <Badge variant="secondary">
                   All Cases ({statistics.total_cases})
                 </Badge>
-                <Badge variant="outline">Contract Disputes</Badge>
-                <Badge variant="outline">Employment Law</Badge>
-                <Badge variant="outline">Civil Rights</Badge>
+                <Badge variant="outline">Civil</Badge>
                 <Badge variant="outline">Active Cases</Badge>
-                <Badge variant="outline">Closed Cases</Badge>
+                <Badge variant="outline">Pending</Badge>
               </div>
             </CardContent>
           </Card>
@@ -225,38 +213,39 @@ const stats = [
         {/* Cases List */}
         <div className="space-y-4">
           {cases.length > 0 ? (
-            cases.map((case_: any) => (
-              <Card key={case_.docket_id} className="shadow-card hover:shadow-legal transition-all cursor-pointer">
+            cases.map((caseItem: any, index: number) => (
+              <Card 
+                key={index} 
+                className="shadow-card hover:shadow-legal transition-all cursor-pointer"
+                onClick={() => setSelectedCase(caseItem)}
+              >
                 <CardContent className="p-6">
                   <div className="flex items-start justify-between mb-4">
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-lg font-semibold text-foreground">{case_.case_name}</h3>
+                        <h3 className="text-lg font-semibold text-foreground">{caseItem.case_name}</h3>
                         <Badge variant="outline" className="text-xs">
-                          {case_.case_number}
+                          {caseItem.case_number}
                         </Badge>
                       </div>
                       <p className="text-sm text-muted-foreground mb-2">
-                        {case_.opinion_excerpt || "No summary available"}
+                        {caseItem.description}
                       </p>
                       <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                        <span>Filed: {formatDate(case_.date_filed)}</span>
-                        {case_.date_decided && (
-                          <span>Decided: {formatDate(case_.date_decided)}</span>
-                        )}
-                        <span>Duration: {case_.duration_days ? `${case_.duration_days} days` : "Ongoing"}</span>
-                        <span>Court: {case_.court}</span>
+                        <span>Filed: {formatDate(caseItem.date_filed)}</span>
+                        <span>Status: {caseItem.date_decided === "Active" ? "Active" : formatDate(caseItem.date_decided)}</span>
+                        <span>Duration: {caseItem.duration > 0 ? `${caseItem.duration} days` : "Ongoing"}</span>
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <div className={`px-3 py-1 rounded-full border text-xs font-medium ${getOutcomeColor(case_.outcome || case_.status)}`}>
+                      <div className={`px-3 py-1 rounded-full border text-xs font-medium ${getOutcomeColor(caseItem.outcome)}`}>
                         <div className="flex items-center gap-1">
-                          {getOutcomeIcon(case_.outcome || case_.status)}
-                          {case_.status}
+                          {getOutcomeIcon(caseItem.outcome)}
+                          {caseItem.outcome}
                         </div>
                       </div>
                       <Badge variant="secondary" className="text-xs">
-                        {case_.case_type}
+                        {caseItem.case_type}
                       </Badge>
                     </div>
                   </div>
@@ -265,46 +254,50 @@ const stats = [
                     <div className="text-sm">
                       <span className="font-medium text-muted-foreground">Parties:</span>
                       <p className="text-foreground">
-                        {case_.parties?.length > 0 ? case_.parties.join(" vs ") : "Not available"}
+                        {caseItem.plaintiff} vs {caseItem.defendant}
                       </p>
                     </div>
                     <div className="text-sm">
-                      <span className="font-medium text-muted-foreground">Citations:</span>
-                      <p className="text-foreground">{case_.citations?.total || 0}</p>
+                      <span className="font-medium text-muted-foreground">Amount:</span>
+                      <p className="text-foreground">
+                        {caseItem.amount > 0 ? `$${caseItem.amount.toLocaleString()}` : "0.0"}
+                      </p>
                     </div>
                     <div className="text-sm">
                       <span className="font-medium text-muted-foreground">Precedent Value:</span>
-                      <p className="text-foreground">{case_.precedent_value}</p>
+                      <p className="text-foreground">{caseItem.precedent_value}</p>
                     </div>
                   </div>
 
                   <div className="flex items-center justify-between pt-4 border-t border-border">
                     <div className="flex items-center gap-2">
                       <Badge 
-                        variant={case_.status === "Active" ? "default" : "secondary"}
+                        variant={caseItem.status === "Active" ? "default" : "secondary"}
                         className="text-xs"
                       >
-                        {case_.status}
+                        {caseItem.status}
                       </Badge>
                       <Badge variant="outline" className="text-xs">
-                        Precedent: {case_.precedent_value}
+                        Precedent: {caseItem.precedent_value}
                       </Badge>
                     </div>
                     <div className="flex gap-2">
                       <Button 
                         size="sm" 
                         variant="outline"
-                        onClick={() => setSelectedCase(case_)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedCase(caseItem);
+                        }}
                       >
                         <Eye className="h-4 w-4 mr-1" />
                         View Details
                       </Button>
-                      <Button size="sm" variant="outline">
+                      <Button size="sm" variant="outline" onClick={(e) => e.stopPropagation()}>
                         <Download className="h-4 w-4 mr-1" />
                         Documents
                       </Button>
-                      {/* Fixed: Safe print using function */}
-                      <Button size="sm" variant="outline" onClick={handlePrint}>
+                      <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handlePrint(); }}>
                         <Printer className="h-4 w-4 mr-1" />
                         Print
                       </Button>
@@ -319,7 +312,7 @@ const stats = [
                 <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                 <h3 className="text-lg font-semibold mb-2">No Cases Found</h3>
                 <p className="text-muted-foreground">
-                  No cases match your search criteria. Try adjusting your filters.
+                  No cases match your search criteria.
                 </p>
               </CardContent>
             </Card>
@@ -328,8 +321,14 @@ const stats = [
 
         {/* Case Detail Modal */}
         {selectedCase && (
-          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <Card className="w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+          <div 
+            className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setSelectedCase(null)}
+          >
+            <Card 
+              className="w-full max-w-2xl max-h-[80vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle>{selectedCase.case_name}</CardTitle>
@@ -342,9 +341,9 @@ const stats = [
               <CardContent>
                 <div className="space-y-4">
                   <div>
-                    <h4 className="font-semibold mb-2">Case Summary</h4>
+                    <h4 className="font-semibold mb-2">Case Description</h4>
                     <p className="text-sm text-muted-foreground">
-                      {selectedCase.opinion_excerpt || "No summary available"}
+                      {selectedCase.description}
                     </p>
                   </div>
                   
@@ -358,12 +357,20 @@ const stats = [
                       <p className="text-sm text-muted-foreground">{selectedCase.status}</p>
                     </div>
                     <div>
-                      <h4 className="font-semibold text-sm mb-1">Court</h4>
-                      <p className="text-sm text-muted-foreground">{selectedCase.court}</p>
+                      <h4 className="font-semibold text-sm mb-1">Filed Date</h4>
+                      <p className="text-sm text-muted-foreground">{formatDate(selectedCase.date_filed)}</p>
                     </div>
                     <div>
-                      <h4 className="font-semibold text-sm mb-1">Precedent Value</h4>
-                      <p className="text-sm text-muted-foreground">{selectedCase.precedent_value}</p>
+                      <h4 className="font-semibold text-sm mb-1">Outcome</h4>
+                      <p className="text-sm text-muted-foreground">{selectedCase.outcome}</p>
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-sm mb-1">Plaintiff</h4>
+                      <p className="text-sm text-muted-foreground">{selectedCase.plaintiff}</p>
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-sm mb-1">Defendant</h4>
+                      <p className="text-sm text-muted-foreground">{selectedCase.defendant}</p>
                     </div>
                   </div>
                   
@@ -372,7 +379,6 @@ const stats = [
                       <Download className="h-4 w-4 mr-2" />
                       Download Full Case
                     </Button>
-                    {/* Fixed: Safe print */}
                     <Button variant="outline" onClick={handlePrint}>
                       <Printer className="h-4 w-4 mr-2" />
                       Print Case
