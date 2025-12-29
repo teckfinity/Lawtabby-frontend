@@ -3,12 +3,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Calendar as DateRangeCalendar } from "@/components/ui/calendar";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { format } from "date-fns";
-import type { DateRange } from "react-day-picker";
 import {
   Gavel,
   Search,
@@ -21,18 +15,19 @@ import {
 } from "lucide-react";
 import { 
   getJudgesList, 
-  getJudgeCompleteProfile, 
   getJudgeAnalyticsSummary,
-  getJudgeAnalyticsOverview  // ← New import
+  getJudgeAnalyticsOverview  
 } from "@/api/Ai_Features_Microsrc/judge_analytcs";
 import { useNavigate } from "react-router-dom";
 
 const JudgeAnalytics = () => {
-  const [page, setPage] = useState(1);
-  const [pageSize] = useState(3);
-  const [totalCount, setTotalCount] = useState(0);
-
+  const limit = 3;
+  const [offset, setOffset] = useState(0);
   const [judges, setJudges] = useState<any[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
+  const [hasNext, setHasNext] = useState(false);
+  const [hasPrevious, setHasPrevious] = useState(false);
+
   const [loading, setLoading] = useState(true);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [overviewLoading, setOverviewLoading] = useState(true);
@@ -40,8 +35,8 @@ const JudgeAnalytics = () => {
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
 
-  const totalPages = Math.ceil(totalCount / pageSize);
-
+  const currentPage = Math.floor(offset / limit) + 1;
+  const totalPages = Math.ceil(totalCount / limit);
   // Fixed filter list (was commented out before)
   const allFilters = [
     // "Federal Courts",
@@ -51,10 +46,8 @@ const JudgeAnalytics = () => {
     // "Civil",
     // "Criminal",
   ] as const;
-
   const navigate = useNavigate();
 
-  // Summary for top cards
   const [summary, setSummary] = useState({
     judges_analyzed: 0,
     cases_tracked: 0,
@@ -62,7 +55,6 @@ const JudgeAnalytics = () => {
     success_rate: 0,
   });
 
-  // Overview data for right panel
   const [overview, setOverview] = useState({
     case_type_analysis: [] as any[],
     quick_insights: [] as Array<{ title: string; description: string; metric: string }>,
@@ -75,7 +67,7 @@ const JudgeAnalytics = () => {
     },
   });
 
-  // Fetch summary (top stats)
+  // Fetch Summary
   useEffect(() => {
     const fetchSummary = async () => {
       try {
@@ -83,16 +75,15 @@ const JudgeAnalytics = () => {
         const res = await getJudgeAnalyticsSummary();
         setSummary(res.data);
       } catch (error) {
-        console.error("Error fetching judge analytics summary:", error);
+        console.error("Error fetching summary:", error);
       } finally {
         setSummaryLoading(false);
       }
     };
-
     fetchSummary();
   }, []);
 
-  // Fetch overview (right panel: case types, insights, AI teaser)
+  // Fetch Overview
   useEffect(() => {
     const fetchOverview = async () => {
       try {
@@ -100,7 +91,7 @@ const JudgeAnalytics = () => {
         const res = await getJudgeAnalyticsOverview();
         setOverview(res.data);
       } catch (error) {
-        console.error("Error fetching judge analytics overview:", error);
+        console.error("Error fetching overview:", error);
       } finally {
         setOverviewLoading(false);
       }
@@ -112,72 +103,43 @@ const JudgeAnalytics = () => {
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedQuery(query.trim());
-      setPage(1);
+      setOffset(0);
     }, 600);
-
     return () => clearTimeout(timer);
   }, [query]);
 
-  // Fetch judges list
+  // Fetch Judges
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchJudges = async () => {
       try {
         setLoading(true);
+        const params: any = { limit, offset };
+        if (debouncedQuery) params.search = debouncedQuery;
 
-        const listRes = await getJudgesList({
-          page,
-          limit: pageSize,
-          search: debouncedQuery || undefined,
-        });
+        const res = await getJudgesList(params);
+        const data = res.data;
 
-        const judgesList = listRes.data.results || [];
-        setTotalCount(listRes.data.count || 0);
-
-        if (judgesList.length === 0) {
-          setJudges([]);
-          return;
-        }
-
-        const detailsPromises = judgesList.map((j: any) => getJudgeCompleteProfile(j.id));
-        const details = await Promise.all(detailsPromises);
-        const fullJudges = judgesList.map((j: any, i: number) => ({
-          ...j,
-          details: details[i].data,
-        }));
-        setJudges(fullJudges);
+        setJudges(data.results || []);
+        setTotalCount(data.pagination?.total || 0);
+        setHasNext(data.pagination?.has_next || false);
+        setHasPrevious(data.pagination?.has_previous || false);
       } catch (error) {
-        console.error("Error fetching judges data:", error);
+        console.error("Error fetching judges:", error);
         setJudges([]);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchData();
-  }, [page, debouncedQuery, pageSize]);
+    fetchJudges();
+  }, [offset, debouncedQuery]);
 
-  const filteredJudges = judges.filter((j) => {
-    const d = j.details;
-    const name = d.basic_info.full_name || "";
-    const court = d.statistics.courts_served?.join(", ") || "";
-    const specialty = Object.keys(d.case_types_breakdown || {}).join(", ");
-
-    return debouncedQuery.length
-      ? [name, court, specialty].some((f) => f.toLowerCase().includes(debouncedQuery.toLowerCase()))
-      : true;
-  });
-
-  // Dynamic stats from backend summary endpoint
   const stats = [
     { label: "Judges Analyzed", value: summary.judges_analyzed.toLocaleString(), icon: Users },
     { label: "Cases Tracked", value: summary.cases_tracked.toLocaleString(), icon: Scale },
     { label: "Courts Covered", value: summary.courts_covered.toString(), icon: Gavel },
     { label: "Success Rate", value: `${summary.success_rate.toFixed(1)}%`, icon: TrendingUp },
   ];
-
-  if (loading && judges.length === 0) {
-    return <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">Loading...</div>;
-  }
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
@@ -216,159 +178,177 @@ const JudgeAnalytics = () => {
           </div>
         </div>
 
-        {/* Search and Filters */}
+        {/* Search */}
         <Card className="shadow-card mb-8">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Search className="h-5 w-5 text-legal-primary" />
               Find Judge Analytics
             </CardTitle>
-            <CardDescription>
-              Search for judges by name, court, or specialty area
-              </CardDescription>
+            <CardDescription>Search for judges by name, court, or specialty area</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-4 mb-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search judges, courts, or case types..."
-                  className="pl-9"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-              </div>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search judges, courts, or case types..."
+                className="pl-9"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
             </div>
           </CardContent>
         </Card>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Judge Profiles */}
+          {/* Judge List - NO LAYOUT SHIFT */}
           <div className="lg:col-span-2">
-            <Card className="shadow-card">
+            <Card className="shadow-card h-full flex flex-col">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Users className="h-5 w-5 text-legal-primary" />
                   Judge Profiles & Analytics
                 </CardTitle>
-                <CardDescription>
-                  Detailed performance analytics and ruling patterns
-                  </CardDescription>
+                <CardDescription>Detailed performance analytics and ruling patterns</CardDescription>
               </CardHeader>
-              <CardContent>
-                {loading && <div className="text-center py-8 text-muted-foreground">Loading judges...</div>}
-                <div className="space-y-6">
-                  {filteredJudges.map((j) => {
-                    const d = j.details;
-                    const name = d.basic_info.full_name;
-                    const court = d.statistics.courts_served?.join(", ") || "N/A";
-                    const totalCases = d.statistics.total_cases;
-                    const grantRate = d.statistics.grant_rate;
-                    const avgDecisionTime = `${d.statistics.average_decision_days} days`;
-                    const specialty = Object.keys(d.case_types_breakdown || {}).join(", ") || "General";
-                    const trend = grantRate > 50 ? "up" : "down";
-                    const recentCases = d.recent_cases?.length || 0;
-                    return (
-                      <div key={j.id} className="border border-border rounded-lg p-6 hover:shadow-legal transition-all duration-300">
-                        <div className="flex items-start justify-between mb-4">
-                          <div>
-                            <h3 className="text-lg font-semibold text-foreground">{name}</h3>
-                            <p className="text-sm text-muted-foreground">{court}</p>
-                            <Badge variant="outline" className="mt-1">{specialty}</Badge>
+              <CardContent className="flex-1 flex flex-col justify-between">
+                {/* Judges Container - Fixed minimum height to prevent collapse */}
+                <div className="space-y-6 min-h-[560px]">
+                  {loading ? (
+                    <div className="flex items-center justify-center h-[560px]">
+                      <p className="text-lg text-muted-foreground">Loading judges...</p>
+                    </div>
+                  ) : judges.length > 0 ? (
+                    judges.map((j) => {
+                      const trend = j.grant_rate > 50 ? "up" : "down";
+                      return (
+                        <div
+                          key={j.id}
+                          className="border border-border rounded-lg p-6 hover:shadow-legal transition-shadow duration-200"
+                        >
+                          <div className="flex items-start justify-between mb-4">
+                            <div>
+                              <h3 className="text-lg font-semibold text-foreground">{j.full_name}</h3>
+                              <p className="text-sm text-muted-foreground">{j.court_name || "N/A"}</p>
+                              {j.specialty && <Badge variant="outline" className="mt-1">{j.specialty}</Badge>}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {trend === "up" ? (
+                                <TrendingUp className="h-5 w-5 text-legal-success" />
+                              ) : (
+                                <TrendingDown className="h-5 w-5 text-destructive" />
+                              )}
+                              <span className="text-sm font-medium">{j.grant_rate}% Grant Rate</span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            {trend === "up" ? (
-                              <TrendingUp className="h-5 w-5 text-legal-success" />
-                            ) : (
-                              <TrendingDown className="h-5 w-5 text-destructive" />
-                            )}
-                            <span className="text-sm font-medium">{grantRate}% Grant Rate</span>
-                          </div>
-                        </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                          <div className="text-center">
-                            <p className="text-2xl font-bold text-legal-primary">{totalCases}</p>
-                            <p className="text-xs text-muted-foreground">Total Cases</p>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div className="text-center">
+                              <p className="text-2xl font-bold text-legal-primary">{j.total_cases}</p>
+                              <p className="text-xs text-muted-foreground">Total Cases</p>
+                            </div>
+                            <div className="text-center">
+                              <p className="text-2xl font-bold text-legal-warning">{j.grant_rate}%</p>
+                              <p className="text-xs text-muted-foreground">Grant Rate</p>
+                            </div>
+                            <div className="text-center">
+                              <p className="text-2xl font-bold text-legal-info">{j.avg_decision_time} days</p>
+                              <p className="text-xs text-muted-foreground">Avg Decision</p>
+                            </div>
+                            <div className="text-center">
+                              <p className="text-2xl font-bold text-legal-success">{j.recent_cases_count}</p>
+                              <p className="text-xs text-muted-foreground">Recent Cases</p>
+                            </div>
                           </div>
-                          <div className="text-center">
-                            <p className="text-2xl font-bold text-legal-warning">{grantRate}%</p>
-                            <p className="text-xs text-muted-foreground">Grant Rate</p>
-                          </div>
-                          <div className="text-center">
-                            <p className="text-2xl font-bold text-legal-info">{avgDecisionTime}</p>
-                            <p className="text-xs text-muted-foreground">Avg Decision</p>
-                          </div>
-                          <div className="text-center">
-                            <p className="text-2xl font-bold text-legal-success">{recentCases}</p>
-                            <p className="text-xs text-muted-foreground">Recent Cases</p>
-                          </div>
-                        </div>
 
-                        <div className="mt-4 pt-4 border-t border-border">
-                          <div className="flex gap-2">
-                            <Button
-                              size="sm"
-                              className="bg-legal-primary hover:bg-legal-primary/90"
-                              onClick={() => navigate(`/ai/judge/${j.id}`)}
-                            >
-                              View Full Profile
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => window.location.href = `/ai/judge/${j.id}/case-history`}>
-                              Case History
-                            </Button>
-                            <Button size="sm" variant="outline" onClick={() => window.location.href = `/ai/judge/${j.id}/predictions`}>
-                              Predictions
-                            </Button>
+                          <div className="mt-4 pt-4 border-t border-border">
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                size="sm"
+                                className="bg-legal-primary hover:bg-legal-primary/90"
+                                onClick={() => navigate(`/ai/judge/${j.id}`)}
+                              >
+                                View Full Profile
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => navigate(`/ai/judge/${j.id}/case-history`)}>
+                                Case History
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => navigate(`/ai/judge/${j.id}/predictions`)}>
+                                Predictions
+                              </Button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                  {filteredJudges.length === 0 && !loading && (
-                    <p className="text-center text-muted-foreground py-8">No judges found matching your criteria.</p>
+                      );
+                    })
+                  ) : (
+                    <div className="flex items-center justify-center h-[560px]">
+                      <p className="text-lg text-muted-foreground">No judges found matching your criteria.</p>
+                    </div>
                   )}
                 </div>
 
-                {/* FIXED: Removed pr-32, now properly aligned */}
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-center gap-2 mt-8">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      disabled={page === 1} 
-                      onClick={() => setPage(p => Math.max(p - 1, 1))}
-                    >
-                      Previous
-                    </Button>
+                {/* Pagination - Always visible and stable */}
+                {totalCount > 0 && (
+                  <div className="mt-10 pt-6 border-t border-border">
+                    <div className="flex items-center justify-center gap-4 flex-wrap">
+                      <span className="text-sm font-medium text-muted-foreground">
+                        {totalCount} items
+                      </span>
 
-                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-                      <Button
-                        key={p}
-                        size="sm"
-                        variant={p === page ? "default" : "outline"}
-                        onClick={() => setPage(p)}
-                        className="min-w-[36px]"
-                      >
-                        {p}
-                      </Button>
-                    ))}
+                      <div className="flex items-center gap-1 bg-muted/30 rounded-lg px-4 py-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          disabled={!hasPrevious || loading}
+                          onClick={() => setOffset(0)}
+                        >
+                          ««
+                        </Button>
 
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      disabled={page === totalPages} 
-                      onClick={() => setPage(p => Math.min(p + 1, totalPages))}
-                    >
-                      Next
-                    </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          disabled={!hasPrevious || loading}
+                          onClick={() => setOffset(Math.max(offset - limit, 0))}
+                        >
+                          ‹
+                        </Button>
+
+                        <span className="mx-4 font-semibold text-foreground min-w-[80px] text-center">
+                          {currentPage} of {totalPages}
+                        </span>
+
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          disabled={!hasNext || loading}
+                          onClick={() => setOffset(offset + limit)}
+                        >
+                          ›
+                        </Button>
+
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8"
+                          disabled={!hasNext || loading}
+                          onClick={() => setOffset((totalPages - 1) * limit)}
+                        >
+                          »»
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </CardContent>
             </Card>
           </div>
 
-          {/* Analytics Panel (unchanged) */}
+          {/* Right Panel - Exactly as you wanted (unchanged) */}
           <div className="space-y-6">
             <Card className="shadow-card">
               <CardHeader>
