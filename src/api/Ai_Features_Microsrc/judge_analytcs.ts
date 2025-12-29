@@ -36,7 +36,7 @@ export const getJudgesList = ({
    GET: cases/type-analysis/
 --------------------------------------------------------- */
 export const getCaseTypeAnalysis = () => {
-  return apiClient.get("/cases/type-analysis/", {
+  return apiClient.get("/api/cases/type-analysis/", {
     headers: { "Content-Type": "application/json" },
   });
 };

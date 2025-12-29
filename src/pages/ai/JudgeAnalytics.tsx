@@ -16,7 +16,8 @@ import {
 import { 
   getJudgesList, 
   getJudgeAnalyticsSummary,
-  getJudgeAnalyticsOverview  
+  getJudgeAnalyticsOverview,
+  getCaseTypeAnalysis  // ← NEW IMPORT
 } from "@/api/Ai_Features_Microsrc/judge_analytcs";
 import { useNavigate } from "react-router-dom";
 
@@ -31,6 +32,7 @@ const JudgeAnalytics = () => {
   const [loading, setLoading] = useState(true);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [overviewLoading, setOverviewLoading] = useState(true);
+  const [caseTypeLoading, setCaseTypeLoading] = useState(true); // New loading state
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -56,7 +58,6 @@ const JudgeAnalytics = () => {
   });
 
   const [overview, setOverview] = useState({
-    case_type_analysis: [] as any[],
     quick_insights: [] as Array<{ title: string; description: string; metric: string }>,
     ai_prediction_teaser: {
       title: "",
@@ -66,6 +67,9 @@ const JudgeAnalytics = () => {
       cta_text: "",
     },
   });
+
+  // NEW: Separate state for Case Type Analysis from the new endpoint
+  const [caseTypeAnalysis, setCaseTypeAnalysis] = useState<any[]>([]);
 
   // Fetch Summary
   useEffect(() => {
@@ -83,7 +87,7 @@ const JudgeAnalytics = () => {
     fetchSummary();
   }, []);
 
-  // Fetch Overview
+  // Fetch Overview (Quick Insights + AI Teaser only now)
   useEffect(() => {
     const fetchOverview = async () => {
       try {
@@ -97,6 +101,23 @@ const JudgeAnalytics = () => {
       }
     };
     fetchOverview();
+  }, []);
+
+  // NEW: Fetch Case Type Analysis from dedicated endpoint
+  useEffect(() => {
+    const fetchCaseTypeAnalysis = async () => {
+      try {
+        setCaseTypeLoading(true);
+        const res = await getCaseTypeAnalysis();
+        setCaseTypeAnalysis(res.data || []);
+      } catch (error) {
+        console.error("Error fetching case type analysis:", error);
+        setCaseTypeAnalysis([]);
+      } finally {
+        setCaseTypeLoading(false);
+      }
+    };
+    fetchCaseTypeAnalysis();
   }, []);
 
   // Debounce search
@@ -144,7 +165,7 @@ const JudgeAnalytics = () => {
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
+        {/* Header & Stats */}
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 bg-legal-warning rounded-lg">
@@ -158,7 +179,6 @@ const JudgeAnalytics = () => {
             </div>
           </div>
 
-          {/* Stats */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
             {stats.map((stat, index) => (
               <Card key={index} className="shadow-card">
@@ -212,7 +232,6 @@ const JudgeAnalytics = () => {
                 <CardDescription>Detailed performance analytics and ruling patterns</CardDescription>
               </CardHeader>
               <CardContent className="flex-1 flex flex-col justify-between">
-                {/* Judges Container - Fixed minimum height to prevent collapse */}
                 <div className="space-y-6 min-h-[560px]">
                   {loading ? (
                     <div className="flex items-center justify-center h-[560px]">
@@ -288,7 +307,6 @@ const JudgeAnalytics = () => {
                   )}
                 </div>
 
-                {/* Pagination - Always visible and stable */}
                 {totalCount > 0 && (
                   <div className="mt-10 pt-6 border-t border-border">
                     <div className="flex items-center justify-center gap-4 flex-wrap">
@@ -348,61 +366,77 @@ const JudgeAnalytics = () => {
             </Card>
           </div>
 
-          {/* Right Panel - Exactly as you wanted (unchanged) */}
+          {/* Right Panel */}
           <div className="space-y-6">
-            <Card className="shadow-card">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <BarChart3 className="h-5 w-5 text-legal-primary" />
-                  Case Type Analysis
-                </CardTitle>
-                <CardDescription>Success rates by case category</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {(overviewLoading || overview.case_type_analysis.length === 0) ? (
-                    <>
-                      {["Civil Rights", "Contract Disputes", "Employment", "Personal Injury"].map((type, i) => (
-                        <div key={i} className="space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm font-medium text-muted-foreground">{type}</span>
-                            <span className="text-sm text-muted-foreground">—</span>
-                          </div>
-                          <div className="w-full bg-muted/50 rounded-full h-2">
-                            <div className="bg-muted h-2 rounded-full" style={{ width: "0%" }} />
-                          </div>
-                          <div className="flex justify-between text-xs text-muted-foreground">
-                            <span>No data yet</span>
-                            <span>No data yet</span>
-                          </div>
-                        </div>
-                      ))}
-                    </>
-                  ) : (
-                    overview.case_type_analysis.map((caseType: any, index: number) => (
-                      <div key={index} className="space-y-2">
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm font-medium">{caseType.type}</span>
-                          <span className="text-sm text-muted-foreground">{caseType.total} cases</span>
-                        </div>
-                        <div className="w-full bg-muted rounded-full h-2">
-                          <div
-                            className="bg-legal-success h-2 rounded-full"
-                            style={{ width: `${caseType.granted}%` }}
-                          />
-                        </div>
-                        <div className="flex justify-between text-xs text-muted-foreground">
-                          <span>{caseType.granted}% Granted</span>
-                          <span>{caseType.denied}% Denied</span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+{/* Case Type Analysis - Very light pastel colored bars */}
+<Card className="shadow-card">
+  <CardHeader>
+    <CardTitle className="flex items-center gap-2">
+      <BarChart3 className="h-5 w-5 text-legal-primary" />
+      Case Type Analysis
+    </CardTitle>
+    <CardDescription>Success rates by case category</CardDescription>
+  </CardHeader>
+  <CardContent>
+    <div className="space-y-4">
+      {(caseTypeLoading || caseTypeAnalysis.length === 0) ? (
+        <>
+          {["Civil Rights", "Contract Disputes", "Employment", "Personal Injury"].map((type, i) => (
+            <div key={i} className="space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-muted-foreground">{type}</span>
+                <span className="text-sm text-muted-foreground">—</span>
+              </div>
+              <div className="w-full bg-muted/50 rounded-full h-3">
+                <div className="bg-muted h-3 rounded-full" style={{ width: "0%" }} />
+              </div>
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>No data yet</span>
+                <span>No data yet</span>
+              </div>
+            </div>
+          ))}
+        </>
+      ) : (
+        caseTypeAnalysis.map((caseType: any, index: number) => {
+          // Very light pastel colors - har category ka alag soft color
+          const pastelColors = [
+            "bg-blue-300",     // Civil Rights - light blue
+            "bg-emerald-300",  // Contract Disputes - light emerald
+            "bg-amber-300",    // Employment - light amber
+            "bg-purple-300",   // Personal Injury - light purple
+            "bg-pink-300",     // Extra
+            "bg-cyan-300",
+            "bg-lime-300",
+            "bg-orange-300",
+          ];
+          const barColor = pastelColors[index % pastelColors.length];
 
-            {/* Quick Insights */}
+          return (
+            <div key={index} className="space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium">{caseType.category}</span>
+                <span className="text-sm text-muted-foreground">{caseType.total_cases} cases</span>
+              </div>
+              <div className="w-full bg-muted/40 rounded-full h-3 overflow-hidden">
+                <div
+                  className={`${barColor} h-3 rounded-full transition-all duration-700 ease-out shadow-sm`}
+                  style={{ width: `${caseType.granted_percentage}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{caseType.granted_percentage}% Granted</span>
+                <span>{caseType.denied_percentage}% Denied</span>
+              </div>
+            </div>
+          );
+        })
+      )}
+    </div>
+  </CardContent>
+</Card>
+
+            {/* Quick Insights - UNCHANGED */}
             <Card className="shadow-card">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -463,7 +497,7 @@ const JudgeAnalytics = () => {
               </CardContent>
             </Card>
 
-            {/* AI Predictions Teaser */}
+            {/* AI Predictions Teaser - UNCHANGED */}
             <Card className="shadow-card bg-gradient-primary text-white">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
