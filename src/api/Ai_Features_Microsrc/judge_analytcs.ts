@@ -50,7 +50,21 @@ export const getJudgeProfile = (judgeId: number) => {
   });
 };
 
+export const postJudgePredictOutcome = (
+  judgeId: number,
+  payload: {
+    case_type: string;
+    client_position: string;
+    case_description: string;
+    key_facts: string[];
+  }
+) => {
+  if (!judgeId) throw new Error("Judge ID is required.");
 
+  return apiClient.post(`/api/judges/${judgeId}/predict/`, payload, {
+    headers: { "Content-Type": "application/json" },
+  });
+};
 
 
 
@@ -177,24 +191,7 @@ export const getJudgeHistoricalPerformance = (judgeId: number) => {
   });
 };
 
-/* ---------------------------------------------------------
-   POST: Predict Outcome for a Judge
---------------------------------------------------------- */
-export const postJudgePredictOutcome = (
-  judgeId: number,
-  payload: {
-    case_type: string;
-    client_position: string;
-    case_description: string;
-    key_facts: string[];
-  }
-) => {
-  if (!judgeId) throw new Error("Judge ID is required.");
 
-  return apiClient.post(`/api/judges/${judgeId}/predict_outcome/`, payload, {
-    headers: { "Content-Type": "application/json" },
-  });
-};
 
 /* ---------------------------------------------------------
    GET: Judge Case History with Filters & Pagination

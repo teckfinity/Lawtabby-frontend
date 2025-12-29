@@ -23,7 +23,7 @@ import {
 import { 
   getJudgePredictionContext,
   getJudgeHistoricalPerformance,
-  postJudgePredictOutcome  // ← New POST import
+  postJudgePredictOutcome
 } from "@/api/Ai_Features_Microsrc/judge_analytcs";
 import { useToast } from "@/hooks/use-toast";
 
@@ -74,7 +74,6 @@ const JudgePredictions = () => {
         })));
       } catch (error) {
         console.error("Failed to load prediction data:", error);
-        // Fallback data
         setContextData({
           judge_name: "Unknown Judge",
           court_name: "Unknown",
@@ -103,37 +102,43 @@ const JudgePredictions = () => {
     }
 
     setIsAnalyzing(true);
+    setPrediction(null); // Clear previous result
 
     try {
+      const keyFactsArray = caseDetails.keyFacts
+        .split("\n")
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+
       const payload = {
-        case_type: caseDetails.caseType.toLowerCase(),
-        client_position: caseDetails.clientPosition.toLowerCase() || "unknown",
+        case_type: caseDetails.caseType,
+        client_position: caseDetails.clientPosition || "unknown",
         case_description: caseDetails.caseDescription,
-        key_facts: caseDetails.keyFacts.split("\n").filter(f => f.trim()).map(f => f.trim())
+        key_facts: keyFactsArray
       };
 
       const res = await postJudgePredictOutcome(Number(judgeId!), payload);
       const data = res.data;
 
+      // Set real prediction from API
       setPrediction({
-        probability: data.prediction.success_probability,
-        confidence: data.prediction.confidence_score > 80 ? "High" : data.prediction.confidence_score > 60 ? "Medium" : "Low",
-        timeEstimate: data.prediction.estimated_decision_time > 0 ? `${data.prediction.estimated_decision_time} days` : "N/A",
-        outcome: data.prediction.predicted_outcome,
-        reasoning: data.reasoning_summary,
-        historicalContext: data.historical_context,
+        success_probability: data.success_probability,
+        confidence_level: data.confidence_level,
+        estimated_decision_time: data.estimated_decision_time,
+        contributing_factors: data.contributing_factors || [],
+        strategic_recommendations: data.strategic_recommendations || [],
       });
 
       toast({
-        title: "Prediction Ready",
-        description: "AI analysis complete.",
+        title: "Prediction Complete",
+        description: "AI analysis based on judge's real patterns.",
       });
     } catch (error: any) {
       console.error("Prediction failed:", error);
       toast({
         variant: "destructive",
         title: "Prediction Failed",
-        description: error.response?.data?.detail || "Unable to generate prediction. Please try again.",
+        description: error.response?.data?.detail || "Unable to generate prediction.",
       });
     } finally {
       setIsAnalyzing(false);
@@ -180,9 +185,9 @@ const JudgePredictions = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Main Prediction Form */}
+          {/* Left: Input Form + Results */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Case Input Form */}
+            {/* Input Form */}
             <Card className="shadow-card">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -198,7 +203,7 @@ const JudgePredictions = () => {
                   <div>
                     <label className="text-sm font-medium mb-2 block">Case Type</label>
                     <Input 
-                      placeholder="e.g., Contract Dispute, Employment Law"
+                      placeholder="e.g., Contract Dispute"
                       value={caseDetails.caseType}
                       onChange={(e) => handleInputChange('caseType', e.target.value)}
                     />
@@ -206,7 +211,7 @@ const JudgePredictions = () => {
                   <div>
                     <label className="text-sm font-medium mb-2 block">Client Position</label>
                     <Input 
-                      placeholder="e.g., Plaintiff, Defendant"
+                      placeholder="e.g., Plaintiff"
                       value={caseDetails.clientPosition}
                       onChange={(e) => handleInputChange('clientPosition', e.target.value)}
                     />
@@ -216,7 +221,7 @@ const JudgePredictions = () => {
                 <div>
                   <label className="text-sm font-medium mb-2 block">Case Description</label>
                   <Textarea 
-                    placeholder="Brief description of your case and legal issues involved..."
+                    placeholder="Brief description of your case..."
                     className="min-h-[80px] resize-none"
                     value={caseDetails.caseDescription}
                     onChange={(e) => handleInputChange('caseDescription', e.target.value)}
@@ -226,7 +231,7 @@ const JudgePredictions = () => {
                 <div>
                   <label className="text-sm font-medium mb-2 block">Key Facts & Evidence</label>
                   <Textarea 
-                    placeholder="Key facts, evidence, and legal arguments that support your case..."
+                    placeholder="One fact per line..."
                     className="min-h-[100px] resize-none"
                     value={caseDetails.keyFacts}
                     onChange={(e) => handleInputChange('keyFacts', e.target.value)}
@@ -236,7 +241,7 @@ const JudgePredictions = () => {
                 <Button 
                   onClick={handleRunPrediction}
                   className="w-full bg-legal-primary hover:bg-legal-primary/90"
-                  disabled={isAnalyzing || !caseDetails.caseType || !caseDetails.caseDescription}
+                  disabled={isAnalyzing}
                 >
                   {isAnalyzing ? (
                     <>
@@ -253,8 +258,8 @@ const JudgePredictions = () => {
               </CardContent>
             </Card>
 
-            {/* Prediction Results */}
-            {(prediction || isAnalyzing) && (
+            {/* Prediction Result - NOW USING REAL API RESPONSE */}
+            {prediction && (
               <Card className="shadow-card">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -266,73 +271,91 @@ const JudgePredictions = () => {
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {isAnalyzing ? (
-                    <div className="text-center py-12">
-                      <div className="w-16 h-16 border-4 border-legal-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                      <h3 className="text-lg font-semibold mb-2">Analyzing Your Case</h3>
-                      <p className="text-muted-foreground">
-                        Processing case details against judge's historical patterns...
+                  <div className="space-y-6">
+                    {/* Main Success Probability */}
+                    <div className="text-center p-8 bg-gradient-primary rounded-lg text-white">
+                      <div className="text-5xl font-bold mb-2">
+                        {prediction.success_probability}%
+                      </div>
+                      <p className="text-xl mb-2">Predicted Success Rate</p>
+                      <Badge variant="secondary" className="bg-white/20 text-white text-lg px-4 py-1">
+                        {prediction.confidence_level}
+                      </Badge>
+                      <p className="text-sm opacity-90 mt-4">
+                        Estimated Decision Time: <span className="font-semibold">{prediction.estimated_decision_time}</span>
                       </p>
                     </div>
-                  ) : prediction && (
-                    <div className="space-y-6">
-                      {/* Main Prediction */}
-                      <div className="text-center p-8 bg-gradient-primary rounded-lg text-white">
-                        <div className="text-5xl font-bold mb-2">{prediction.probability.toFixed(1)}%</div>
-                        <p className="text-xl mb-2">Predicted Success Rate</p>
-                        <Badge variant="secondary" className="bg-white/20 text-white">
-                          {prediction.confidence} Confidence
-                        </Badge>
-                        <p className="text-sm opacity-90 mt-3">
-                          Predicted Outcome: <span className="font-semibold">{prediction.outcome}</span>
-                        </p>
-                        <p className="text-sm opacity-90 mt-2">
-                          Estimated Decision Time: {prediction.timeEstimate}
-                        </p>
-                      </div>
 
-                      {/* Key Factors */}
-                      <div>
-                        <h4 className="font-semibold mb-3">AI Reasoning</h4>
-                        <p className="text-sm text-muted-foreground leading-relaxed">
-                          {prediction.reasoning}
-                        </p>
-                      </div>
-
-                      {/* Historical Context */}
-                      {prediction.historicalContext && (
-                        <div>
-                          <h4 className="font-semibold mb-3 flex items-center gap-2">
-                            <BarChart3 className="h-4 w-4" />
-                            Historical Context
-                          </h4>
-                          <div className="bg-muted/50 p-4 rounded-lg">
-                            <p className="text-sm"><strong>Similar Cases:</strong> {prediction.historicalContext.total_similar_cases}</p>
-                            <p className="text-sm"><strong>Historical Grant Rate:</strong> {prediction.historicalContext.historical_grant_rate}%</p>
+                    {/* Contributing Factors */}
+                    <div>
+                      <h4 className="font-semibold mb-4 flex items-center gap-2">
+                        <Calculator className="h-5 w-5" />
+                        Contributing Factors
+                      </h4>
+                      <div className="space-y-3">
+                        {prediction.contributing_factors.map((factor: any, i: number) => (
+                          <div key={i} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
+                            <div>
+                              <p className="font-medium text-sm">{factor.name}</p>
+                              <p className="text-xs text-muted-foreground">Weight: {factor.weight}</p>
+                            </div>
+                            <Badge variant={factor.value.includes("Favorable") ? "default" : factor.value.includes("Neutral") ? "secondary" : "outline"}>
+                              {factor.value}
+                            </Badge>
                           </div>
-                        </div>
-                      )}
-
-                      <div className="flex gap-3 pt-4 border-t border-border">
-                        <Button className="flex-1">
-                          <FileText className="h-4 w-4 mr-2" />
-                          Download Full Report
-                        </Button>
-                        <Button variant="outline">
-                          <Calculator className="h-4 w-4 mr-2" />
-                          Refine Analysis
-                        </Button>
+                        ))}
                       </div>
                     </div>
-                  )}
+
+                    {/* Strategic Recommendations */}
+                    <div>
+                      <h4 className="font-semibold mb-4 flex items-center gap-2">
+                        <CheckCircle className="h-5 w-5 text-legal-success" />
+                        Strategic Recommendations
+                      </h4>
+                      <div className="space-y-3">
+                        {prediction.strategic_recommendations.map((rec: string, i: number) => (
+                          <div key={i} className="flex items-start gap-3 p-3 bg-legal-success/5 border border-legal-success/20 rounded-lg">
+                            <CheckCircle className="h-5 w-5 text-legal-success flex-shrink-0 mt-0.5" />
+                            <p className="text-sm">{rec}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="flex gap-3 pt-4 border-t border-border">
+                      <Button className="flex-1">
+                        <FileText className="h-4 w-4 mr-2" />
+                        Download Full Report
+                      </Button>
+                      <Button variant="outline">
+                        <Calculator className="h-4 w-4 mr-2" />
+                        Refine Analysis
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Analyzing State */}
+            {isAnalyzing && !prediction && (
+              <Card className="shadow-card">
+                <CardContent className="py-12">
+                  <div className="text-center">
+                    <div className="w-16 h-16 border-4 border-legal-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">Analyzing Your Case</h3>
+                    <p className="text-muted-foreground">
+                      Processing case details against judge's historical patterns...
+                    </p>
+                  </div>
                 </CardContent>
               </Card>
             )}
           </div>
 
-          {/* Sidebar */}
+          {/* Right Sidebar - 100% UNCHANGED */}
           <div className="space-y-6">
-            {/* Judge Context */}
             <Card className="shadow-card">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -363,7 +386,6 @@ const JudgePredictions = () => {
               </CardContent>
             </Card>
 
-            {/* Historical Performance */}
             <Card className="shadow-card">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -397,7 +419,6 @@ const JudgePredictions = () => {
               </CardContent>
             </Card>
 
-            {/* Recent Trends */}
             <Card className="shadow-card">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
