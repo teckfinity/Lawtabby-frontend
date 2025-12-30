@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
@@ -24,7 +24,6 @@ const SignUp = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Page load hone par top se shuru ho
   useEffect(() => {
     window.scrollTo(0, 0);
   }, []);
@@ -85,25 +84,29 @@ const SignUp = () => {
 
   return (
     <div className="min-h-screen w-full bg-background flex flex-col">
-      {/* -------- Fixed Logo at Top-Left -------- */}
-      <div className="fixed top-0 left-0 z-50 px-6 md:px-8 lg:px-12 pt-8 pb-8 bg-background">
-        <img
-          src="/logo.svg"
-          alt="LexOrbit Logo"
-          className="h-20 md:h-24 lg:h-28 object-contain"
-        />
-      </div>
 
-      {/* -------- Main Content Area – form thoda upper (SignIn/Contact jaisa) -------- */}
+      {/* Main Content Area */}
       <div className="flex-1 flex items-start justify-center px-6 md:px-8 lg:px-12 pt-20 pb-12">
         <div className="w-full max-w-[520px] space-y-8">
-          {/* -------- Sign Up Card -------- */}
-        <Card className="border-border shadow-lg">
-          <CardHeader className="text-center space-y-2 px-6 pt-8 pb-6">
-            <CardTitle className="text-3xl font-bold">Create Account</CardTitle>
-            <CardDescription className="text-base">
+
+          {/* Sign Up Card */}
+          <Card className="border-border shadow-lg">
+            {/* Logo + Subtitle Centered */}
+            <CardHeader className="px-6 pt-12 pb-10">
+              <div className="flex justify-center">
+                <img
+                  src="/logo.svg"
+                  alt="LexOrbit Logo"
+                  className="h-20 md:h-24 lg:h-28 object-contain"
+                />
+              </div>
+              {/* Commented out Create Account title as per design */}
+              {/* <CardTitle className="text-3xl font-bold">Create Account</CardTitle> */}
+              
+              {/* Centered subtitle */}
+              <p className="text-center text-base text-muted-foreground mt-8">
               Join thousands of legal professionals
-            </CardDescription>
+            </p>
           </CardHeader>
 
           <CardContent className="px-6 pb-8">
