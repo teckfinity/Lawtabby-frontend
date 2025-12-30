@@ -30,31 +30,27 @@ const SignUpPopup = ({ isOpen, onClose, onSwitchToSignIn }: SignUpPopupProps) =>
   // Google login
   const googleLogin = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
-      console.log("🔵 Frontend (SignInPopup) - Google OAuth Success:", tokenResponse);
-      console.log("🔵 Frontend (SignInPopup) - Access Token:", tokenResponse.access_token);
+      console.log("Frontend (SignUpPopup) - Google OAuth Success:", tokenResponse);
+      console.log("Frontend (SignUpPopup) - Access Token:", tokenResponse.access_token);
       
       setIsLoading(true);
       try {
         const res = await GoogleLogin(tokenResponse.access_token);
-        console.log("🔵 Frontend (SignUpPopup) - Backend response:", res.data);
+        console.log("Frontend (SignUpPopup) - Backend response:", res.data);
         
         const token = res.data.key;
 
-        // Store token
         setAuthToken(token);
         localStorage.setItem('isAuthenticated', 'true');
 
-        console.log("🔵 Frontend (SignUpPopup) - Token stored as authToken:", localStorage.getItem("authToken"));
-        console.log("🔵 Frontend (SignUpPopup) - isAuthenticated set to:", localStorage.getItem("isAuthenticated"));
-
-        toast({ title: 'Success!', description: 'Logged in with Google' });
+        toast({ title: 'Success!', description: 'Account created with Google' });
         onClose();
       } catch (err: any) {
-        console.error("🔴 Frontend (SignUpPopup) - Google Login Error:", err);
-        console.error("🔴 Frontend (SignUpPopup) - Error Response:", err.response?.data);
+        console.error("Frontend (SignUpPopup) - Google Login Error:", err);
+        console.error("Frontend (SignUpPopup) - Error Response:", err.response?.data);
         toast({
-          title: 'Login Failed',
-          description: err.response?.data?.non_field_errors?.[0] || 'Google login failed',
+          title: 'Sign Up Failed',
+          description: err.response?.data?.non_field_errors?.[0] || 'Google sign up failed',
           variant: 'destructive'
         });
       } finally {
@@ -62,7 +58,7 @@ const SignUpPopup = ({ isOpen, onClose, onSwitchToSignIn }: SignUpPopupProps) =>
       }
     },
     onError: (error) => {
-      console.error("🔴 Frontend (SignUpPopup) - Google OAuth Error:", error);
+      console.error("Frontend (SignUpPopup) - Google OAuth Error:", error);
       toast({ title: 'Error', description: 'Google authentication failed', variant: 'destructive' });
     },
   });
@@ -118,11 +114,6 @@ const SignUpPopup = ({ isOpen, onClose, onSwitchToSignIn }: SignUpPopupProps) =>
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  // Placeholder for Apple & Microsoft buttons
-  const handleSocialSignUp = (provider: string) => {
-    toast({ title: `${provider} login not implemented yet` });
-  };
-
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-md p-0 overflow-hidden max-h-[90vh] overflow-y-auto">
@@ -144,41 +135,48 @@ const SignUpPopup = ({ isOpen, onClose, onSwitchToSignIn }: SignUpPopupProps) =>
         <div className="px-6 pb-6 space-y-4">
           {/* Social Login Buttons */}
           <div className="space-y-3">
+            {/* Continue with Google - Using your google-logo.png */}
             <Button
               variant="outline"
               className="w-full h-12 justify-start gap-3"
               onClick={() => googleLogin()}
               disabled={isLoading}
             >
-              <div className="w-5 h-5 bg-red-500 rounded flex items-center justify-center text-white text-xs font-bold">
-                G
-              </div>
-              {isLoading ? 'Signing in...' : 'Continue with Google'}
+              <img
+                src="/google-logo.png"
+                alt="Google"
+                className="h-5 w-5 rounded-sm object-contain"
+              />
+              {isLoading ? 'Signing up...' : 'Continue with Google'}
             </Button>
 
+            {/* Continue with Microsoft - Using your microsoft-logo.png */}
             <Button
               variant="outline"
               className="w-full h-12 justify-start gap-3"
-              onClick={() => handleSocialSignUp('Apple')}
+              onClick={() => toast({ title: "Microsoft Sign Up", description: "TODO: implement Microsoft login" })}
               disabled={isLoading}
             >
-              <div className="w-5 h-5 bg-black rounded flex items-center justify-center text-white text-xs font-bold">
-                🍎
-              </div>
+              <img
+                src="/microsoft-logo.png"
+                alt="Microsoft"
+                className="h-5 w-5 rounded-sm object-contain"
+              />
+              Continue with Microsoft
+            </Button>
+
+            {/* Apple button commented out */}
+            {/*
+            <Button
+              variant="outline"
+              className="w-full h-12 justify-start gap-3"
+              onClick={() => toast({ title: "Apple Sign Up", description: "TODO: implement Apple login" })}
+              disabled={isLoading}
+            >
+              <div className="w-5 h-5 bg-black rounded flex items-center justify-center text-white text-xs">Apple</div>
               Continue with Apple
             </Button>
-
-            <Button
-              variant="outline"
-              className="w-full h-12 justify-start gap-3"
-              onClick={() => handleSocialSignUp('Microsoft')}
-              disabled={isLoading}
-            >
-              <div className="w-5 h-5 bg-blue-500 rounded flex items-center justify-center text-white text-xs font-bold">
-                M
-              </div>
-              Continue with Microsoft Account
-            </Button>
+            */}
           </div>
 
           {/* Divider */}
