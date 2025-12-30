@@ -82,30 +82,24 @@ const ForgotPassword = () => {
 
   return (
     <div className="min-h-screen w-full bg-background flex flex-col">
-      {/* -------- Fixed Logo at Top-Left -------- */}
-      <div className="fixed top-0 left-0 z-50 px-6 md:px-8 lg:px-12 pt-8 pb-8 bg-background">
-        <img
-          src="/logo.svg"
-          alt="LexOrbit Logo"
-          className="h-20 md:h-24 lg:h-28 object-contain"
-        />
-      </div>
 
-      {/* -------- Main Content Area – perfect vertical center (jaise pehle tha) -------- */}
+      {/* Main Content Area */}
       <div className="flex-1 flex items-center justify-center px-6 md:px-8 lg:px-12 pb-12">
         <div className="w-full max-w-md space-y-8">
-          {/* -------- Forgot Password Card -------- */}
+
+          {/* Forgot Password Card */}
           <Card className="shadow-lg">
-            <CardHeader className="text-center">
-              <div className="mx-auto mb-4 w-12 h-12 bg-primary/10 rounded-full flex items-center justify-center">
-                {emailSent ? (
-                  <CheckCircle className="w-6 h-6 text-primary" />
-                ) : (
-                  <Mail className="w-6 h-6 text-primary" />
-                )}
+            {/* Logo + Subtitle Centered */}
+            <CardHeader className="px-6 pt-12 pb-10 text-center">
+              <div className="flex justify-center">
+                <img
+                  src="/logo.svg"
+                  alt="LexOrbit Logo"
+                  className="h-20 md:h-24 lg:h-28 object-contain"
+                />
               </div>
               <CardTitle className="text-2xl">
-                {emailSent ? 'Check Your Email' : 'Forgot Password?'}
+                {/* {emailSent ? 'Check Your Email' : 'Forgot Password?'} */}
               </CardTitle>
               <CardDescription>
                 {emailSent 
