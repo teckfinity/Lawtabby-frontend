@@ -28,39 +28,34 @@ const SignInPopup = ({
 
   const googleLogin = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
-      console.log("🔵 Frontend (SignInPopup) - Google OAuth Success:", tokenResponse);
-      console.log("🔵 Frontend (SignInPopup) - Access Token:", tokenResponse.access_token);
+      console.log("Frontend (SignInPopup) - Google OAuth Success:", tokenResponse);
+      console.log("Frontend (SignInPopup) - Access Token:", tokenResponse.access_token);
       
       setIsLoading(true);
       try {
         const res = await GoogleLogin(tokenResponse.access_token);
-        console.log("🔵 Frontend (SignInPopup) - Backend response:", res.data);
+        console.log("Frontend (SignInPopup) - Backend response:", res.data);
         
         const token = res.data.key;
         
-        // Store token using the same method as regular login
         setAuthToken(token);
         localStorage.setItem('isAuthenticated', 'true');
-        
-        console.log("🔵 Frontend (SignInPopup) - Token stored as authToken:", localStorage.getItem("authToken"));
-        console.log("🔵 Frontend (SignInPopup) - isAuthenticated set to:", localStorage.getItem("isAuthenticated"));
         
         toast({ title: 'Success!', description: 'Logged in with Google' });
         onClose();
       } catch (err: any) {
-        console.error("🔴 Frontend (SignInPopup) - Google Login Error:", err);
-        console.error("🔴 Frontend (SignInPopup) - Error Response:", err.response?.data);
+        console.error("Frontend (SignInPopup) - Google Login Error:", err);
+        console.error("Frontend (SignInPopup) - Error Response:", err.response?.data);
         toast({ title: 'Login Failed', description: err.response?.data?.non_field_errors?.[0] || 'Google login failed', variant: 'destructive' });
       } finally {
         setIsLoading(false);
       }
     },
     onError: (error) => {
-      console.error("🔴 Frontend (SignInPopup) - Google OAuth Error:", error);
-    toast({ title: 'Error', description: 'Google authentication failed', variant: 'destructive' });
+      console.error("Frontend (SignInPopup) - Google OAuth Error:", error);
+      toast({ title: 'Error', description: 'Google authentication failed', variant: 'destructive' });
     },
   });
-
 
   const handleContinue = () => {
     if (!email) {
@@ -94,17 +89,48 @@ const SignInPopup = ({
 
         <div className="px-6 pb-6 space-y-4">
           <div className="space-y-3">
+            {/* Continue with Google - Using your google-logo.png */}
             <Button
               variant="outline"
               className="w-full h-12 justify-start gap-3"
               onClick={() => googleLogin()}
               disabled={isLoading}
             >
-              <div className="w-5 h-5 bg-red-500 rounded flex items-center justify-center text-white text-xs font-bold">
-                G
-              </div>
+              <img
+                src="/google-logo.png"
+                alt="Google"
+                className="h-5 w-5 rounded-sm object-contain"
+              />
               {isLoading ? 'Signing in...' : 'Continue with Google'}
             </Button>
+
+            {/* Continue with Microsoft - Using your microsoft-logo.png */}
+            <Button
+              variant="outline"
+              className="w-full h-12 justify-start gap-3"
+              onClick={() => toast({ title: "Microsoft Sign In", description: "TODO: implement Microsoft login" })}
+              disabled={isLoading}
+            >
+              <img
+                src="/microsoft-logo.png"
+                alt="Microsoft"
+                className="h-5 w-5 rounded-sm object-contain"
+              />
+              Continue with Microsoft
+            </Button>
+
+            {/* Apple button commented out as requested */}
+            {/* 
+            <Button
+              variant="outline"
+              className="w-full h-12 justify-start gap-3"
+              onClick={() => toast({ title: "Apple Sign In", description: "TODO: implement Apple login" })}
+              disabled={isLoading}
+            >
+              <div className="w-5 h-5 bg-black rounded flex items-center justify-center text-white text-xs">Apple</div>
+              Continue with Apple
+            </Button>
+            */}
           </div>
 
           <div className="relative my-6">
