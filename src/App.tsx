@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { ThemeProvider } from "next-themes";
 import { AppSidebar } from "@/components/AppSidebar";
@@ -68,6 +68,13 @@ const ProtectedLayout = ({ children }: { children: JSX.Element }) => (
   </div>
 );
 
+// ---------- Public Layout → Hamesha Dark Theme ----------
+const PublicLayout = () => (
+  <div className="dark min-h-screen w-full bg-background text-foreground">
+    <Outlet />
+  </div>
+);
+
 // ---------- App Setup ----------
 const queryClient = new QueryClient();
 
@@ -88,7 +95,8 @@ const App = () => (
                 {/* Redirect root to SignIn */}
                 <Route path="/" element={<Navigate to="/signin" replace />} />
 
-                {/* Public Routes */}
+                {/* Public Routes → Always Dark Theme */}
+              <Route element={<PublicLayout />}>
                 <Route path="/signin" element={<SignIn />} />
                 <Route path="/signup" element={<SignUp />} />
                 <Route path="/signout" element={<SignOut />} />
@@ -97,8 +105,9 @@ const App = () => (
                 <Route path="/contact-support" element={<ContactSupport />} />
                 <Route path="/terms-of-service" element={<TermsOfService />} />
                 <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+              </Route>
 
-                {/* Protected Routes */}
+                {/* Protected Routes → System Theme (or future toggle) */}
                 <Route
                   path="/dashboard"
                   element={
