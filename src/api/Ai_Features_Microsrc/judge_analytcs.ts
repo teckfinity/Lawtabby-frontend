@@ -5,17 +5,19 @@ import { apiClient } from "./ai_mics_config";
 /**
  * GET: List of Judges with pagination and search
  * Endpoint: /api/judges/
- * Query Params: limit, offset, search
+ * Query Params: limit, offset, search, backfill_all (1 = one-time backfill all judges for Grant Rate / Avg Decision / Case Type)
  * Response: { results: [...], pagination: { limit, offset, total, has_next, has_previous } }
  */
 export const getJudgesList = ({
   limit = 3,
   offset = 0,
   search,
+  backfill_all,
 }: {
   limit?: number;
   offset?: number;
   search?: string;
+  backfill_all?: boolean;
 }) => {
   const params: Record<string, any> = {
     limit,
@@ -24,6 +26,9 @@ export const getJudgesList = ({
 
   if (search && search.trim().length > 0) {
     params.search = search.trim();
+  }
+  if (backfill_all) {
+    params.backfill_all = "1";
   }
 
   return apiClient.get("/api/judges/", {
@@ -34,9 +39,23 @@ export const getJudgesList = ({
 
 /* ---------------------------------------------------------
    GET: cases/type-analysis/
+   backfill=1: run AI extraction for categories with no outcome and store to DB
 --------------------------------------------------------- */
-export const getCaseTypeAnalysis = () => {
+export const getCaseTypeAnalysis = (options?: { backfill?: boolean }) => {
+  const params: Record<string, string> = {};
+  if (options?.backfill) params.backfill = "1";
   return apiClient.get("/api/cases/type-analysis/", {
+    params,
+    headers: { "Content-Type": "application/json" },
+  });
+};
+
+/* ---------------------------------------------------------
+   NEW: GET: Quick Insights for homepage
+   Endpoint: /api/insights/quick/
+--------------------------------------------------------- */
+export const getQuickInsights = () => {
+  return apiClient.get("/api/insights/quick/", {
     headers: { "Content-Type": "application/json" },
   });
 };
@@ -49,6 +68,7 @@ export const getJudgeProfile = (judgeId: number) => {
     headers: { "Content-Type": "application/json" },
   });
 };
+
 /* ---------------------------------------------------------
    POST: judge predictive ai
 --------------------------------------------------------- */
@@ -89,39 +109,9 @@ export const getJudgeCaseHistory = (
   });
 };
 
-// esky nechy tumhara nhi
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /* ---------------------------------------------------------
    GET: Judge Analytics Summary (top stats cards)
+   Endpoint: /api/judge-analytics/summary/
 --------------------------------------------------------- */
 export const getJudgeAnalyticsSummary = () => {
   return apiClient.get("/api/judge-analytics/summary/", {
@@ -131,6 +121,7 @@ export const getJudgeAnalyticsSummary = () => {
 
 /* ---------------------------------------------------------
    GET: Judge Analytics Overview (right panel data)
+   Endpoint: /api/judge-analytics/overview/
 --------------------------------------------------------- */
 export const getJudgeAnalyticsOverview = () => {
   return apiClient.get("/api/judge-analytics/overview/", {
@@ -184,6 +175,7 @@ export const getJudgeOldAnalytics = (judgeId: number) => {
 
 /* ---------------------------------------------------------
    GET: Judge Prediction Context
+   Endpoint: /api/judges/{judge_id}/prediction_context/
 --------------------------------------------------------- */
 export const getJudgePredictionContext = (judgeId: number) => {
   if (!judgeId) throw new Error("Judge ID is required.");
@@ -195,6 +187,7 @@ export const getJudgePredictionContext = (judgeId: number) => {
 
 /* ---------------------------------------------------------
    GET: Judge Historical Performance
+   Endpoint: /api/judges/{judge_id}/historical_performance/
 --------------------------------------------------------- */
 export const getJudgeHistoricalPerformance = (judgeId: number) => {
   if (!judgeId) throw new Error("Judge ID is required.");
@@ -204,16 +197,9 @@ export const getJudgeHistoricalPerformance = (judgeId: number) => {
   });
 };
 
-
-
-
-
-
-
-
-
 /* ---------------------------------------------------------
    GET: Judge Decision Patterns & Behavioral Analysis
+   Endpoint: /api/judges/{judge_id}/patterns/
 --------------------------------------------------------- */
 export const getJudgePatterns = (judgeId: number) => {
   if (!judgeId) throw new Error("Judge ID is required.");
@@ -222,106 +208,3 @@ export const getJudgePatterns = (judgeId: number) => {
     headers: { "Content-Type": "application/json" },
   });
 };
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-// /*--------------------------------------------Judge  Pridiction apis__________________________________________
-// /* ---------------------------------------------------------
-//    NEW: Get Judge Prediction Context
-//    Endpoint: /judges/{{judge_id}}/prediction_context/
-//    Used for: Right sidebar cards on Predictions page (except Historical Performance)
-// --------------------------------------------------------- */
-// export const getJudgePredictionContext = (judgeId: number) => {
-//   if (!judgeId) throw new Error("Judge ID is required.");
-
-//   return apiClient.get(`/api/judges/${judgeId}/prediction_context/`, {
-//     headers: { "Content-Type": "application/json" },
-//   });
-// };
-
-
-// /* ---------------------------------------------------------
-//    NEW: Get Judge Historical Performance by Case Type
-//    Endpoint: /judges/{{judge_id}}/historical_performance/
-//    Response: { judge_id, judge_name, performance_by_case_type: [...] }
-// --------------------------------------------------------- */
-// export const getJudgeHistoricalPerformance = (judgeId: number) => {
-//   if (!judgeId) throw new Error("Judge ID is required.");
-
-//   return apiClient.get(`/api/judges/${judgeId}/historical_performance/`, {
-//     headers: { "Content-Type": "application/json" },
-//   });
-// };
-
-
-
-// /* ---------------------------------------------------------
-//    NEW: POST Predict Outcome for a Judge
-//    Endpoint: /judges/{{judge_id}}/predict_outcome/
-//    Body: { case_type, client_position, case_description, key_facts }
-// --------------------------------------------------------- */
-// export const postJudgePredictOutcome = (
-//   judgeId: number,
-//   payload: {
-//     case_type: string;
-//     client_position: string;
-//     case_description: string;
-//     key_facts: string[];
-//   }
-// ) => {
-//   if (!judgeId) throw new Error("Judge ID is required.");
-
-//   return apiClient.post(`/api/judges/${judgeId}/predict_outcome/`, payload, {
-//     headers: { "Content-Type": "application/json" },
-//   });
-// };
-
-// /* ---------------------------------------------------------
-//    NEW: Get Judge Case History with Filters & Pagination
-//    Endpoint: /judges/{{judge_id}}/case_history/
-//    Query Params: search, case_type, status, limit, page
-// --------------------------------------------------------- */
-// export const getJudgeCaseHistory = (
-//   judgeId: number,
-//   params: {
-//     search?: string;
-//     case_type?: string;
-//     status?: string; // 'active' | 'closed'
-//     limit?: number;
-//     page?: number;
-//   } = {}
-// ) => {
-//   if (!judgeId) throw new Error("Judge ID is required.");
-
-//   return apiClient.get(`/api/judges/${judgeId}/case_history/`, {
-//     params,
-//     headers: { "Content-Type": "application/json" },
-//   });
-// };
-
-
-// /* ---------------------------------------------------------
-//    NEW: Get Judge Decision Patterns & Behavioral Analysis
-//    Endpoint: /judges/{{judge_id}}/patterns/
-// --------------------------------------------------------- */
-// export const getJudgePatterns = (judgeId: number) => {
-//   if (!judgeId) throw new Error("Judge ID is required.");
-
-//   return apiClient.get(`/api/judges/${judgeId}/patterns/`, {
-//     headers: { "Content-Type": "application/json" },
-//   });
-// };

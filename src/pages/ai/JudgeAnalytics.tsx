@@ -32,7 +32,8 @@ const JudgeAnalytics = () => {
   const [loading, setLoading] = useState(true);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [overviewLoading, setOverviewLoading] = useState(true);
-  const [caseTypeLoading, setCaseTypeLoading] = useState(true); // New loading state
+  const [caseTypeLoading, setCaseTypeLoading] = useState(true);
+  const [refreshingAnalytics, setRefreshingAnalytics] = useState(false);
 
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -155,6 +156,33 @@ const JudgeAnalytics = () => {
     fetchJudges();
   }, [offset, debouncedQuery]);
 
+  // One-time: backfill Grant Rate / Avg Decision / Case Type for all judges (CourtListener + AI)
+  const refreshAnalytics = async () => {
+    try {
+      setRefreshingAnalytics(true);
+      await getJudgesList({ limit: 1, offset: 0, backfill_all: true });
+      // Refetch current data so UI updates
+      const [summaryRes, overviewRes, caseRes, judgesRes] = await Promise.all([
+        getJudgeAnalyticsSummary(),
+        getJudgeAnalyticsOverview(),
+        getCaseTypeAnalysis({ backfill: true }),
+        getJudgesList({ limit, offset, ...(debouncedQuery ? { search: debouncedQuery } : {}) }),
+      ]);
+      setSummary(summaryRes.data);
+      setOverview(overviewRes.data);
+      setCaseTypeAnalysis(caseRes.data || []);
+      const data = judgesRes.data;
+      setJudges(data.results || []);
+      setTotalCount(data.pagination?.total || 0);
+      setHasNext(data.pagination?.has_next || false);
+      setHasPrevious(data.pagination?.has_previous || false);
+    } catch (e) {
+      console.error("Error refreshing analytics:", e);
+    } finally {
+      setRefreshingAnalytics(false);
+    }
+  };
+
   const stats = [
     { label: "Judges Analyzed", value: summary.judges_analyzed.toLocaleString(), icon: Users },
     { label: "Cases Tracked", value: summary.cases_tracked.toLocaleString(), icon: Scale },
@@ -208,14 +236,25 @@ const JudgeAnalytics = () => {
             <CardDescription>Search for judges by name, court, or specialty area</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search judges, courts, or case types..."
-                className="pl-9"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search judges, courts, or case types..."
+                  className="pl-9"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </div>
+              {/* <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 border-legal-primary text-legal-primary hover:bg-legal-primary/10"
+                onClick={refreshAnalytics}
+                disabled={refreshingAnalytics}
+              >
+                {refreshingAnalytics ? "Syncing…" : "Refresh analytics (sync Grant Rate & Avg Decision)"}
+              </Button> */}
             </div>
           </CardContent>
         </Card>
@@ -231,10 +270,10 @@ const JudgeAnalytics = () => {
                 </CardTitle>
                 <CardDescription>Detailed performance analytics and ruling patterns</CardDescription>
               </CardHeader>
-              <CardContent className="flex-1 flex flex-col justify-between">
-                <div className="space-y-6 min-h-[560px]">
+              <CardContent className="flex-1 flex flex-col">
+                <div className="space-y-6">
                   {loading ? (
-                    <div className="flex items-center justify-center h-[560px]">
+                    <div className="flex items-center justify-center min-h-[200px] py-12">
                       <p className="text-lg text-muted-foreground">Loading judges...</p>
                     </div>
                   ) : judges.length > 0 ? (
@@ -251,17 +290,32 @@ const JudgeAnalytics = () => {
                               <p className="text-sm text-muted-foreground">{j.court_name || "N/A"}</p>
                               {j.specialty && <Badge variant="outline" className="mt-1">{j.specialty}</Badge>}
                             </div>
-                            <div className="flex items-center gap-2">
+                            {/* <div className="flex items-center gap-2">
                               {trend === "up" ? (
                                 <TrendingUp className="h-5 w-5 text-legal-success" />
                               ) : (
                                 <TrendingDown className="h-5 w-5 text-destructive" />
                               )}
                               <span className="text-sm font-medium">{j.grant_rate}% Grant Rate</span>
+                            </div> */}
+
+                            <div className="flex items-center gap-2">
+                              {j.grant_rate !== null ? (
+                                <>
+                                  {j.grant_rate > 50 ? (
+                                    <TrendingUp className="h-5 w-5 text-legal-success" />
+                                  ) : (
+                                    <TrendingDown className="h-5 w-5 text-destructive" />
+                                  )}
+                                  <span className="text-sm font-medium">{j.grant_rate}% Grant Rate</span>
+                                </>
+                              ) : (
+                                <span className="text-sm font-medium text-muted-foreground">No outcome data</span>
+                              )}
                             </div>
                           </div>
 
-                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          {/* <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                             <div className="text-center">
                               <p className="text-2xl font-bold text-legal-primary">{j.total_cases}</p>
                               <p className="text-xs text-muted-foreground">Total Cases</p>
@@ -278,7 +332,30 @@ const JudgeAnalytics = () => {
                               <p className="text-2xl font-bold text-legal-success">{j.recent_cases_count}</p>
                               <p className="text-xs text-muted-foreground">Recent Cases</p>
                             </div>
+                          </div> */}
+
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div className="text-center">
+                            <p className="text-2xl font-bold text-legal-primary">{j.total_cases}</p>
+                            <p className="text-xs text-muted-foreground">Total Opinions</p>  {/* CHANGED label */}
                           </div>
+                          <div className="text-center">
+                            <p className="text-2xl font-bold text-legal-warning">
+                              {j.grant_rate !== null ? `${j.grant_rate}%` : 'N/A'}  {/* CHANGED: handle null */}
+                            </p>
+                            <p className="text-xs text-muted-foreground">Grant Rate</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-2xl font-bold text-legal-info">
+                              {j.avg_decision_time !== null ? `${j.avg_decision_time} days` : 'N/A'}  {/* CHANGED: handle null */}
+                            </p>
+                            <p className="text-xs text-muted-foreground">Avg Decision</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-2xl font-bold text-legal-success">{j.recent_cases_count}</p>
+                            <p className="text-xs text-muted-foreground">Cases Handled</p>  {/* CHANGED label */}
+                          </div>
+                        </div>
 
                           <div className="mt-4 pt-4 border-t border-border">
                             <div className="flex flex-wrap gap-2">
@@ -301,64 +378,57 @@ const JudgeAnalytics = () => {
                       );
                     })
                   ) : (
-                    <div className="flex items-center justify-center h-[560px]">
+                    <div className="flex items-center justify-center min-h-[200px] py-12">
                       <p className="text-lg text-muted-foreground">No judges found matching your criteria.</p>
                     </div>
                   )}
                 </div>
 
                 {totalCount > 0 && (
-                  <div className="mt-10 pt-6 border-t border-border">
-                    <div className="flex items-center justify-center gap-4 flex-wrap">
-                      <span className="text-sm font-medium text-muted-foreground">
-                        {totalCount} items
+                  <div className="mt-6 pt-4 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <span className="text-sm text-muted-foreground order-2 sm:order-1">
+                      {totalCount} judge{totalCount !== 1 ? 's' : ''} total
+                    </span>
+                    <div className="flex items-center gap-1 order-1 sm:order-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9 px-3 rounded-md border-legal-primary/30 text-legal-primary hover:bg-legal-primary/10"
+                        disabled={!hasPrevious || loading}
+                        onClick={() => setOffset(0)}
+                      >
+                        First
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9 w-9 rounded-md border-legal-primary/30 text-legal-primary hover:bg-legal-primary/10 p-0"
+                        disabled={!hasPrevious || loading}
+                        onClick={() => setOffset(Math.max(offset - limit, 0))}
+                      >
+                        ‹
+                      </Button>
+                      <span className="min-w-[100px] text-center text-sm font-medium text-foreground px-3 py-2 bg-muted/50 rounded-md">
+                        Page {currentPage} of {totalPages}
                       </span>
-
-                      <div className="flex items-center gap-1 bg-muted/30 rounded-lg px-4 py-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          disabled={!hasPrevious || loading}
-                          onClick={() => setOffset(0)}
-                        >
-                          ««
-                        </Button>
-
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          disabled={!hasPrevious || loading}
-                          onClick={() => setOffset(Math.max(offset - limit, 0))}
-                        >
-                          ‹
-                        </Button>
-
-                        <span className="mx-4 font-semibold text-foreground min-w-[80px] text-center">
-                          {currentPage} of {totalPages}
-                        </span>
-
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          disabled={!hasNext || loading}
-                          onClick={() => setOffset(offset + limit)}
-                        >
-                          ›
-                        </Button>
-
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8"
-                          disabled={!hasNext || loading}
-                          onClick={() => setOffset((totalPages - 1) * limit)}
-                        >
-                          »»
-                        </Button>
-                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9 w-9 rounded-md border-legal-primary/30 text-legal-primary hover:bg-legal-primary/10 p-0"
+                        disabled={!hasNext || loading}
+                        onClick={() => setOffset(offset + limit)}
+                      >
+                        ›
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9 px-3 rounded-md border-legal-primary/30 text-legal-primary hover:bg-legal-primary/10"
+                        disabled={!hasNext || loading}
+                        onClick={() => setOffset((totalPages - 1) * limit)}
+                      >
+                        Last
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -399,13 +469,13 @@ const JudgeAnalytics = () => {
         </>
       ) : (
         caseTypeAnalysis.map((caseType: any, index: number) => {
-          // Very light pastel colors - har category ka alag soft color
+          const noOutcomeData = caseType.no_outcome_data || caseType.granted_percentage == null;
           const pastelColors = [
-            "bg-blue-300",     // Civil Rights - light blue
-            "bg-emerald-300",  // Contract Disputes - light emerald
-            "bg-amber-300",    // Employment - light amber
-            "bg-purple-300",   // Personal Injury - light purple
-            "bg-pink-300",     // Extra
+            "bg-blue-300",
+            "bg-emerald-300",
+            "bg-amber-300",
+            "bg-purple-300",
+            "bg-pink-300",
             "bg-cyan-300",
             "bg-lime-300",
             "bg-orange-300",
@@ -421,12 +491,18 @@ const JudgeAnalytics = () => {
               <div className="w-full bg-muted/40 rounded-full h-3 overflow-hidden">
                 <div
                   className={`${barColor} h-3 rounded-full transition-all duration-700 ease-out shadow-sm`}
-                  style={{ width: `${caseType.granted_percentage}%` }}
+                  style={{ width: noOutcomeData ? "0%" : `${caseType.granted_percentage}%` }}
                 />
               </div>
               <div className="flex justify-between text-xs text-muted-foreground">
-                <span>{caseType.granted_percentage}% Granted</span>
-                <span>{caseType.denied_percentage}% Denied</span>
+                {noOutcomeData ? (
+                  <span>No outcome data</span>
+                ) : (
+                  <>
+                    <span>{caseType.granted_percentage}% Granted</span>
+                    <span>{caseType.denied_percentage}% Denied</span>
+                  </>
+                )}
               </div>
             </div>
           );
