@@ -25,7 +25,7 @@ const Dashboard = () => {
       description: "AI-powered research with verified U.S. citations",
       icon: Brain,
       href: "/ai/legal-research",
-      color: "bg-legal-primary",
+      color: "bg-primary",
       badge: "New"
     },
     {
@@ -33,7 +33,7 @@ const Dashboard = () => {
       description: "Convert long legal cases into concise summaries",
       icon: Brain,
       href: "/ai/summarizer",
-      color: "bg-legal-primary",
+      color: "bg-primary",
       badge: "AI Powered"
     },
     {
@@ -41,7 +41,7 @@ const Dashboard = () => {
       description: "Merge, split, compress, and edit PDFs",
       icon: FileText,
       href: "/pdf-tools",
-      color: "bg-legal-info",
+      color: "bg-navy",
       badge: "Essential"
     },
     {
@@ -49,7 +49,7 @@ const Dashboard = () => {
       description: "Insights into judge behavior and ruling patterns",
       icon: Gavel,
       href: "/ai/judge-analytics",
-      color: "bg-legal-warning",
+      color: "bg-navy-light",
       badge: "Popular"
     }
   ];
@@ -72,10 +72,10 @@ const Dashboard = () => {
       <div className="max-w-7xl mx-auto w-full">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-foreground mb-2">
-            Welcome to LegalAI Pro Max
+          <h1 className="text-3xl font-bold font-heading text-foreground mb-2">
+            Welcome to LexOrbit
           </h1>
-          <p className="text-muted-foreground text-lg">
+          <p className="text-muted-foreground text-lg font-body">
             Your AI-powered legal assistant for document analysis, case research, and legal automation
           </p>
         </div>

@@ -17,9 +17,29 @@ import {
   getJudgesList, 
   getJudgeAnalyticsSummary,
   getJudgeAnalyticsOverview,
-  getCaseTypeAnalysis  // ← NEW IMPORT
+  getCaseTypeAnalysis
 } from "@/api/Ai_Features_Microsrc/judge_analytcs";
 import { useNavigate } from "react-router-dom";
+
+const JUDGE_ANALYTICS_CACHE_KEY = "judge_analytics_page_cache";
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function getCached(): any {
+  try {
+    const raw = sessionStorage.getItem(JUDGE_ANALYTICS_CACHE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (data?.timestamp && Date.now() - data.timestamp < CACHE_TTL_MS) return data;
+  } catch (_) {}
+  return null;
+}
+
+function setCached(update: Record<string, any>) {
+  try {
+    const existing = getCached() || {};
+    sessionStorage.setItem(JUDGE_ANALYTICS_CACHE_KEY, JSON.stringify({ ...existing, ...update, timestamp: Date.now() }));
+  } catch (_) {}
+}
 
 const JudgeAnalytics = () => {
   const limit = 3;
@@ -69,8 +89,27 @@ const JudgeAnalytics = () => {
     },
   });
 
-  // NEW: Separate state for Case Type Analysis from the new endpoint
   const [caseTypeAnalysis, setCaseTypeAnalysis] = useState<any[]>([]);
+
+  // Hydrate from cache on mount so we show data immediately (no "0" / empty flash)
+  useEffect(() => {
+    const cached = getCached();
+    if (cached) {
+      if (cached.summary && Object.keys(cached.summary).length) setSummary(cached.summary);
+      if (cached.overview && (cached.overview.quick_insights?.length || cached.overview.ai_prediction_teaser)) setOverview(cached.overview);
+      if (Array.isArray(cached.caseTypeAnalysis)) setCaseTypeAnalysis(cached.caseTypeAnalysis);
+      if (Array.isArray(cached.judges) && cached.judges.length > 0) {
+        setJudges(cached.judges);
+        setTotalCount(cached.totalCount ?? 0);
+        setHasNext(!!cached.hasNext);
+        setHasPrevious(!!cached.hasPrevious);
+        setLoading(false);
+      }
+      if (cached.summary) setSummaryLoading(false);
+      if (cached.overview) setOverviewLoading(false);
+      if (cached.caseTypeAnalysis) setCaseTypeLoading(false);
+    }
+  }, []);
 
   // Fetch Summary
   useEffect(() => {
@@ -79,6 +118,7 @@ const JudgeAnalytics = () => {
         setSummaryLoading(true);
         const res = await getJudgeAnalyticsSummary();
         setSummary(res.data);
+        setCached({ summary: res.data });
       } catch (error) {
         console.error("Error fetching summary:", error);
       } finally {
@@ -88,13 +128,14 @@ const JudgeAnalytics = () => {
     fetchSummary();
   }, []);
 
-  // Fetch Overview (Quick Insights + AI Teaser only now)
+  // Fetch Overview
   useEffect(() => {
     const fetchOverview = async () => {
       try {
         setOverviewLoading(true);
         const res = await getJudgeAnalyticsOverview();
         setOverview(res.data);
+        setCached({ overview: res.data });
       } catch (error) {
         console.error("Error fetching overview:", error);
       } finally {
@@ -104,13 +145,15 @@ const JudgeAnalytics = () => {
     fetchOverview();
   }, []);
 
-  // NEW: Fetch Case Type Analysis from dedicated endpoint
+  // Fetch Case Type Analysis
   useEffect(() => {
     const fetchCaseTypeAnalysis = async () => {
       try {
         setCaseTypeLoading(true);
         const res = await getCaseTypeAnalysis();
-        setCaseTypeAnalysis(res.data || []);
+        const data = res.data || [];
+        setCaseTypeAnalysis(data);
+        setCached({ caseTypeAnalysis: data });
       } catch (error) {
         console.error("Error fetching case type analysis:", error);
         setCaseTypeAnalysis([]);
@@ -130,30 +173,42 @@ const JudgeAnalytics = () => {
     return () => clearTimeout(timer);
   }, [query]);
 
-  // Fetch Judges
+  // Fetch Judges – show cached/previous list while loading (stale-while-revalidate)
   useEffect(() => {
+    let cancelled = false;
     const fetchJudges = async () => {
+      const params: any = { limit, offset };
+      if (debouncedQuery) params.search = debouncedQuery;
+      setLoading(true);
       try {
-        setLoading(true);
-        const params: any = { limit, offset };
-        if (debouncedQuery) params.search = debouncedQuery;
-
         const res = await getJudgesList(params);
+        if (cancelled) return;
         const data = res.data;
-
         setJudges(data.results || []);
         setTotalCount(data.pagination?.total || 0);
         setHasNext(data.pagination?.has_next || false);
         setHasPrevious(data.pagination?.has_previous || false);
+        setCached({
+          judges: data.results || [],
+          totalCount: data.pagination?.total ?? 0,
+          hasNext: data.pagination?.has_next ?? false,
+          hasPrevious: data.pagination?.has_previous ?? false,
+          offset,
+          limit,
+          query: debouncedQuery,
+        });
       } catch (error) {
-        console.error("Error fetching judges:", error);
-        setJudges([]);
+        if (!cancelled) {
+          console.error("Error fetching judges:", error);
+          setJudges([]);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
 
     fetchJudges();
+    return () => { cancelled = true; };
   }, [offset, debouncedQuery]);
 
   // One-time: backfill Grant Rate / Avg Decision / Case Type for all judges (CourtListener + AI)
@@ -272,7 +327,7 @@ const JudgeAnalytics = () => {
               </CardHeader>
               <CardContent className="flex-1 flex flex-col">
                 <div className="space-y-6">
-                  {loading ? (
+                  {loading && judges.length === 0 ? (
                     <div className="flex items-center justify-center min-h-[200px] py-12">
                       <p className="text-lg text-muted-foreground">Loading judges...</p>
                     </div>
@@ -471,14 +526,14 @@ const JudgeAnalytics = () => {
         caseTypeAnalysis.map((caseType: any, index: number) => {
           const noOutcomeData = caseType.no_outcome_data || caseType.granted_percentage == null;
           const pastelColors = [
-            "bg-blue-300",
-            "bg-emerald-300",
-            "bg-amber-300",
-            "bg-purple-300",
-            "bg-pink-300",
-            "bg-cyan-300",
-            "bg-lime-300",
-            "bg-orange-300",
+            "bg-primary/75",
+            "bg-success/75",
+            "bg-legal-warning/75",
+            "bg-legal-info/75",
+            "bg-gold-light/80",
+            "bg-navy/55",
+            "bg-burgundy/50",
+            "bg-sage/70",
           ];
           const barColor = pastelColors[index % pastelColors.length];
 

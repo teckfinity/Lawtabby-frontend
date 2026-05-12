@@ -14,15 +14,9 @@ export default {
     },
     extend: {
       fontFamily: {
-        'alex-brush': ['"Alex Brush"', 'cursive'],
-        'allura': ['Allura', 'cursive'],
-        'mrs-saint-delafield': ['"Mrs Saint Delafield"', 'cursive'],
-        'kristi': ['Kristi', 'cursive'],
-        'italianno': ['Italianno', 'cursive'],
-        'mr-dafoe': ['"Mr Dafoe"', 'cursive'],
-        'satisfy': ['Satisfy', 'cursive'],
-        'zeyada': ['Zeyada', 'cursive'],
-        'shadows-into-light': ['"Shadows Into Light"', 'cursive'],
+        heading: ["Crimson Pro", "serif"],
+        body: ["Inter", "sans-serif"],
+        legal: ["Libre Baskerville", "serif"],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -42,6 +36,10 @@ export default {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
         },
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))",
+        },
         muted: {
           DEFAULT: "hsl(var(--muted))",
           foreground: "hsl(var(--muted-foreground))",
@@ -58,6 +56,31 @@ export default {
           DEFAULT: "hsl(var(--card))",
           foreground: "hsl(var(--card-foreground))",
         },
+        gold: {
+          DEFAULT: "hsl(var(--gold))",
+          light: "hsl(var(--gold-light))",
+          dark: "hsl(var(--gold-dark))",
+        },
+        navy: {
+          DEFAULT: "hsl(var(--navy))",
+          dark: "hsl(var(--navy-dark))",
+          light: "hsl(var(--navy-light))",
+        },
+        sage: "hsl(var(--sage-green))",
+        burgundy: "hsl(var(--burgundy-red))",
+        cream: {
+          DEFAULT: "hsl(var(--cream))",
+          dark: "hsl(var(--cream-dark))",
+        },
+        cognac: {
+          DEFAULT: "hsl(var(--gold))",
+          light: "hsl(var(--gold-light))",
+        },
+        brass: "hsl(var(--gold))",
+        ivory: "hsl(var(--cream))",
+        parchment: "hsl(var(--cream))",
+        charcoal: "hsl(var(--charcoal))",
+        slate: "hsl(var(--slate-gray))",
         sidebar: {
           DEFAULT: "hsl(var(--sidebar-background))",
           foreground: "hsl(var(--sidebar-foreground))",
@@ -68,21 +91,32 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        /** Dashboard semantic aliases → CSS variables (Courtroom Gold) */
         legal: {
-          primary: "hsl(var(--legal-primary))",
-          secondary: "hsl(var(--legal-secondary))",
-          success: "hsl(var(--legal-success))",
-          warning: "hsl(var(--legal-warning))",
-          info: "hsl(var(--legal-info))",
+          primary: "hsl(var(--primary))",
+          secondary: "hsl(var(--navy))",
+          success: "hsl(var(--success))",
+          warning: "hsl(var(--chart-warning))",
+          info: "hsl(var(--chart-info))",
         },
       },
       backgroundImage: {
         "gradient-primary": "var(--gradient-primary)",
         "gradient-secondary": "var(--gradient-secondary)",
+        "gradient-gold": "var(--gradient-gold)",
+        "gradient-gold-hover": "var(--gradient-gold-hover)",
+        "gradient-navy": "var(--gradient-navy)",
+        "gradient-navy-radial": "var(--gradient-navy-radial)",
       },
       boxShadow: {
-        "legal": "var(--shadow-legal)",
-        "card": "var(--shadow-card)",
+        subtle: "var(--shadow-subtle)",
+        card: "var(--shadow-card)",
+        elevated: "var(--shadow-elevated)",
+        gold: "var(--shadow-gold)",
+        "gold-hover": "var(--shadow-gold-hover)",
+        "gold-lg": "var(--shadow-gold-lg)",
+        "gold-glow": "var(--shadow-gold-glow)",
+        legal: "var(--shadow-legal)",
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -91,20 +125,12 @@ export default {
       },
       keyframes: {
         "accordion-down": {
-          from: {
-            height: "0",
-          },
-          to: {
-            height: "var(--radix-accordion-content-height)",
-          },
+          from: { height: "0" },
+          to: { height: "var(--radix-accordion-content-height)" },
         },
         "accordion-up": {
-          from: {
-            height: "var(--radix-accordion-content-height)",
-          },
-          to: {
-            height: "0",
-          },
+          from: { height: "var(--radix-accordion-content-height)" },
+          to: { height: "0" },
         },
       },
       animation: {

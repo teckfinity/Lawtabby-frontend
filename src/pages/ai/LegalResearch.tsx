@@ -450,7 +450,7 @@ DISCLAIMER: This information is for educational purposes only and does not const
                             size="sm"
                             variant="outline"
                             onClick={() => handleDelete(index)}
-                            className="text-red-600 hover:text-red-700 "
+                            className="text-destructive hover:text-destructive/90"
                           >
                             <Trash className="h-4 w-4" />
                           </Button>
@@ -479,7 +479,7 @@ DISCLAIMER: This information is for educational purposes only and does not const
                             <li key={i} className="flex gap-2">
                               <span className="text-legal-primary font-medium">•</span>
                               <span className="text-foreground">
-                                <span className="text-organza-600 font-bold">{authority.case_name}</span>{" "}
+                                <span className="text-foreground font-bold">{authority.case_name}</span>{" "}
                                 <span className="text-sm font-semibold text-legal-primary mb-2 flex items-center gap-2 font-bold italic">{authority.citation}</span> — {authority.excerpt} [{authority.relevance}]
                               </span>
                             </li>

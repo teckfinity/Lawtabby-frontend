@@ -189,7 +189,7 @@ const SplitPDF = () => {
           ) : (
             <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
               <div className="w-12 h-12 bg-red-100 rounded flex items-center justify-center">
-                <span classNameseparator="text-red-600 font-bold text-xs">PDF</span>
+                <span className="text-red-600 font-bold text-xs">PDF</span>
               </div>
               <div className="flex-1">
                 <h4 className="font-medium">{file.name}</h4>

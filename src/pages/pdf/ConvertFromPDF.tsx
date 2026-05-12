@@ -149,42 +149,42 @@ const downloadFile = () => {
       name: "Word Document",
       icon: FileText,
       description: "Editable Word document with preserved formatting",
-      color: "bg-blue-100 text-blue-600",
+      color: "bg-navy/10 text-navy",
     },
     {
       format: "xlsx",
       name: "Excel Spreadsheet",
       icon: FileSpreadsheet,
       description: "Convert tables and data to Excel format",
-      color: "bg-green-100 text-green-600",
+      color: "bg-success/15 text-success",
     },
     {
       format: "pptx",
       name: "PowerPoint",
       icon: Presentation,
       description: "Convert to PowerPoint presentation",
-      color: "bg-orange-100 text-orange-600",
+      color: "bg-gold/15 text-gold-dark",
     },
     {
       format: "jpg",
       name: "JPG Images",
       icon: Image,
       description: "Convert each page to JPG image",
-      color: "bg-purple-100 text-purple-600",
+      color: "bg-legal-info/15 text-legal-info",
     },
     {
       format: "png",
       name: "PNG Images",
       icon: Image,
       description: "Convert each page to PNG image",
-      color: "bg-indigo-100 text-indigo-600",
+      color: "bg-primary/15 text-primary",
     },
     {
       format: "txt",
       name: "Plain Text",
       icon: FileText,
       description: "Extract text content only",
-      color: "bg-gray-100 text-gray-600",
+      color: "bg-muted text-muted-foreground",
     },
   ];
 
@@ -200,10 +200,7 @@ const downloadFile = () => {
                 <p className="text-muted-foreground mb-4">
                   Choose a PDF file from your device
                   </p>
-                <Button
-                 className="bg-primary hover:bg-primary/90" 
-                 onClick={() => fileInputRef.current?.click()}
-                 >
+                <Button onClick={() => fileInputRef.current?.click()}>
                   <Upload className="h-4 w-4 mr-2" />
                   Select PDF File
                 </Button>

@@ -254,20 +254,20 @@ const PDFToHTMLEditor = ({ file, onSave, onCancel }: PDFToHTMLEditorProps) => {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-[600px] bg-gray-50 rounded-lg">
+      <div className="flex items-center justify-center h-[600px] bg-muted/50 rounded-lg border border-border">
         <div className="text-center space-y-4">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto" />
-          <p className="text-gray-600">Converting PDF to editable format...</p>
-          <p className="text-sm text-gray-500">Preserving original formatting...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto" />
+          <p className="text-muted-foreground">Converting PDF to editable format...</p>
+          <p className="text-sm text-muted-foreground/80">Preserving original formatting...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full bg-white rounded-lg border shadow-lg overflow-hidden">
+    <div className="flex flex-col h-full bg-card rounded-lg border border-border shadow-card overflow-hidden">
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-1 p-2 bg-gray-100 border-b sticky top-0 z-10">
+      <div className="flex flex-wrap items-center gap-1 p-2 bg-muted/60 border-b border-border sticky top-0 z-10">
         <select
           value={selectedFont}
           onChange={(e) => handleFontChange(e.target.value)}
@@ -447,19 +447,14 @@ const PDFToHTMLEditor = ({ file, onSave, onCancel }: PDFToHTMLEditorProps) => {
           <X className="h-4 w-4 mr-1" />
           Cancel
         </Button>
-        <Button
-          size="sm"
-          onClick={saveAsPDF}
-          disabled={isSaving}
-          className="bg-blue-600 hover:bg-blue-700 text-white"
-        >
+        <Button size="sm" onClick={saveAsPDF} disabled={isSaving}>
           <Save className="h-4 w-4 mr-1" />
           {isSaving ? "Saving..." : "Save as PDF"}
         </Button>
       </div>
 
       {/* Editor Content */}
-      <div className="flex-1 overflow-auto bg-gray-50 p-8">
+      <div className="flex-1 overflow-auto bg-muted/40 p-8 border-t border-border/50">
         <div ref={pagesContainerRef} className="flex flex-col items-center gap-8">
           {pages.map((page) => (
             <div

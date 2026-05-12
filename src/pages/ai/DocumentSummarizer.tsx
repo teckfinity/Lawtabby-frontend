@@ -718,7 +718,8 @@ const DocumentSummarizer = () => {
                 <div className="space-y-3">
                   <Button 
                     onClick={handleSaveSettings}
-                    className="w-full bg-white text-legal-primary hover:bg-white/90"
+                    variant="outline"
+                    className="w-full border-white/70 bg-white/95 text-primary hover:bg-white"
                   >
                     <Save className="h-4 w-4 mr-2" />
                     Save Settings
