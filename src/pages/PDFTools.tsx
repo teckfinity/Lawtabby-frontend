@@ -24,8 +24,8 @@ const PDFTools = () => {
       title: "Merge PDF",
       description: "Combine PDFs in the order you want.",
       icon: Merge,
-      color: "text-orange-600",
-      bgColor: "bg-orange-100",
+      color: "text-gold-dark",
+      bgColor: "bg-gold/15",
       action: "Merge Files",
       path: "/pdf/merge"
     },
@@ -33,8 +33,8 @@ const PDFTools = () => {
       title: "Split PDF", 
       description: "Separate one page or a whole set for easy conversion into independent PDF files.",
       icon: Split,
-      color: "text-orange-600",
-      bgColor: "bg-orange-100",
+      color: "text-gold-dark",
+      bgColor: "bg-gold/15",
       action: "Split Files",
       path: "/pdf/split"
     },
@@ -42,8 +42,8 @@ const PDFTools = () => {
       title: "Compress PDF",
       description: "Reduce file size while optimizing for maximal PDF quality.",
       icon: Archive,
-      color: "text-green-600",
-      bgColor: "bg-green-100",
+      color: "text-success",
+      bgColor: "bg-success/15",
       action: "Compress Files",
       path: "/pdf/compress"
     },
@@ -51,8 +51,8 @@ const PDFTools = () => {
       title: "Edit PDF",
       description: "Add text, images, shapes, highlights or freehand annotations to a PDF document. Edit the size, font, and color of the added content.",
       icon: Edit3,
-      color: "text-purple-600",
-      bgColor: "bg-purple-100",
+      color: "text-navy",
+      bgColor: "bg-navy/10",
       action: "Edit PDF",
       path: "/pdf/edit"
     },
@@ -60,8 +60,8 @@ const PDFTools = () => {
       title: "Sign PDF",
       description: "Sign or request electronic signatures from others.",
       icon: FileSignature,
-      color: "text-blue-600",
-      bgColor: "bg-blue-100",
+      color: "text-primary",
+      bgColor: "bg-primary/15",
       action: "Sign Document",
       path: "/pdf/sign"
     },
@@ -69,8 +69,8 @@ const PDFTools = () => {
       title: "Stamp PDF",
       description: "Stamp/watermark by adding an image or text over your PDF in seconds. Choose the typography, transparency and position.",
       icon: Stamp,
-      color: "text-red-600",
-      bgColor: "bg-red-100",
+      color: "text-destructive",
+      bgColor: "bg-destructive/10",
       action: "Add Stamp",
       path: "/pdf/stamp"
     },
@@ -78,26 +78,26 @@ const PDFTools = () => {
       title: "PDF to other Formats",
       description: "Easily convert your PDF files into DOC, PPT, EXCEL, JPEG, PPTX and DOCX documents.",
       icon: FileType,
-      color: "text-indigo-600",
-      bgColor: "bg-indigo-100",
+      color: "text-legal-info",
+      bgColor: "bg-legal-info/12",
       action: "Convert PDF",
-      path: "/pdf/convert-from"
+      path: "/pdf/pdf-to-other-formats"
     },
     {
       title: "Other formats to PDF",
       description: "Turn your DOC, PPT, EXCEL, JPEG, PPTX and DOCX documents into PDF file.",
       icon: FileImage,
-      color: "text-yellow-600",
-      bgColor: "bg-yellow-100",
+      color: "text-gold",
+      bgColor: "bg-gold-light/20",
       action: "Convert to PDF",
-      path: "/pdf/convert-to"
+      path: "/pdf/convert-to-other-formats"
     },
     {
       title: "OCR",
       description: "Easily convert scanned PDF and images into searchable and selectable documents.",
       icon: ScanText,
-      color: "text-teal-600",
-      bgColor: "bg-teal-100",
+      color: "text-sage",
+      bgColor: "bg-success/12",
       action: "Extract Text",
       path: "/pdf/ocr"
     },
@@ -105,8 +105,8 @@ const PDFTools = () => {
       title: "Organize PDF",
       description: "Sort pages of your PDF file however you like. Delete PDF pages or add PDF pages to your document at your convenience.",
       icon: FolderOpen,
-      color: "text-cyan-600",
-      bgColor: "bg-cyan-100",
+      color: "text-navy-light",
+      bgColor: "bg-navy/12",
       action: "Organize Pages",
       path: "/pdf/organize"
     },
@@ -114,8 +114,8 @@ const PDFTools = () => {
       title: "Unlock PDF",
       description: "Remove PDF password security, giving you the freedom to use your PDFs as you want.",
       icon: Lock,
-      color: "text-red-600",
-      bgColor: "bg-red-100",
+      color: "text-destructive",
+      bgColor: "bg-destructive/10",
       action: "Unlock PDF",
       path: "/pdf/unlock"
     },
@@ -123,8 +123,8 @@ const PDFTools = () => {
       title: "Protect PDF",
       description: "Protect PDF files with a password. Encrypt PDF documents to prevent unauthorized access.",
       icon: Shield,
-      color: "text-blue-600",
-      bgColor: "bg-blue-100",
+      color: "text-primary",
+      bgColor: "bg-primary/12",
       action: "Protect PDF",
       path: "/pdf/protect"
     }
@@ -135,7 +135,7 @@ const PDFTools = () => {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold text-foreground mb-4">
+          <h1 className="text-4xl font-bold font-heading text-foreground mb-4">
             All the PDF tools you require conveniently located in one spot
           </h1>
           <p className="text-lg text-muted-foreground max-w-3xl mx-auto">
@@ -164,7 +164,7 @@ const PDFTools = () => {
           {tool.description}
         </CardDescription>
         <Button 
-          className="w-full bg-legal-primary hover:bg-legal-primary/90 mt-auto"
+          className="w-full mt-auto"
           size="sm"
           onClick={() => navigate(tool.path)}
         >
@@ -187,14 +187,14 @@ const PDFTools = () => {
               </p>
               <div className="flex flex-wrap justify-center gap-4">
                 <Button 
-                  variant="secondary" 
+                  variant="hero-outline" 
                   size="lg"
                   onClick={() => navigate("/subscription")}
                 >
                   View Pricing
                 </Button>
                  <Button 
-                  variant="secondary" 
+                  variant="hero-outline" 
                   size="lg" 
                   className="gap-2"
                   onClick={() => navigate('/contact-support')}

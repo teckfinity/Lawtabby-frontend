@@ -133,8 +133,8 @@ export function AppSidebar() {
       <div className={`flex items-center border-b border-sidebar-border h-16 ${isCollapsed ? 'justify-center px-2' : 'justify-between px-4'}`}>
         {!isCollapsed && (
           <div className="text-sidebar-foreground">
-            <h1 className="text-lg font-semibold">LegalAI Pro</h1>
-            <p className="text-xs text-sidebar-foreground/70">AI-Powered Legal Platform</p>
+            <h1 className="text-lg font-semibold font-heading tracking-tight">LexOrbit</h1>
+            <p className="text-xs text-sidebar-foreground/70 font-body">Legal intelligence platform</p>
           </div>
         )}
         <Button

@@ -26,7 +26,15 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
-import { PDFDocument, rgb, degrees, StandardFonts } from "pdf-lib";
+import {
+  PDFDocument,
+  rgb,
+  degrees,
+  StandardFonts,
+  type PDFFont,
+  type PDFImage,
+  type PDFPage,
+} from "pdf-lib";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import {
@@ -477,31 +485,38 @@ const StampPDF = () => {
 
     try {
       const buf = await file.arrayBuffer();
-      const pdfDoc = await PDFDocument.load(buf);
-      const pages = pdfDoc.getPages();
+      const srcBytes = new Uint8Array(buf);
+      const donorPdf = await PDFDocument.load(srcBytes);
+      const outPdf = await PDFDocument.create();
+      const total = donorPdf.getPageCount();
 
       setProgress(30);
 
       const indices: number[] = Array.from(selectedPages).map((p) => p - 1);
+      const stampSet = new Set(indices);
 
       setProgress(50);
 
-      // Calculate positions based on mosaic mode (matching preview)
       const mosaicPositions = [
-        { x: 16.67, y: 83.33 }, // top-left
-        { x: 50, y: 83.33 },    // top-center
-        { x: 83.33, y: 83.33 }, // top-right
-        { x: 16.67, y: 50 },    // middle-left
-        { x: 50, y: 50 },       // center
-        { x: 83.33, y: 50 },    // middle-right
-        { x: 16.67, y: 16.67 }, // bottom-left
-        { x: 50, y: 16.67 },    // bottom-center
-        { x: 83.33, y: 16.67 }, // bottom-right
+        { x: 16.67, y: 83.33 },
+        { x: 50, y: 83.33 },
+        { x: 83.33, y: 83.33 },
+        { x: 16.67, y: 50 },
+        { x: 50, y: 50 },
+        { x: 83.33, y: 50 },
+        { x: 16.67, y: 16.67 },
+        { x: 50, y: 16.67 },
+        { x: 83.33, y: 16.67 },
       ];
 
       const positions = mosaicMode
         ? mosaicPositions
         : [{ x: positionX, y: positionY }];
+
+      let embeddedFont: PDFFont | null = null;
+      let embeddedImage: PDFImage | null = null;
+
+      const col = hexToRgb(textColor);
 
       if (watermarkType === "text") {
         const fontMap = {
@@ -509,95 +524,104 @@ const StampPDF = () => {
           Times: StandardFonts.TimesRomanBold,
           Courier: StandardFonts.CourierBold,
         };
-        const font = await pdfDoc.embedFont(fontMap[fontFamily]);
-        const col = hexToRgb(textColor);
-
-        for (const i of indices) {
-          const page = pages[i];
-          const { width, height } = page.getSize();
-
-          // Get text width for proper centering
-          const textWidth = font.widthOfTextAtSize(watermarkText, fontSize);
-          const textHeight = fontSize;
-
-          for (const pos of positions) {
-            // Calculate position - center the text properly
-            // Convert from preview coordinates (top-left origin) to PDF coordinates (bottom-left origin)
-            const x = (pos.x / 100) * width - textWidth / 2;
-            const y = ((100 - pos.y) / 100) * height - textHeight / 2; // Invert Y axis
-
-            if (behindContent) {
-              // Insert at beginning of content stream to appear behind
-              page.moveTo(0, 0);
-              page.drawText(watermarkText, {
-                x,
-                y,
-                size: fontSize,
-                font,
-                color: rgb(col.r, col.g, col.b),
-                rotate: degrees(-rotation),
-                opacity: opacity / 100,
-              });
-            } else {
-              // Normal drawing on top
-              page.drawText(watermarkText, {
-                x,
-                y,
-                size: fontSize,
-                font,
-                color: rgb(col.r, col.g, col.b),
-                rotate: degrees(-rotation),
-                opacity: opacity / 100,
-              });
-            }
-          }
-        }
+        embeddedFont = await outPdf.embedFont(fontMap[fontFamily]);
       } else if (watermarkType === "image" && imageWatermark) {
         const imgBuf = await imageWatermark.arrayBuffer();
-        const img =
+        embeddedImage =
           imageWatermark.type === "image/png"
-            ? await pdfDoc.embedPng(imgBuf)
-            : await pdfDoc.embedJpg(imgBuf);
+            ? await outPdf.embedPng(imgBuf)
+            : await outPdf.embedJpg(imgBuf);
+      }
 
-        for (const i of indices) {
-          const page = pages[i];
-          const { width, height } = page.getSize();
-          const imgW = 200;
-          const imgH = (img.height / img.width) * imgW;
+      const stampTextMarks = (
+        targetPage: PDFPage,
+        pageW: number,
+        pageH: number,
+        font: PDFFont,
+      ) => {
+        for (const pos of positions) {
+          const textWidth = font.widthOfTextAtSize(watermarkText, fontSize);
+          const textHeight = fontSize;
+          const x = (pos.x / 100) * pageW - textWidth / 2;
+          const y = ((100 - pos.y) / 100) * pageH - textHeight / 2;
+          targetPage.drawText(watermarkText, {
+            x,
+            y,
+            size: fontSize,
+            font,
+            color: rgb(col.r, col.g, col.b),
+            rotate: degrees(-rotation),
+            opacity: opacity / 100,
+          });
+        }
+      };
 
-          for (const pos of positions) {
-            // Convert from preview coordinates (top-left origin) to PDF coordinates (bottom-left origin)
-            const x = (pos.x / 100) * width - imgW / 2;
-            const y = ((100 - pos.y) / 100) * height - imgH / 2; // Invert Y axis
+      /** Draw image watermark (fixed width in PDF points). */
+      const stampImageMarks = (
+        targetPage: PDFPage,
+        pageW: number,
+        pageH: number,
+        img: PDFImage,
+      ) => {
+        const imgW = 200;
+        const imgH = (img.height / img.width) * imgW;
 
-            if (behindContent) {
-              // Insert at beginning to appear behind
-              page.moveTo(0, 0);
-              page.drawImage(img, {
-                x,
-                y,
-                width: imgW,
-                height: imgH,
-                rotate: degrees(-rotation),
-                opacity: opacity / 100,
-              });
-            } else {
-              // Normal drawing on top
-              page.drawImage(img, {
-                x,
-                y,
-                width: imgW,
-                height: imgH,
-                rotate: degrees(-rotation),
-                opacity: opacity / 100,
-              });
-            }
+        for (const pos of positions) {
+          const x = (pos.x / 100) * pageW - imgW / 2;
+          const y = ((100 - pos.y) / 100) * pageH - imgH / 2;
+          targetPage.drawImage(img, {
+            x,
+            y,
+            width: imgW,
+            height: imgH,
+            rotate: degrees(-rotation),
+            opacity: opacity / 100,
+          });
+        }
+      };
+
+      for (let i = 0; i < total; i++) {
+        if (!stampSet.has(i)) {
+          const [copied] = await outPdf.copyPages(donorPdf, [i]);
+          outPdf.addPage(copied);
+          continue;
+        }
+
+        const { width, height } = donorPdf.getPage(i).getSize();
+        const newPage = outPdf.addPage([width, height]);
+        const [embedded] = await outPdf.embedPdf(srcBytes, [i]);
+
+        if (behindContent) {
+          if (embeddedFont && watermarkType === "text") {
+            stampTextMarks(newPage, width, height, embeddedFont);
+          }
+          if (embeddedImage && watermarkType === "image") {
+            stampImageMarks(newPage, width, height, embeddedImage);
+          }
+          newPage.drawPage(embedded, {
+            x: 0,
+            y: 0,
+            width,
+            height,
+          });
+        } else {
+          newPage.drawPage(embedded, {
+            x: 0,
+            y: 0,
+            width,
+            height,
+          });
+          if (embeddedFont && watermarkType === "text") {
+            stampTextMarks(newPage, width, height, embeddedFont);
+          }
+          if (embeddedImage && watermarkType === "image") {
+            stampImageMarks(newPage, width, height, embeddedImage);
           }
         }
       }
 
       setProgress(80);
-      const bytes = await pdfDoc.save();
+      const bytes = await outPdf.save();
       setWatermarkedPdf(bytes);
       setProgress(100);
       setTimeout(() => setCurrentStep("download"), 600);

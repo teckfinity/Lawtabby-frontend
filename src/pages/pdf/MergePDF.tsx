@@ -5,8 +5,15 @@ import { ArrowLeft, Plus, RotateCcw, Trash2, Download, FileText } from "lucide-r
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
-import PDFToolRecommendations from "@/components/PDFToolRecommendations";
+import { PDFToolDownloadResult } from "@/components/pdf/PDFToolDownloadResult";
 import { mergePDFs } from "@/api"; // Import the mergePDFs API
+
+
+function summarizeSourceFiles(names: string[], maxChars = 120): string {
+  const joined = names.join(" · ");
+  if (joined.length <= maxChars) return joined;
+  return `${joined.slice(0, Math.max(0, maxChars - 3))}…`;
+}
 
 interface PDFFile {
   id: string;
@@ -398,58 +405,16 @@ const MergePDF = () => {
   );
 
   const renderDownloadStep = () => (
-    <div className="max-w-2xl mx-auto">
-      <Card className="border-2 border-primary">
-        <CardContent className="p-8 text-center">
-          <h3 className="text-xl font-semibold mb-2">PDFs have been merged!</h3>
-          <p className="text-sm text-muted-foreground mb-6">
-            Click download to save merged PDF or continue working with more tools below.
-          </p>
-          
-          <div className="bg-muted rounded-lg p-6 mb-8">
-            <div className="flex items-center justify-center gap-4">
-              <div className="w-14 h-14 bg-red-100 rounded flex items-center justify-center">
-                <span className="text-red-600 font-bold text-sm">
-                  PDF
-                </span>
-              </div>
-              <div className="text-left">
-                <p className="font-semibold">{processedFileName}</p>
-                <p className="text-xs text-muted-foreground">
-                  Ready to download
-                </p>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center justify-center gap-4 mb-6">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={resetProcess}
-              className="h-12 w-12"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <Button
-              onClick={downloadFile}
-              className="bg-primary hover:bg-primary/90 h-12 px-8"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Download to device
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={resetProcess}
-              className="h-12 w-12 text-destructive hover:text-destructive"
-            >
-              <Trash2 className="h-5 w-5" />
-            </Button>
-          </div>
-          <PDFToolRecommendations currentTool="merge" />
-        </CardContent>
-      </Card>
-    </div>
+    <PDFToolDownloadResult
+      title="PDFs merged successfully"
+      description="Download your merged PDF, or reset to choose different files."
+      outputFilename={processedFileName || `merged_${files.length}_files.pdf`}
+      sourceSummary={`Original files: ${summarizeSourceFiles(files.map((f) => f.name))}`}
+      onDownload={downloadFile}
+      onReset={resetProcess}
+      downloadButtonLabel="Download merged PDF"
+      currentTool="merge"
+    />
   );
 
   return (

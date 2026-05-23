@@ -45,7 +45,7 @@ const Library = () => {
       size: "2.4 MB",
       date: "2024-01-15",
       icon: "DOC",
-      color: "bg-blue-600"
+      color: "bg-navy"
     },
     {
       id: 2,
@@ -54,7 +54,7 @@ const Library = () => {
       size: "1.8 MB", 
       date: "2024-01-14",
       icon: "PDF",
-      color: "bg-red-600"
+      color: "bg-destructive"
     },
     {
       id: 3,
@@ -63,7 +63,7 @@ const Library = () => {
       size: "3.1 MB",
       date: "2024-01-13",
       icon: "DOC", 
-      color: "bg-blue-600"
+      color: "bg-navy"
     },
     {
       id: 4,
@@ -72,7 +72,7 @@ const Library = () => {
       size: "2.9 MB",
       date: "2024-01-12",
       icon: "PDF",
-      color: "bg-red-600"
+      color: "bg-destructive"
     },
     {
       id: 5,
@@ -81,7 +81,7 @@ const Library = () => {
       size: "1.5 MB",
       date: "2024-01-11",
       icon: "DOC",
-      color: "bg-blue-600"
+      color: "bg-navy"
     },
     {
       id: 6,
@@ -90,7 +90,7 @@ const Library = () => {
       size: "2.2 MB",
       date: "2024-01-10",
       icon: "DOC",
-      color: "bg-blue-600"
+      color: "bg-navy"
     }
   ];
 
@@ -102,7 +102,7 @@ const Library = () => {
       size: "4.2 MB",
       date: "2024-01-16",
       icon: "PDF",
-      color: "bg-red-600"
+      color: "bg-destructive"
     },
     {
       id: 2,
@@ -111,7 +111,7 @@ const Library = () => {
       size: "1.9 MB",
       date: "2024-01-15",
       icon: "DOC",
-      color: "bg-blue-600"
+      color: "bg-navy"
     }
   ];
 

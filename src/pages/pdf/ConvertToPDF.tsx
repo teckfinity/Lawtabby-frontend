@@ -1,11 +1,19 @@
 import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowLeft, Upload, Download, FileText, Image, FileSpreadsheet, Presentation, Check, RefreshCw, Printer } from "lucide-react";
+import { ArrowLeft, Upload, FileText, Image, FileSpreadsheet, Presentation, RefreshCw, Printer } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
-import { convertWordToPDF } from "@/api"; // ✅ Import your API function
+import { convertWordToPDF } from "@/api";
+import axios from "axios";
+import { PDFToolDownloadResult } from "@/components/pdf/PDFToolDownloadResult";
+
+function summarizeUploadedNames(names: string[], maxChars = 100): string {
+  const joined = names.join(", ");
+  if (joined.length <= maxChars) return joined;
+  return `${joined.slice(0, maxChars - 3)}…`;
+}
 
 type ProcessStep = "upload" | "processing" | "download";
 
@@ -43,15 +51,29 @@ const ConvertToPDF = () => {
       const convertedResults: { name: string; blob: Blob }[] = [];
 
       for (const file of files) {
-        const formData = new FormData();
-        formData.append("input_file", file, file.name);
+        const { blob, docxConversionEngine } = await convertWordToPDF(file);
 
-        const response = await convertWordToPDF(file); // Call backend API
-        toast.success(`${file.name} converted successfully`);
+        const headerBuf = await blob.slice(0, 5).arrayBuffer();
+        const magic = new TextDecoder().decode(headerBuf);
+        if (!magic.startsWith("%PDF")) {
+          const asText = await blob.slice(0, 300).text();
+          throw new Error(
+            `Server did not return a PDF for "${file.name}". ${asText.slice(0, 120)}`.trim(),
+          );
+        }
 
-        // If your API returns a PDF blob directly
-        const blob = new Blob([response.data], { type: "application/pdf" });
-        convertedResults.push({ name: file.name.replace(/\.[^/.]+$/, ".pdf"), blob });
+        if (docxConversionEngine === "reportlab_fallback") {
+          toast.message(`${file.name} converted (text layout)`, {
+            description:
+              "Server used the plain PDF fallback — install LibreOffice on the backend or redeploy Docker with libreoffice-writer for resume-style layouts.",
+          });
+        } else {
+          toast.success(`${file.name} converted successfully`);
+        }
+        convertedResults.push({
+          name: file.name.replace(/\.[^/.]+$/, ".pdf"),
+          blob,
+        });
 
         setProgress((prev) => Math.min(prev + 100 / files.length, 100));
       }
@@ -60,7 +82,16 @@ const ConvertToPDF = () => {
       setTimeout(() => setCurrentStep("download"), 800);
     } catch (error) {
       console.error("Conversion error:", error);
-      toast.error("Failed to convert file(s)");
+      let message = "Failed to convert file(s).";
+      if (axios.isAxiosError(error)) {
+        const d = error.response?.data;
+        if (d && typeof d === "object" && "error" in d) {
+          message = String((d as { error: string }).error);
+        } else if (error.message) message = error.message;
+      } else if (error instanceof Error && error.message) {
+        message = error.message;
+      }
+      toast.error(message);
       setCurrentStep("upload");
     }
   };
@@ -276,55 +307,44 @@ const ConvertToPDF = () => {
   );
 
   const renderDownloadStep = () => (
-    <div className="max-w-2xl mx-auto text-center">
-      <Card>
-        <CardContent className="p-12">
-          <div className="space-y-6">
-            <div className="flex justify-center">
-              <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center">
-                <Check className="h-10 w-10 text-green-600" />
-              </div>
-            </div>
-
-            <div>
-              <h3 className="text-xl font-semibold mb-2">Conversion Complete!</h3>
-              <p className="text-muted-foreground">Your files have been converted to PDF successfully</p>
-            </div>
-
-            <div className="space-y-3">
-              {convertedFiles.map((file, index) => (
-                <div key={index} className="bg-muted rounded-lg p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-red-100 rounded flex items-center justify-center">
-                      <span className="text-red-600 font-bold text-xs">PDF</span>
-                    </div>
-                    <div className="flex-1 text-left">
-                      <h4 className="font-medium">{file.name}</h4>
-                      <p className="text-sm text-muted-foreground">Ready to download</p>
-                    </div>
-                    <div className="text-green-600 font-medium text-sm">✓ Converted</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex gap-4 justify-center">
-              <Button onClick={downloadFiles} className="bg-primary hover:bg-primary/90">
-                <Download className="h-4 w-4 mr-2" />
-                Download All PDFs
-              </Button>
-              <Button onClick={printFiles} variant="outline">
-                <Printer className="h-4 w-4 mr-2" />
-                Print All PDFs
-              </Button>
-              <Button variant="outline" onClick={resetProcess}>
-                Convert More
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+    <PDFToolDownloadResult
+      title="Conversion complete!"
+      description="Download your new PDF files. Names match your originals with a .pdf extension."
+      outputFilename={
+        convertedFiles.length === 1
+          ? convertedFiles[0].name
+          : `${convertedFiles.length} PDF documents`
+      }
+      sourceSummary={
+        files.length ? `Uploaded: ${summarizeUploadedNames(files.map((f) => f.name))}` : undefined
+      }
+      downloadButtonLabel={convertedFiles.length > 1 ? "Download all PDFs" : "Download PDF"}
+      onDownload={downloadFiles}
+      onReset={resetProcess}
+      currentTool="convert"
+      children={
+        convertedFiles.length > 1 ? (
+          <ul className="mt-3 space-y-2 border-t border-border pt-3 text-sm text-muted-foreground">
+            {convertedFiles.map((f) => (
+              <li key={f.name} className="truncate" title={f.name}>
+                {f.name}
+              </li>
+            ))}
+          </ul>
+        ) : null
+      }
+      belowActions={
+        <>
+          <Button type="button" variant="outline" size="sm" onClick={printFiles}>
+            <Printer className="h-4 w-4 mr-2" />
+            Print
+          </Button>
+          <Button type="button" variant="outline" size="sm" onClick={resetProcess}>
+            Convert more files
+          </Button>
+        </>
+      }
+    />
   );
 
   return (

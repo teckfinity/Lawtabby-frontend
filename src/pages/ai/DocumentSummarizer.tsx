@@ -24,7 +24,7 @@ import {
   Printer
 } from "lucide-react";
 import { toast } from "sonner";
-import { sendLegalChat } from "@/api/ai/doc_summary";
+import { sendLegalDocSummary } from "@/api/ai-features/doc-summary";
 
 const DocumentSummarizer = () => {
   const [activeTab, setActiveTab] = useState("document");
@@ -63,20 +63,22 @@ const DocumentSummarizer = () => {
     setSummary("");
 
     try {
-      const response = await sendLegalChat(
-        "process",
+      const response = await sendLegalDocSummary(
         activeTab === "document" ? file! : undefined,
         activeTab === "text" ? textInput : undefined,
-        settings.outputFormat,
-        settings.summaryLength[0],
-        settings.confidenceThreshold[0],
-        settings.citationStyle,
-        settings.language,
-        settings.autoSave,
-        settings.includeKeyFacts,
-        settings.includeLegalIssues,
-        settings.includeHoldings,
-        settings.includeRecommendations
+        {
+          action: "process",
+          output_format:          settings.outputFormat,
+          summary_length:         settings.summaryLength[0],
+          confidence_threshold:   settings.confidenceThreshold[0],
+          citation_style:         settings.citationStyle,
+          language:               settings.language,
+          auto_save:              settings.autoSave,
+          key_facts:              settings.includeKeyFacts,
+          legal_issues:           settings.includeLegalIssues,
+          holdings_and_rulings:   settings.includeHoldings,
+          recommendations:        settings.includeRecommendations,
+        }
       );
 
       const result = response.data;
@@ -718,7 +720,8 @@ const DocumentSummarizer = () => {
                 <div className="space-y-3">
                   <Button 
                     onClick={handleSaveSettings}
-                    className="w-full bg-white text-legal-primary hover:bg-white/90"
+                    variant="outline"
+                    className="w-full border-white/70 bg-white/95 text-primary hover:bg-white"
                   >
                     <Save className="h-4 w-4 mr-2" />
                     Save Settings

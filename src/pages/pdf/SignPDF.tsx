@@ -110,6 +110,8 @@ const SignatureCreator = ({
   const [penColor, setPenColor] = useState("#000000");
   const [lineW, setLineW] = useState(2);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const DRAW_W = 480;
+  const DRAW_H = 160;
 
   useEffect(() => {
     if (method === "draw") {
@@ -160,33 +162,64 @@ const SignatureCreator = ({
   };
 
   /* ---------- DRAW ---------- */
-  const start = (e: React.MouseEvent) => {
+  const canvasPointFromEvent = (
+    e:
+      | React.MouseEvent<HTMLCanvasElement>
+      | React.TouchEvent<HTMLCanvasElement>,
+  ) => {
+    const canvas = canvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    let cx: number;
+    let cy: number;
+    if ("touches" in e && e.touches.length > 0) {
+      cx = e.touches[0].clientX;
+      cy = e.touches[0].clientY;
+    } else if ("changedTouches" in e && e.changedTouches.length > 0) {
+      cx = e.changedTouches[0].clientX;
+      cy = e.changedTouches[0].clientY;
+    } else {
+      const me = e as React.MouseEvent<HTMLCanvasElement>;
+      cx = me.clientX;
+      cy = me.clientY;
+    }
+    const x = ((cx - rect.left) / rect.width) * DRAW_W;
+    const y = ((cy - rect.top) / rect.height) * DRAW_H;
+    return { x, y };
+  };
+
+  const start = (
+    e:
+      | React.MouseEvent<HTMLCanvasElement>
+      | React.TouchEvent<HTMLCanvasElement>,
+  ) => {
+    e.preventDefault();
     setDrawing(true);
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
     ctx.strokeStyle = penColor;
     ctx.lineWidth = lineW;
     ctx.lineCap = "round";
-    const rect = canvasRef.current!.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 400;
-    const y = ((e.clientY - rect.top) / rect.height) * 120;
+    const { x, y } = canvasPointFromEvent(e);
     ctx.beginPath();
     ctx.moveTo(x, y);
   };
-  const move = (e: React.MouseEvent) => {
+  const move = (
+    e:
+      | React.MouseEvent<HTMLCanvasElement>
+      | React.TouchEvent<HTMLCanvasElement>,
+  ) => {
     if (!drawing) return;
+    e.preventDefault();
     const ctx = canvasRef.current?.getContext("2d");
     if (!ctx) return;
-    const rect = canvasRef.current!.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * 400;
-    const y = ((e.clientY - rect.top) / rect.height) * 120;
+    const { x, y } = canvasPointFromEvent(e);
     ctx.lineTo(x, y);
     ctx.stroke();
   };
   const stop = () => setDrawing(false);
   const clear = () => {
     const ctx = canvasRef.current?.getContext("2d");
-    ctx?.clearRect(0, 0, 400, 120);
+    ctx?.clearRect(0, 0, DRAW_W, DRAW_H);
   };
   const saveDrawn = () => {
     const data = canvasRef.current?.toDataURL("image/png") ?? "";
@@ -319,13 +352,17 @@ const SignatureCreator = ({
           <Label>Draw Your Signature</Label>
           <canvas
             ref={canvasRef}
-            width={400}
-            height={120}
-            className="border-2 border-dashed border-border w-full bg-white rounded-lg cursor-crosshair"
+            width={DRAW_W}
+            height={DRAW_H}
+            className="border-2 border-dashed border-border w-full max-w-xl bg-white rounded-lg cursor-crosshair touch-none h-44 mx-auto block"
             onMouseDown={start}
             onMouseMove={move}
             onMouseUp={stop}
             onMouseLeave={stop}
+            onTouchStart={start}
+            onTouchMove={move}
+            onTouchEnd={stop}
+            onTouchCancel={stop}
             style={{ touchAction: "none" }}
           />
           <div className="flex gap-2 items-center">
@@ -427,6 +464,23 @@ const ReSignModal = ({
   );
 };
 
+/** Keep placed fields inside PDF logical page bounds (preview uses top‑down coords). */
+function clampPlacedFieldToPage(
+  field: PlacedField,
+  dims: { width: number; height: number } | undefined,
+  minWidth = 40,
+  minHeight = 28,
+): PlacedField {
+  if (!dims || dims.width <= 1 || dims.height <= 1) {
+    return field;
+  }
+  const width = Math.max(minWidth, Math.min(field.width, dims.width));
+  const height = Math.max(minHeight, Math.min(field.height, dims.height));
+  const x = Math.min(Math.max(field.x, 0), Math.max(0, dims.width - width));
+  const y = Math.min(Math.max(field.y, 0), Math.max(0, dims.height - height));
+  return { ...field, x, y, width, height };
+}
+
 /* ────────────────────────────────────────────────────────────────────── */
 /*  Main component                                                       */
 /* ────────────────────────────────────────────────────────────────────── */
@@ -467,6 +521,8 @@ const SignPDF = () => {
 
   const [signedUrl, setSignedUrl] = useState<string | null>(null);
 
+  const [pdfPagePts, setPdfPagePts] = useState<Array<{ width: number; height: number }>>([]);
+
   /* ──────────────────────────────────────── */
   /*  PDF upload & validation                 */
   /* ──────────────────────────────────────── */
@@ -478,6 +534,7 @@ const SignPDF = () => {
       toast.error("Invalid PDF file");
       return;
     }
+    setPdfPagePts([]);
     setFile(f);
     setMode(null);
     setSigners([]);
@@ -501,6 +558,36 @@ const SignPDF = () => {
     setNumPages(numPages);
     toast.success(`PDF loaded – ${numPages} page(s)`);
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDims() {
+      if (!file) {
+        setPdfPagePts([]);
+        return;
+      }
+      try {
+        const raw = await file.arrayBuffer();
+        const doc = await PDFDocument.load(raw);
+        const pts: Array<{ width: number; height: number }> = [];
+        for (let i = 0; i < doc.getPageCount(); i++) {
+          const pg = doc.getPage(i);
+          pts.push(pg.getSize());
+        }
+        if (!cancelled) {
+          setPdfPagePts(pts);
+        }
+      } catch {
+        if (!cancelled) {
+          setPdfPagePts([]);
+        }
+      }
+    }
+    void loadDims();
+    return () => {
+      cancelled = true;
+    };
+  }, [file]);
 
   /* ──────────────────────────────────────── */
   /*  Single signer – save name + signatures  */
@@ -601,22 +688,30 @@ const SignPDF = () => {
     let w = 150;
     let h = 40;
 
+    const pagePts = pdfPagePts[page - 1];
+
     // Handle date specially
     if (type === "date") {
       value = new Date().toLocaleDateString();
-      setFields((prev) => [...prev, {
-        id: `f-${Date.now()}`,
-        type,
-        x,
-        y,
-        page,
-        value,
-        color: "#000000",
-        font: "Helvetica",
-        width: w,
-        height: h,
-        rotation: 0,
-      }]);
+      setFields((prev) => [
+        ...prev,
+        clampPlacedFieldToPage(
+          {
+            id: `f-${Date.now()}`,
+            type,
+            x,
+            y,
+            page,
+            value,
+            color: "#000000",
+            font: "Helvetica",
+            width: w,
+            height: h,
+            rotation: 0,
+          },
+          pagePts,
+        ),
+      ]);
       toast.success("Date placed – drag to move, resize with corners");
       return;
     }
@@ -641,39 +736,51 @@ const SignPDF = () => {
         signerId = signers[0]?.id;
       }
       
-      setFields((prev) => [...prev, {
-        id: `f-${Date.now()}`,
-        type,
-        x,
-        y,
-        page,
-        value,
-        color: "#000000",
-        font: "Helvetica",
-        width: w,
-        height: h,
-        rotation: 0,
-        signerId,
-      }]);
+      setFields((prev) => [
+        ...prev,
+        clampPlacedFieldToPage(
+          {
+            id: `f-${Date.now()}`,
+            type,
+            x,
+            y,
+            page,
+            value,
+            color: "#000000",
+            font: "Helvetica",
+            width: w,
+            height: h,
+            rotation: 0,
+            signerId,
+          },
+          pagePts,
+        ),
+      ]);
       toast.success("Name placed – drag to move, resize with corners");
       return;
     }
 
     // Handle text field - empty editable text
     if (type === "text") {
-      setFields((prev) => [...prev, {
-        id: `f-${Date.now()}`,
-        type,
-        x,
-        y,
-        page,
-        value: "Double-click to edit",
-        color: "#000000",
-        font: "Helvetica",
-        width: w,
-        height: h,
-        rotation: 0,
-      }]);
+      setFields((prev) => [
+        ...prev,
+        clampPlacedFieldToPage(
+          {
+            id: `f-${Date.now()}`,
+            type,
+            x,
+            y,
+            page,
+            value: "Double-click to edit",
+            color: "#000000",
+            font: "Helvetica",
+            width: w,
+            height: h,
+            rotation: 0,
+          },
+          pagePts,
+        ),
+      ]);
       toast.success("Text placed – double-click to edit, drag to move");
       return;
     }
@@ -721,21 +828,24 @@ const SignPDF = () => {
       }
     }
 
-    const f: PlacedField = {
-      id: `f-${Date.now()}`,
-      type,
-      x,
-      y,
-      page,
-      value,
-      imageData,
-      color,
-      font,
-      width: w,
-      height: h,
-      rotation: 0,
-      signerId,
-    };
+    const f: PlacedField = clampPlacedFieldToPage(
+      {
+        id: `f-${Date.now()}`,
+        type,
+        x,
+        y,
+        page,
+        value,
+        imageData,
+        color,
+        font,
+        width: w,
+        height: h,
+        rotation: 0,
+        signerId,
+      },
+      pagePts,
+    );
     setFields((prev) => [...prev, f]);
     toast.success(`${type} placed – drag to move, resize with corners`);
   };
@@ -785,26 +895,36 @@ const SignPDF = () => {
         key={f.id}
         size={{ width: f.width * scale, height: f.height * scale }}
         position={{ x: f.x * scale, y: f.y * scale }}
-        onDragStop={(e, d) => {
+        onDragStop={(_, d) => {
           setFields((prev) =>
-            prev.map((x) =>
-              x.id === f.id ? { ...x, x: d.x / scale, y: d.y / scale } : x
-            )
+            prev.map((x) => {
+              if (x.id !== f.id) return x;
+              return clampPlacedFieldToPage(
+                {
+                  ...x,
+                  x: d.x / scale,
+                  y: d.y / scale,
+                },
+                pdfPagePts[x.page - 1],
+              );
+            }),
           );
         }}
-        onResizeStop={(e, dir, ref, delta, pos) => {
+        onResizeStop={(_e, _dir, ref, _delta, pos) => {
           setFields((prev) =>
-            prev.map((x) =>
-              x.id === f.id
-                ? {
-                    ...x,
-                    width: parseFloat(ref.style.width) / scale,
-                    height: parseFloat(ref.style.height) / scale,
-                    x: pos.x / scale,
-                    y: pos.y / scale,
-                  }
-                : x
-            )
+            prev.map((x) => {
+              if (x.id !== f.id) return x;
+              return clampPlacedFieldToPage(
+                {
+                  ...x,
+                  width: parseFloat(ref.style.width) / scale,
+                  height: parseFloat(ref.style.height) / scale,
+                  x: pos.x / scale,
+                  y: pos.y / scale,
+                },
+                pdfPagePts[x.page - 1],
+              );
+            }),
           );
         }}
         enableResizing={{
@@ -919,7 +1039,9 @@ const SignPDF = () => {
       const pdf = await PDFDocument.load(arr);
       const pages = pdf.getPages();
 
-      const embed = async (f: PlacedField) => {
+      const embed = async (src: PlacedField) => {
+        const dims = pdfPagePts[src.page - 1];
+        const f = clampPlacedFieldToPage(src, dims);
         const p = pages[f.page - 1];
         const pdfY = p.getHeight() - f.y - f.height;
 
@@ -997,6 +1119,7 @@ const SignPDF = () => {
     setFullSig(null);
     setInitSig(null);
     setStampImg(null);
+    setPdfPagePts([]);
     setFullName("");
     setInitials("");
     setPlacing(null);

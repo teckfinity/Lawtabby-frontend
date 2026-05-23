@@ -1,7 +1,7 @@
 import { apiClient } from "./ai_mics_config";
 
 export const sendLegalResearchAdvanced = (
-  query: string,
+  question: string,
   filters: {
     jurisdiction?: string;
     court_level?: string;
@@ -10,14 +10,14 @@ export const sendLegalResearchAdvanced = (
     judge_name?: string;
   } = {}
 ) => {
-  if (!query) throw new Error("Query is required.");
+  if (!question) throw new Error("Question is required.");
 
   const payload = {
-    query,
-    filters,
+    question,
+    ...filters,
   };
 
-  return apiClient.post("/api/legal-research-advanced/", payload, {
+  return apiClient.post("/api/agents/legal-research/", payload, {
     headers: { "Content-Type": "application/json" },
   });
 };
