@@ -42,6 +42,7 @@ import DownloadOCRPDF from "./pages/pdf/DownloadOCRPDF";
 import Profile from "./pages/Profile";
 import Subscription from "./pages/Subscription";
 import History from "./pages/History";
+import AllActivity from "./pages/AllActivity";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
 import SignIn from "./pages/SignIn";
@@ -340,6 +341,10 @@ const App = () => (
                 />
                 <Route
                   path="/pdf/convert-from"
+                  element={<Navigate to="/pdf/pdf-to-other-formats" replace />}
+                />
+                <Route
+                  path="/pdf/pdf-to-other-formats"
                   element={
                     <ProtectedRoute>
                       <ProtectedLayout>
@@ -350,6 +355,10 @@ const App = () => (
                 />
                 <Route
                   path="/pdf/convert-to"
+                  element={<Navigate to="/pdf/convert-to-other-formats" replace />}
+                />
+                <Route
+                  path="/pdf/convert-to-other-formats"
                   element={
                     <ProtectedRoute>
                       <ProtectedLayout>
@@ -444,6 +453,16 @@ const App = () => (
                     <ProtectedRoute>
                       <ProtectedLayout>
                         <History />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/activity"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <AllActivity />
                       </ProtectedLayout>
                     </ProtectedRoute>
                   }

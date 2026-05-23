@@ -1,254 +1,68 @@
-import React, { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
-  Gavel,
-  Search,
-  TrendingUp,
-  TrendingDown,
-  Clock,
-  Scale,
-  BarChart3,
-  Users,
+  Gavel, Search, TrendingUp, TrendingDown, Clock, Scale, BarChart3, Users,
 } from "lucide-react";
-import { 
-  getJudgesList, 
-  getJudgeAnalyticsSummary,
-  getJudgeAnalyticsOverview,
-  getCaseTypeAnalysis
-} from "@/api/Ai_Features_Microsrc/judge_analytcs";
 import { useNavigate } from "react-router-dom";
+import { useDebounce } from "@/hooks/use-debounce";
+import {
+  useJudgesList,
+  useJudgeAnalyticsSummary,
+  useJudgeAnalyticsOverview,
+  useCaseTypeAnalysis,
+} from "@/api/hooks";
 
-const JUDGE_ANALYTICS_CACHE_KEY = "judge_analytics_page_cache";
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-
-function getCached(): any {
-  try {
-    const raw = sessionStorage.getItem(JUDGE_ANALYTICS_CACHE_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw);
-    if (data?.timestamp && Date.now() - data.timestamp < CACHE_TTL_MS) return data;
-  } catch (_) {}
-  return null;
-}
-
-function setCached(update: Record<string, any>) {
-  try {
-    const existing = getCached() || {};
-    sessionStorage.setItem(JUDGE_ANALYTICS_CACHE_KEY, JSON.stringify({ ...existing, ...update, timestamp: Date.now() }));
-  } catch (_) {}
-}
+const LIMIT = 3;
 
 const JudgeAnalytics = () => {
-  const limit = 3;
+  const navigate   = useNavigate();
+  const [query, setQuery]   = useState("");
   const [offset, setOffset] = useState(0);
-  const [judges, setJudges] = useState<any[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [hasNext, setHasNext] = useState(false);
-  const [hasPrevious, setHasPrevious] = useState(false);
 
-  const [loading, setLoading] = useState(true);
-  const [summaryLoading, setSummaryLoading] = useState(true);
-  const [overviewLoading, setOverviewLoading] = useState(true);
-  const [caseTypeLoading, setCaseTypeLoading] = useState(true);
-  const [refreshingAnalytics, setRefreshingAnalytics] = useState(false);
+  // Debounce search — resets to page 1 automatically via key change
+  const debouncedQuery = useDebounce(query, 600);
 
-  const [query, setQuery] = useState("");
-  const [debouncedQuery, setDebouncedQuery] = useState("");
+  // ── React Query – all 4 calls in parallel, no manual loading states ───────
+  const { data: summary, isLoading: summaryLoading } = useJudgeAnalyticsSummary();
+  const { data: overview, isLoading: overviewLoading } = useJudgeAnalyticsOverview();
+  const { data: caseTypeAnalysis, isLoading: caseTypeLoading } = useCaseTypeAnalysis();
+  const {
+    data: judgesData,
+    isLoading: judgesLoading,
+    isFetching: judgesFetching,
+  } = useJudgesList({ limit: LIMIT, offset, search: debouncedQuery || undefined });
 
-  const currentPage = Math.floor(offset / limit) + 1;
-  const totalPages = Math.ceil(totalCount / limit);
-  // Fixed filter list (was commented out before)
-  const allFilters = [
-    // "Federal Courts",
-    // "State Courts",
-    // "Appellate",
-    // "District",
-    // "Civil",
-    // "Criminal",
-  ] as const;
-  const navigate = useNavigate();
+  const judges     = judgesData?.results ?? [];
+  const totalCount = judgesData?.pagination?.total ?? 0;
+  const hasNext    = judgesData?.pagination?.has_next ?? false;
+  const hasPrev    = judgesData?.pagination?.has_previous ?? false;
+  const totalPages = Math.ceil(totalCount / LIMIT);
+  const currentPage = Math.floor(offset / LIMIT) + 1;
 
-  const [summary, setSummary] = useState({
-    judges_analyzed: 0,
-    cases_tracked: 0,
-    courts_covered: 0,
-    success_rate: 0,
-  });
+  // Reset to page 1 when search changes
+  useMemo(() => { setOffset(0); }, [debouncedQuery]); // eslint-disable-line
 
-  const [overview, setOverview] = useState({
-    quick_insights: [] as Array<{ title: string; description: string; metric: string }>,
-    ai_prediction_teaser: {
-      title: "",
-      description: "",
-      available_judges: 0,
-      accuracy_rate: 0,
-      cta_text: "",
-    },
-  });
+  const statCards = [
+    { label: "Judges Analyzed", value: summary?.judges_analyzed.toLocaleString() ?? "—", Icon: Users },
+    { label: "Cases Tracked",   value: summary?.cases_tracked.toLocaleString() ?? "—",   Icon: Scale },
+    { label: "Courts Covered",  value: summary?.courts_covered.toString() ?? "—",          Icon: Gavel },
+    { label: "Success Rate",    value: summary ? `${summary.success_rate.toFixed(1)}%` : "—", Icon: TrendingUp },
+  ];
 
-  const [caseTypeAnalysis, setCaseTypeAnalysis] = useState<any[]>([]);
-
-  // Hydrate from cache on mount so we show data immediately (no "0" / empty flash)
-  useEffect(() => {
-    const cached = getCached();
-    if (cached) {
-      if (cached.summary && Object.keys(cached.summary).length) setSummary(cached.summary);
-      if (cached.overview && (cached.overview.quick_insights?.length || cached.overview.ai_prediction_teaser)) setOverview(cached.overview);
-      if (Array.isArray(cached.caseTypeAnalysis)) setCaseTypeAnalysis(cached.caseTypeAnalysis);
-      if (Array.isArray(cached.judges) && cached.judges.length > 0) {
-        setJudges(cached.judges);
-        setTotalCount(cached.totalCount ?? 0);
-        setHasNext(!!cached.hasNext);
-        setHasPrevious(!!cached.hasPrevious);
-        setLoading(false);
-      }
-      if (cached.summary) setSummaryLoading(false);
-      if (cached.overview) setOverviewLoading(false);
-      if (cached.caseTypeAnalysis) setCaseTypeLoading(false);
-    }
-  }, []);
-
-  // Fetch Summary
-  useEffect(() => {
-    const fetchSummary = async () => {
-      try {
-        setSummaryLoading(true);
-        const res = await getJudgeAnalyticsSummary();
-        setSummary(res.data);
-        setCached({ summary: res.data });
-      } catch (error) {
-        console.error("Error fetching summary:", error);
-      } finally {
-        setSummaryLoading(false);
-      }
-    };
-    fetchSummary();
-  }, []);
-
-  // Fetch Overview
-  useEffect(() => {
-    const fetchOverview = async () => {
-      try {
-        setOverviewLoading(true);
-        const res = await getJudgeAnalyticsOverview();
-        setOverview(res.data);
-        setCached({ overview: res.data });
-      } catch (error) {
-        console.error("Error fetching overview:", error);
-      } finally {
-        setOverviewLoading(false);
-      }
-    };
-    fetchOverview();
-  }, []);
-
-  // Fetch Case Type Analysis
-  useEffect(() => {
-    const fetchCaseTypeAnalysis = async () => {
-      try {
-        setCaseTypeLoading(true);
-        const res = await getCaseTypeAnalysis();
-        const data = res.data || [];
-        setCaseTypeAnalysis(data);
-        setCached({ caseTypeAnalysis: data });
-      } catch (error) {
-        console.error("Error fetching case type analysis:", error);
-        setCaseTypeAnalysis([]);
-      } finally {
-        setCaseTypeLoading(false);
-      }
-    };
-    fetchCaseTypeAnalysis();
-  }, []);
-
-  // Debounce search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedQuery(query.trim());
-      setOffset(0);
-    }, 600);
-    return () => clearTimeout(timer);
-  }, [query]);
-
-  // Fetch Judges – show cached/previous list while loading (stale-while-revalidate)
-  useEffect(() => {
-    let cancelled = false;
-    const fetchJudges = async () => {
-      const params: any = { limit, offset };
-      if (debouncedQuery) params.search = debouncedQuery;
-      setLoading(true);
-      try {
-        const res = await getJudgesList(params);
-        if (cancelled) return;
-        const data = res.data;
-        setJudges(data.results || []);
-        setTotalCount(data.pagination?.total || 0);
-        setHasNext(data.pagination?.has_next || false);
-        setHasPrevious(data.pagination?.has_previous || false);
-        setCached({
-          judges: data.results || [],
-          totalCount: data.pagination?.total ?? 0,
-          hasNext: data.pagination?.has_next ?? false,
-          hasPrevious: data.pagination?.has_previous ?? false,
-          offset,
-          limit,
-          query: debouncedQuery,
-        });
-      } catch (error) {
-        if (!cancelled) {
-          console.error("Error fetching judges:", error);
-          setJudges([]);
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    fetchJudges();
-    return () => { cancelled = true; };
-  }, [offset, debouncedQuery]);
-
-  // One-time: backfill Grant Rate / Avg Decision / Case Type for all judges (CourtListener + AI)
-  const refreshAnalytics = async () => {
-    try {
-      setRefreshingAnalytics(true);
-      await getJudgesList({ limit: 1, offset: 0, backfill_all: true });
-      // Refetch current data so UI updates
-      const [summaryRes, overviewRes, caseRes, judgesRes] = await Promise.all([
-        getJudgeAnalyticsSummary(),
-        getJudgeAnalyticsOverview(),
-        getCaseTypeAnalysis({ backfill: true }),
-        getJudgesList({ limit, offset, ...(debouncedQuery ? { search: debouncedQuery } : {}) }),
-      ]);
-      setSummary(summaryRes.data);
-      setOverview(overviewRes.data);
-      setCaseTypeAnalysis(caseRes.data || []);
-      const data = judgesRes.data;
-      setJudges(data.results || []);
-      setTotalCount(data.pagination?.total || 0);
-      setHasNext(data.pagination?.has_next || false);
-      setHasPrevious(data.pagination?.has_previous || false);
-    } catch (e) {
-      console.error("Error refreshing analytics:", e);
-    } finally {
-      setRefreshingAnalytics(false);
-    }
-  };
-
-  const stats = [
-    { label: "Judges Analyzed", value: summary.judges_analyzed.toLocaleString(), icon: Users },
-    { label: "Cases Tracked", value: summary.cases_tracked.toLocaleString(), icon: Scale },
-    { label: "Courts Covered", value: summary.courts_covered.toString(), icon: Gavel },
-    { label: "Success Rate", value: `${summary.success_rate.toFixed(1)}%`, icon: TrendingUp },
+  const pastelColors = [
+    "bg-primary/75", "bg-success/75", "bg-legal-warning/75", "bg-legal-info/75",
+    "bg-gold-light/80", "bg-navy/55", "bg-burgundy/50", "bg-sage/70",
   ];
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
       <div className="max-w-7xl mx-auto">
-        {/* Header & Stats */}
+
+        {/* ── Header & Stats ── */}
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 bg-legal-warning rounded-lg">
@@ -263,17 +77,17 @@ const JudgeAnalytics = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-            {stats.map((stat, index) => (
-              <Card key={index} className="shadow-card">
+            {statCards.map((s) => (
+              <Card key={s.label} className="shadow-card">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-2xl font-bold text-foreground">
-                        {summaryLoading ? "..." : stat.value}
-                      </p>
-                      <p className="text-sm text-muted-foreground">{stat.label}</p>
+                      {summaryLoading
+                        ? <Skeleton className="h-7 w-20 mb-1" />
+                        : <p className="text-2xl font-bold text-foreground">{s.value}</p>}
+                      <p className="text-sm text-muted-foreground">{s.label}</p>
                     </div>
-                    <stat.icon className="h-6 w-6 text-legal-warning" />
+                    <s.Icon className="h-6 w-6 text-legal-warning" />
                   </div>
                 </CardContent>
               </Card>
@@ -281,7 +95,7 @@ const JudgeAnalytics = () => {
           </div>
         </div>
 
-        {/* Search */}
+        {/* ── Search ── */}
         <Card className="shadow-card mb-8">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -291,31 +105,22 @@ const JudgeAnalytics = () => {
             <CardDescription>Search for judges by name, court, or specialty area</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search judges, courts, or case types..."
-                  className="pl-9"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-              </div>
-              {/* <Button
-                variant="outline"
-                size="sm"
-                className="shrink-0 border-legal-primary text-legal-primary hover:bg-legal-primary/10"
-                onClick={refreshAnalytics}
-                disabled={refreshingAnalytics}
-              >
-                {refreshingAnalytics ? "Syncing…" : "Refresh analytics (sync Grant Rate & Avg Decision)"}
-              </Button> */}
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search judges, courts, or case types..."
+                className="pl-9"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
             </div>
           </CardContent>
         </Card>
 
+        {/* ── Main grid ── */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Judge List - NO LAYOUT SHIFT */}
+
+          {/* ── Judge list ── */}
           <div className="lg:col-span-2">
             <Card className="shadow-card h-full flex flex-col">
               <CardHeader>
@@ -327,111 +132,93 @@ const JudgeAnalytics = () => {
               </CardHeader>
               <CardContent className="flex-1 flex flex-col">
                 <div className="space-y-6">
-                  {loading && judges.length === 0 ? (
-                    <div className="flex items-center justify-center min-h-[200px] py-12">
-                      <p className="text-lg text-muted-foreground">Loading judges...</p>
-                    </div>
-                  ) : judges.length > 0 ? (
-                    judges.map((j) => {
-                      const trend = j.grant_rate > 50 ? "up" : "down";
-                      return (
-                        <div
-                          key={j.id}
-                          className="border border-border rounded-lg p-6 hover:shadow-legal transition-shadow duration-200"
-                        >
-                          <div className="flex items-start justify-between mb-4">
-                            <div>
-                              <h3 className="text-lg font-semibold text-foreground">{j.full_name}</h3>
-                              <p className="text-sm text-muted-foreground">{j.court_name || "N/A"}</p>
-                              {j.specialty && <Badge variant="outline" className="mt-1">{j.specialty}</Badge>}
-                            </div>
-                            {/* <div className="flex items-center gap-2">
-                              {trend === "up" ? (
-                                <TrendingUp className="h-5 w-5 text-legal-success" />
-                              ) : (
-                                <TrendingDown className="h-5 w-5 text-destructive" />
-                              )}
-                              <span className="text-sm font-medium">{j.grant_rate}% Grant Rate</span>
-                            </div> */}
-
-                            <div className="flex items-center gap-2">
-                              {j.grant_rate !== null ? (
-                                <>
-                                  {j.grant_rate > 50 ? (
-                                    <TrendingUp className="h-5 w-5 text-legal-success" />
-                                  ) : (
-                                    <TrendingDown className="h-5 w-5 text-destructive" />
-                                  )}
-                                  <span className="text-sm font-medium">{j.grant_rate}% Grant Rate</span>
-                                </>
-                              ) : (
-                                <span className="text-sm font-medium text-muted-foreground">No outcome data</span>
-                              )}
-                            </div>
+                  {/* Loading skeleton */}
+                  {(judgesLoading && judges.length === 0) ? (
+                    Array.from({ length: 3 }).map((_, i) => (
+                      <div key={i} className="border border-border rounded-lg p-6 space-y-4">
+                        <div className="flex justify-between">
+                          <div className="space-y-2">
+                            <Skeleton className="h-5 w-48" />
+                            <Skeleton className="h-4 w-32" />
                           </div>
-
-                          {/* <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            <div className="text-center">
-                              <p className="text-2xl font-bold text-legal-primary">{j.total_cases}</p>
-                              <p className="text-xs text-muted-foreground">Total Cases</p>
+                          <Skeleton className="h-5 w-24" />
+                        </div>
+                        <div className="grid grid-cols-4 gap-4">
+                          {Array.from({ length: 4 }).map((_, j) => (
+                            <div key={j} className="text-center space-y-1">
+                              <Skeleton className="h-7 w-12 mx-auto" />
+                              <Skeleton className="h-3 w-16 mx-auto" />
                             </div>
-                            <div className="text-center">
-                              <p className="text-2xl font-bold text-legal-warning">{j.grant_rate}%</p>
-                              <p className="text-xs text-muted-foreground">Grant Rate</p>
-                            </div>
-                            <div className="text-center">
-                              <p className="text-2xl font-bold text-legal-info">{j.avg_decision_time} days</p>
-                              <p className="text-xs text-muted-foreground">Avg Decision</p>
-                            </div>
-                            <div className="text-center">
-                              <p className="text-2xl font-bold text-legal-success">{j.recent_cases_count}</p>
-                              <p className="text-xs text-muted-foreground">Recent Cases</p>
-                            </div>
-                          </div> */}
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  ) : judges.length > 0 ? (
+                    judges.map((j) => (
+                      <div
+                        key={j.id}
+                        className={`border border-border rounded-lg p-6 hover:shadow-legal transition-shadow duration-200 ${judgesFetching ? "opacity-70" : ""}`}
+                      >
+                        <div className="flex items-start justify-between mb-4">
+                          <div>
+                            <h3 className="text-lg font-semibold text-foreground">{j.full_name}</h3>
+                            <p className="text-sm text-muted-foreground">{j.court_name || "N/A"}</p>
+                            {j.specialty && <Badge variant="outline" className="mt-1">{j.specialty}</Badge>}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {j.grant_rate !== null ? (
+                              <>
+                                {j.grant_rate > 50
+                                  ? <TrendingUp className="h-5 w-5 text-legal-success" />
+                                  : <TrendingDown className="h-5 w-5 text-destructive" />}
+                                <span className="text-sm font-medium">{j.grant_rate}% Grant Rate</span>
+                              </>
+                            ) : (
+                              <span className="text-sm font-medium text-muted-foreground">No outcome data</span>
+                            )}
+                          </div>
+                        </div>
 
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                           <div className="text-center">
                             <p className="text-2xl font-bold text-legal-primary">{j.total_cases}</p>
-                            <p className="text-xs text-muted-foreground">Total Opinions</p>  {/* CHANGED label */}
+                            <p className="text-xs text-muted-foreground">Total Opinions</p>
                           </div>
                           <div className="text-center">
                             <p className="text-2xl font-bold text-legal-warning">
-                              {j.grant_rate !== null ? `${j.grant_rate}%` : 'N/A'}  {/* CHANGED: handle null */}
+                              {j.grant_rate !== null ? `${j.grant_rate}%` : "N/A"}
                             </p>
                             <p className="text-xs text-muted-foreground">Grant Rate</p>
                           </div>
                           <div className="text-center">
                             <p className="text-2xl font-bold text-legal-info">
-                              {j.avg_decision_time !== null ? `${j.avg_decision_time} days` : 'N/A'}  {/* CHANGED: handle null */}
+                              {j.avg_decision_time !== null ? `${j.avg_decision_time} days` : "N/A"}
                             </p>
                             <p className="text-xs text-muted-foreground">Avg Decision</p>
                           </div>
                           <div className="text-center">
                             <p className="text-2xl font-bold text-legal-success">{j.recent_cases_count}</p>
-                            <p className="text-xs text-muted-foreground">Cases Handled</p>  {/* CHANGED label */}
+                            <p className="text-xs text-muted-foreground">Cases Handled</p>
                           </div>
                         </div>
 
-                          <div className="mt-4 pt-4 border-t border-border">
-                            <div className="flex flex-wrap gap-2">
-                              <Button
-                                size="sm"
-                                className="bg-legal-primary hover:bg-legal-primary/90"
-                                onClick={() => navigate(`/ai/judge/${j.id}`)}
-                              >
-                                View Full Profile
-                              </Button>
-                              <Button size="sm" variant="outline" onClick={() => navigate(`/ai/judge/${j.id}/case-history`)}>
-                                Case History
-                              </Button>
-                              <Button size="sm" variant="outline" onClick={() => navigate(`/ai/judge/${j.id}/predictions`)}>
-                                Predictions
-                              </Button>
-                            </div>
-                          </div>
+                        <div className="mt-4 pt-4 border-t border-border flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            className="bg-legal-primary hover:bg-legal-primary/90"
+                            onClick={() => navigate(`/ai/judge/${j.id}`)}
+                          >
+                            View Full Profile
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => navigate(`/ai/judge/${j.id}/case-history`)}>
+                            Case History
+                          </Button>
+                          <Button size="sm" variant="outline" onClick={() => navigate(`/ai/judge/${j.id}/predictions`)}>
+                            Predictions
+                          </Button>
                         </div>
-                      );
-                    })
+                      </div>
+                    ))
                   ) : (
                     <div className="flex items-center justify-center min-h-[200px] py-12">
                       <p className="text-lg text-muted-foreground">No judges found matching your criteria.</p>
@@ -439,51 +226,37 @@ const JudgeAnalytics = () => {
                   )}
                 </div>
 
+                {/* Pagination */}
                 {totalCount > 0 && (
                   <div className="mt-6 pt-4 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-4">
                     <span className="text-sm text-muted-foreground order-2 sm:order-1">
-                      {totalCount} judge{totalCount !== 1 ? 's' : ''} total
+                      {totalCount} judge{totalCount !== 1 ? "s" : ""} total
                     </span>
                     <div className="flex items-center gap-1 order-1 sm:order-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-9 px-3 rounded-md border-legal-primary/30 text-legal-primary hover:bg-legal-primary/10"
-                        disabled={!hasPrevious || loading}
-                        onClick={() => setOffset(0)}
-                      >
-                        First
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-9 w-9 rounded-md border-legal-primary/30 text-legal-primary hover:bg-legal-primary/10 p-0"
-                        disabled={!hasPrevious || loading}
-                        onClick={() => setOffset(Math.max(offset - limit, 0))}
-                      >
-                        ‹
-                      </Button>
-                      <span className="min-w-[100px] text-center text-sm font-medium text-foreground px-3 py-2 bg-muted/50 rounded-md">
-                        Page {currentPage} of {totalPages}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-9 w-9 rounded-md border-legal-primary/30 text-legal-primary hover:bg-legal-primary/10 p-0"
-                        disabled={!hasNext || loading}
-                        onClick={() => setOffset(offset + limit)}
-                      >
-                        ›
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-9 px-3 rounded-md border-legal-primary/30 text-legal-primary hover:bg-legal-primary/10"
-                        disabled={!hasNext || loading}
-                        onClick={() => setOffset((totalPages - 1) * limit)}
-                      >
-                        Last
-                      </Button>
+                      {[
+                        { label: "First", disabled: !hasPrev || judgesFetching, onClick: () => setOffset(0) },
+                        { label: "‹", disabled: !hasPrev || judgesFetching, onClick: () => setOffset(Math.max(offset - LIMIT, 0)) },
+                        { label: `Page ${currentPage} of ${totalPages}`, disabled: true, isInfo: true },
+                        { label: "›", disabled: !hasNext || judgesFetching, onClick: () => setOffset(offset + LIMIT) },
+                        { label: "Last", disabled: !hasNext || judgesFetching, onClick: () => setOffset((totalPages - 1) * LIMIT) },
+                      ].map((btn, i) =>
+                        btn.isInfo ? (
+                          <span key={i} className="min-w-[110px] text-center text-sm font-medium text-foreground px-3 py-2 bg-muted/50 rounded-md">
+                            {btn.label}
+                          </span>
+                        ) : (
+                          <Button
+                            key={i}
+                            variant="outline"
+                            size="sm"
+                            className="h-9 px-3 rounded-md border-legal-primary/30 text-legal-primary hover:bg-legal-primary/10"
+                            disabled={btn.disabled}
+                            onClick={btn.onClick}
+                          >
+                            {btn.label}
+                          </Button>
+                        )
+                      )}
                     </div>
                   </div>
                 )}
@@ -491,83 +264,67 @@ const JudgeAnalytics = () => {
             </Card>
           </div>
 
-          {/* Right Panel */}
+          {/* ── Right panel ── */}
           <div className="space-y-6">
-{/* Case Type Analysis - Very light pastel colored bars */}
-<Card className="shadow-card">
-  <CardHeader>
-    <CardTitle className="flex items-center gap-2">
-      <BarChart3 className="h-5 w-5 text-legal-primary" />
-      Case Type Analysis
-    </CardTitle>
-    <CardDescription>Success rates by case category</CardDescription>
-  </CardHeader>
-  <CardContent>
-    <div className="space-y-4">
-      {(caseTypeLoading || caseTypeAnalysis.length === 0) ? (
-        <>
-          {["Civil Rights", "Contract Disputes", "Employment", "Personal Injury"].map((type, i) => (
-            <div key={i} className="space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-medium text-muted-foreground">{type}</span>
-                <span className="text-sm text-muted-foreground">—</span>
-              </div>
-              <div className="w-full bg-muted/50 rounded-full h-3">
-                <div className="bg-muted h-3 rounded-full" style={{ width: "0%" }} />
-              </div>
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>No data yet</span>
-                <span>No data yet</span>
-              </div>
-            </div>
-          ))}
-        </>
-      ) : (
-        caseTypeAnalysis.map((caseType: any, index: number) => {
-          const noOutcomeData = caseType.no_outcome_data || caseType.granted_percentage == null;
-          const pastelColors = [
-            "bg-primary/75",
-            "bg-success/75",
-            "bg-legal-warning/75",
-            "bg-legal-info/75",
-            "bg-gold-light/80",
-            "bg-navy/55",
-            "bg-burgundy/50",
-            "bg-sage/70",
-          ];
-          const barColor = pastelColors[index % pastelColors.length];
 
-          return (
-            <div key={index} className="space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-sm font-medium">{caseType.category}</span>
-                <span className="text-sm text-muted-foreground">{caseType.total_cases} cases</span>
-              </div>
-              <div className="w-full bg-muted/40 rounded-full h-3 overflow-hidden">
-                <div
-                  className={`${barColor} h-3 rounded-full transition-all duration-700 ease-out shadow-sm`}
-                  style={{ width: noOutcomeData ? "0%" : `${caseType.granted_percentage}%` }}
-                />
-              </div>
-              <div className="flex justify-between text-xs text-muted-foreground">
-                {noOutcomeData ? (
-                  <span>No outcome data</span>
-                ) : (
-                  <>
-                    <span>{caseType.granted_percentage}% Granted</span>
-                    <span>{caseType.denied_percentage}% Denied</span>
-                  </>
-                )}
-              </div>
-            </div>
-          );
-        })
-      )}
-    </div>
-  </CardContent>
-</Card>
+            {/* Case Type Analysis */}
+            <Card className="shadow-card">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5 text-legal-primary" />
+                  Case Type Analysis
+                </CardTitle>
+                <CardDescription>Success rates by case category</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {caseTypeLoading ? (
+                    Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i} className="space-y-2">
+                        <div className="flex justify-between">
+                          <Skeleton className="h-4 w-28" />
+                          <Skeleton className="h-4 w-16" />
+                        </div>
+                        <Skeleton className="h-3 w-full rounded-full" />
+                        <div className="flex justify-between">
+                          <Skeleton className="h-3 w-20" />
+                          <Skeleton className="h-3 w-20" />
+                        </div>
+                      </div>
+                    ))
+                  ) : (caseTypeAnalysis ?? []).map((ct: any, index: number) => {
+                    const noData = ct.no_outcome_data || ct.granted_percentage == null;
+                    const barColor = pastelColors[index % pastelColors.length];
+                    return (
+                      <div key={index} className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm font-medium">{ct.category}</span>
+                          <span className="text-sm text-muted-foreground">{ct.total_cases} cases</span>
+                        </div>
+                        <div className="w-full bg-muted/40 rounded-full h-3 overflow-hidden">
+                          <div
+                            className={`${barColor} h-3 rounded-full transition-all duration-700 ease-out shadow-sm`}
+                            style={{ width: noData ? "0%" : `${ct.granted_percentage}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          {noData ? (
+                            <span>No outcome data</span>
+                          ) : (
+                            <>
+                              <span>{ct.granted_percentage}% Granted</span>
+                              <span>{ct.denied_percentage}% Denied</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
 
-            {/* Quick Insights - UNCHANGED */}
+            {/* Quick Insights */}
             <Card className="shadow-card">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -576,40 +333,21 @@ const JudgeAnalytics = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {(overviewLoading || overview.quick_insights.length === 0) ? (
-                  <>
-                    <div className="p-3 rounded-lg border bg-legal-success/10 border-legal-success/20">
-                      <div className="flex items-center gap-2 mb-1">
-                        <TrendingUp className="h-4 w-4 text-legal-success" />
-                        <span className="text-sm font-medium text-muted-foreground">High Success Rate</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground">Data not available yet</p>
+                {overviewLoading ? (
+                  Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="p-3 rounded-lg border bg-muted/20 space-y-2">
+                      <Skeleton className="h-4 w-36" />
+                      <Skeleton className="h-3 w-48" />
                     </div>
-                    <div className="p-3 rounded-lg border bg-legal-warning/10 border-legal-warning/20">
-                      <div className="flex items-center gap-2 mb-1">
-                        <Clock className="h-4 w-4 text-legal-warning" />
-                        <span className="text-sm font-medium text-muted-foreground">Decision Speed</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground">Data not available yet</p>
-                    </div>
-                    <div className="p-3 rounded-lg border bg-legal-info/10 border-legal-info/20">
-                      <div className="flex items-center gap-2 mb-1">
-                        <BarChart3 className="h-4 w-4 text-legal-info" />
-                        <span className="text-sm font-medium text-muted-foreground">Trending Pattern</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground">Data not available yet</p>
-                    </div>
-                  </>
-                ) : (
-                  overview.quick_insights.map((insight, index) => (
+                  ))
+                ) : (overview?.quick_insights ?? []).length > 0 ? (
+                  (overview!.quick_insights).map((insight, index) => (
                     <div
                       key={index}
                       className={`p-3 rounded-lg border ${
-                        index === 0
-                          ? "bg-legal-success/10 border-legal-success/20"
-                          : index === 1
-                          ? "bg-legal-warning/10 border-legal-warning/20"
-                          : "bg-legal-info/10 border-legal-info/20"
+                        index === 0 ? "bg-legal-success/10 border-legal-success/20" :
+                        index === 1 ? "bg-legal-warning/10 border-legal-warning/20" :
+                                      "bg-legal-info/10 border-legal-info/20"
                       }`}
                     >
                       <div className="flex items-center gap-2 mb-1">
@@ -619,35 +357,35 @@ const JudgeAnalytics = () => {
                         <span className="text-sm font-medium">{insight.title}</span>
                       </div>
                       <p className="text-xs text-muted-foreground">{insight.description}</p>
-                      {insight.metric && (
-                        <p className="text-xs font-medium mt-1">{insight.metric}</p>
-                      )}
+                      {insight.metric && <p className="text-xs font-medium mt-1">{insight.metric}</p>}
                     </div>
                   ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">Insights not available yet.</p>
                 )}
               </CardContent>
             </Card>
 
-            {/* AI Predictions Teaser - UNCHANGED */}
+            {/* AI Predictions Teaser */}
             <Card className="shadow-card bg-gradient-primary text-white">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <TrendingUp className="h-5 w-5" />
-                  {overview.ai_prediction_teaser.title || "AI Predictions"}
+                  {overview?.ai_prediction_teaser?.title || "AI Predictions"}
                 </CardTitle>
                 <CardDescription className="text-white/80">
-                  {overview.ai_prediction_teaser.description || "Outcome likelihood for your case"}
+                  {overview?.ai_prediction_teaser?.description || "Outcome likelihood for your case"}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="text-center mb-4">
                   <div className="text-3xl font-bold mb-1">
-                    {(overview.ai_prediction_teaser.accuracy_rate || 0).toFixed(1)}%
+                    {((overview?.ai_prediction_teaser?.accuracy_rate) ?? 0).toFixed(1)}%
                   </div>
                   <p className="text-sm opacity-90">Predicted Success Rate</p>
                 </div>
                 <Button variant="secondary" className="w-full" disabled={overviewLoading}>
-                  {overview.ai_prediction_teaser.cta_text || "Get Detailed Prediction"}
+                  {overview?.ai_prediction_teaser?.cta_text || "Get Detailed Prediction"}
                 </Button>
               </CardContent>
             </Card>

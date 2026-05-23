@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,7 @@ import {
   Handshake,
   Info,
 } from "lucide-react";
-import { getJudgeProfile } from "@/api/Ai_Features_Microsrc/judge_analytcs";
+import { useJudgeProfile } from "@/api/hooks";
 import {
   ResponsiveContainer,
   BarChart,
@@ -53,55 +53,33 @@ const JudgeProfile = () => {
   const { judgeId } = useParams<{ judgeId: string }>();
   const { toast } = useToast();
 
-  const [profileData, setProfileData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [selectedMotion, setSelectedMotion] = useState<string>("Preliminary Injunction");
-  const [enabledInsights, setEnabledInsights] = useState<Record<string, boolean>>({});
+  const [selectedMotion, setSelectedMotion]     = useState<string>("Preliminary Injunction");
+  const [enabledInsights, setEnabledInsights]   = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    if (!judgeId || isNaN(Number(judgeId))) {
-      toast({
-        variant: "destructive",
-        title: "Invalid Judge",
-        description: "The judge ID is missing or invalid.",
-      });
-      navigate("/ai/judge-analytics");
-      return;
-    }
+  const judgeIdNum = judgeId && !isNaN(Number(judgeId)) ? Number(judgeId) : undefined;
 
-    const fetchProfile = async () => {
-      try {
-        setLoading(true);
-        const res = await getJudgeProfile(Number(judgeId));
-        setProfileData(res.data);
-      } catch (error: any) {
-        console.error("Failed to load judge profile:", error);
-        toast({
-          variant: "destructive",
-          title: "Profile Not Found",
-          description: "This judge profile could not be loaded.",
-        });
-        navigate("/ai/judge-analytics");
-      } finally {
-        setLoading(false);
-      }
-    };
+  // ── React Query: single call replaces useEffect + useState loading ─────────
+  const { data: profileData, isLoading: loading, isError } = useJudgeProfile(judgeIdNum);
 
-    fetchProfile();
-  }, [judgeId, navigate, toast]);
+  // Invalid ID: redirect immediately
+  if (!judgeIdNum) {
+    toast({ variant: "destructive", title: "Invalid Judge", description: "The judge ID is missing or invalid." });
+    navigate("/ai/judge-analytics");
+    return null;
+  }
 
   if (loading) {
     return (
       <div className="w-full min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-legal-primary mx-auto mb-4"></div>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-legal-primary mx-auto mb-4" />
           <p className="text-muted-foreground">Loading judge profile...</p>
         </div>
       </div>
     );
   }
 
-  if (!profileData) {
+  if (isError || !profileData) {
     return (
       <div className="w-full min-h-screen flex items-center justify-center flex-col gap-6">
         <AlertCircle className="h-16 w-16 text-destructive" />

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,11 +20,11 @@ import {
   Calculator,
   FileText
 } from "lucide-react";
-import { 
-  getJudgePredictionContext,
-  getJudgeHistoricalPerformance,
-  postJudgePredictOutcome
-} from "@/api/Ai_Features_Microsrc/judge_analytcs";
+import {
+  useJudgePredictionContext,
+  useJudgeHistoricalPerformance,
+  useJudgePredictOutcome,
+} from "@/api/hooks";
 import { useToast } from "@/hooks/use-toast";
 
 const JudgePredictions = () => {
@@ -32,7 +32,6 @@ const JudgePredictions = () => {
   const { judgeId } = useParams<{ judgeId: string }>();
   const { toast } = useToast();
 
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [prediction, setPrediction] = useState<any>(null);
   const [caseDetails, setCaseDetails] = useState({
     caseType: "",
@@ -40,56 +39,27 @@ const JudgePredictions = () => {
     caseDescription: "",
     keyFacts: ""
   });
-  const [contextData, setContextData] = useState<any>(null);
-  const [historicalData, setHistoricalData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (!judgeId) return;
+  const judgeIdNum = judgeId ? Number(judgeId) : undefined;
 
-    const fetchData = async () => {
-      try {
-        setLoading(true);
+  // ── React Query: replaces two useEffect + Promise.all ─────────────────────
+  const { data: contextRaw, isLoading: contextLoading } = useJudgePredictionContext(judgeIdNum);
+  const { data: historicalRaw, isLoading: historicalLoading } = useJudgeHistoricalPerformance(judgeIdNum);
+  const predictMutation = useJudgePredictOutcome(judgeIdNum);
 
-        const [contextRes, historicalRes] = await Promise.all([
-          getJudgePredictionContext(Number(judgeId)).catch(() => ({ data: null })),
-          getJudgeHistoricalPerformance(Number(judgeId)).catch(() => ({ data: { performance_by_case_type: [] } })),
-        ]);
+  const loading = contextLoading || historicalLoading;
 
-        setContextData(contextRes.data || {
-          judge_name: "Unknown Judge",
-          court_name: "Unknown",
-          grant_rate: 0,
-          avg_decision_time: 0,
-          specialty: "General",
-          total_cases: 0
-        });
+  const contextData = contextRaw ?? {
+    judge_name: "Unknown Judge", court_name: "Unknown",
+    grant_rate: 0, avg_decision_time: 0, specialty: "General", total_cases: 0,
+  };
 
-        const perfData = historicalRes.data.performance_by_case_type || [];
-        setHistoricalData(perfData.map((item: any) => ({
-          caseType: item.case_type,
-          cases: item.total_cases,
-          grantRate: item.grant_rate,
-          avgTime: item.avg_decision_time > 0 ? `${item.avg_decision_time} days` : "N/A"
-        })));
-      } catch (error) {
-        console.error("Failed to load prediction data:", error);
-        setContextData({
-          judge_name: "Unknown Judge",
-          court_name: "Unknown",
-          grant_rate: 0,
-          avg_decision_time: 0,
-          specialty: "General",
-          total_cases: 0
-        });
-        setHistoricalData([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, [judgeId]);
+  const historicalData = (historicalRaw?.performance_by_case_type ?? []).map((item: any) => ({
+    caseType: item.case_type,
+    cases: item.total_cases,
+    grantRate: item.grant_rate,
+    avgTime: item.avg_decision_time > 0 ? `${item.avg_decision_time} days` : "N/A",
+  }));
 
   const handleRunPrediction = async () => {
     if (!caseDetails.caseType || !caseDetails.caseDescription) {
@@ -101,49 +71,35 @@ const JudgePredictions = () => {
       return;
     }
 
-    setIsAnalyzing(true);
-    setPrediction(null); // Clear previous result
+    setPrediction(null);
 
     try {
       const keyFactsArray = caseDetails.keyFacts
-        .split("\n")
-        .map(line => line.trim())
-        .filter(line => line.length > 0);
+        .split("\n").map((l) => l.trim()).filter(Boolean);
 
-      const payload = {
-        case_type: caseDetails.caseType,
-        client_position: caseDetails.clientPosition || "unknown",
+      const data = await predictMutation.mutateAsync({
+        case_type:        caseDetails.caseType,
+        client_position:  caseDetails.clientPosition || "unknown",
         case_description: caseDetails.caseDescription,
-        key_facts: keyFactsArray
-      };
+        key_facts:        keyFactsArray,
+      });
 
-      const res = await postJudgePredictOutcome(Number(judgeId!), payload);
-      const data = res.data;
-
-      // Set real prediction from API
       setPrediction({
-        success_probability: data.success_probability,
-        confidence_level: data.confidence_level,
-        estimated_decision_time: data.estimated_decision_time,
-        contributing_factors: data.contributing_factors || [],
-        strategic_recommendations: data.strategic_recommendations || [],
+        success_probability:      data.success_probability,
+        confidence_level:         data.confidence_level,
+        estimated_decision_time:  data.estimated_decision_time,
+        contributing_factors:     data.contributing_factors ?? [],
+        strategic_recommendations: data.strategic_recommendations ?? [],
       });
 
-      toast({
-        title: "Prediction Complete",
-        description: "AI analysis based on judge's real patterns.",
-      });
-    } catch (error: any) {
-      console.error("Prediction failed:", error);
-      toast({
-        variant: "destructive",
-        title: "Prediction Failed",
-        description: error.response?.data?.detail || "Unable to generate prediction.",
-      });
-    } finally {
-      setIsAnalyzing(false);
+      toast({ title: "Prediction Complete", description: "AI analysis based on judge's real patterns." });
+    } catch {
+      // Error toast is fired by the hook's onError — nothing more needed here
     }
   };
+
+  // Use mutation pending state instead of manual isAnalyzing
+  const isAnalyzing = predictMutation.isPending;
 
   const handleInputChange = (field: string, value: string) => {
     setCaseDetails(prev => ({

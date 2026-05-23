@@ -21,6 +21,31 @@ import { convertPDF } from "@/api";
 
 type ProcessStep = "upload" | "processing" | "download";
 
+function formatUploadSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function pdfStem(name: string): string {
+  return name.replace(/\.pdf$/i, "");
+}
+
+/** Suggested download name (server URLs may not include a friendly filename). */
+function expectedConvertedFilename(uploadName: string, formatKey: string): string {
+  const stem = pdfStem(uploadName) || "document";
+  const ext: Record<string, string> = {
+    docx: "docx",
+    xlsx: "xlsx",
+    pptx: "pptx",
+    jpg: "jpg",
+    png: "png",
+    txt: "txt",
+  };
+  return `${stem}.${ext[formatKey] ?? formatKey}`;
+}
+
 const ConvertFromPDF = () => {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -108,17 +133,14 @@ const ConvertFromPDF = () => {
   };
 
 const downloadFile = () => {
-  if (!convertedFileUrl) {
+  if (!convertedFileUrl || !file) {
     toast.info("No converted file available for download.");
     return;
   }
 
   const link = document.createElement("a");
   link.href = convertedFileUrl;
-
-  // Extract filename from URL
-  const fileNameFromUrl = convertedFileUrl.split("/").filter(Boolean).pop() || "converted_file";
-  link.download = fileNameFromUrl;
+  link.download = expectedConvertedFilename(file.name, selectedFormat);
 
   document.body.appendChild(link);
   link.click();
@@ -221,8 +243,8 @@ const downloadFile = () => {
               <div className="flex-1">
                 <h4 className="font-medium">{file.name}</h4>
                 <p className="text-sm text-muted-foreground">
-                  {(file.size / 1024 / 1024).toFixed(2)} MB
-                  </p>
+                  {formatUploadSize(file.size)}
+                </p>
               </div>
               <Button variant="outline" size="sm" onClick={() => setFile(null)}>
                 Remove
@@ -240,25 +262,39 @@ const downloadFile = () => {
               {conversionOptions.map((option) => (
                 <Card
                   key={option.format}
-                  className={`cursor-pointer transition-all hover:shadow-md ${
-                    selectedFormat === option.format 
-                    ? "ring-2 ring-primary bg-primary/5" 
-                    : "hover:bg-muted/50"
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={selectedFormat === option.format}
+                  aria-label={`${option.name}. ${option.description}`}
+                  className={`relative cursor-pointer rounded-lg border-2 transition-all outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
+                    selectedFormat === option.format
+                      ? "border-primary bg-primary/5 shadow-md ring-2 ring-primary/25"
+                      : "border-transparent bg-card hover:border-primary/40 hover:bg-muted/30"
                   }`}
                   onClick={() => setSelectedFormat(option.format)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedFormat(option.format);
+                    }
+                  }}
                 >
-                  <CardContent className="p-4">
+                  <CardContent className="p-4 pt-10">
+                    {selectedFormat === option.format ? (
+                      <span className="absolute top-3 right-3 inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground shadow">
+                        <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                        Selected
+                      </span>
+                    ) : null}
                     <div className="flex items-start gap-3">
                       <div
-                       className={`w-12 h-12 rounded-lg flex items-center justify-center ${option.color}`}
-                       >
+                        className={`w-12 h-12 rounded-lg flex items-center justify-center shrink-0 ${option.color}`}
+                      >
                         <option.icon className="h-6 w-6" />
                       </div>
-                      <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0 text-left">
                         <h4 className="font-medium">{option.name}</h4>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {option.description}
-                          </p>
+                        <p className="text-sm text-muted-foreground mt-1">{option.description}</p>
                       </div>
                     </div>
                   </CardContent>
@@ -293,10 +329,11 @@ const downloadFile = () => {
             </div>
             <div>
               <h3 className="text-xl font-semibold mb-2">
-                Converting to {selectedFormat.toUpperCase()}...
+                Converting to{" "}
+                {conversionOptions.find((o) => o.format === selectedFormat)?.name ?? selectedFormat}…
               </h3>
               <p className="text-muted-foreground">
-                {file?.name} ({(file?.size / 1024 / 1024)?.toFixed(2)}mb)
+                {file?.name} ({formatUploadSize(file?.size ?? 0)})
               </p>
             </div>
             <div className="space-y-2">
@@ -315,6 +352,9 @@ const downloadFile = () => {
       (opt) => opt.format === selectedFormat
     );
 
+    const outName =
+      file && selectedFormat ? expectedConvertedFilename(file.name, selectedFormat) : "Converted file";
+
     return (
       <div className="max-w-2xl mx-auto text-center">
         <Card>
@@ -326,33 +366,26 @@ const downloadFile = () => {
                 </div>
               </div>
               <div>
-                <h3 className="text-xl font-semibold mb-2">
-                  Conversion Complete!
-                  </h3>
+                <h3 className="text-xl font-semibold mb-2">Conversion Complete!</h3>
                 <p className="text-muted-foreground">
-                  Your PDF has been converted to {selectedOption?.name}
+                  Your PDF <span className="font-medium text-foreground">{file?.name}</span> has been
+                  converted to {selectedOption?.name}.
                 </p>
               </div>
-              <div className="bg-muted rounded-lg p-4">
+              <div className="bg-muted rounded-lg p-4 text-left">
                 <div className="flex items-center gap-3">
-                  <div 
-                  className={`w-12 h-12 rounded-lg flex items-center justify-center ${selectedOption?.color}`}
+                  <div
+                    className={`w-12 h-12 rounded-lg flex items-center justify-center shrink-0 ${selectedOption?.color}`}
                   >
-                    {selectedOption?.icon && ( 
-                    <selectedOption.icon className="h-6 w-6" />
-                    )}
+                    {selectedOption?.icon && <selectedOption.icon className="h-6 w-6" />}
                   </div>
-                  <div className="flex-1 text-left">
-                    <h4 className="font-medium">
-                      {convertedFileUrl?.split("/").pop()}
-                    </h4>
-                    <p className="text-sm text-muted-foreground">
-                      {(file?.size / 1024 / 1024)?.toFixed(2)} MB
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-medium truncate">{outName}</h4>
+                    <p className="text-sm text-muted-foreground truncate" title={`${file?.name ?? ""}`}>
+                      Source PDF: {file?.name} · {formatUploadSize(file?.size ?? 0)}
                     </p>
                   </div>
-                  <div className="text-green-600 font-medium text-sm">
-                    ✓ Converted
-                    </div>
+                  <div className="text-green-600 font-medium text-sm shrink-0">✓ Done</div>
                 </div>
               </div>
               <div className="flex gap-4 justify-center">

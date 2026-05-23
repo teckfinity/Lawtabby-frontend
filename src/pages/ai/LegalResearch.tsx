@@ -27,7 +27,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { sendLegalResearchAdvanced } from "@/api/Ai_Features_Microsrc/legal_research";
+import { sendLegalResearch as sendLegalResearchAdvanced } from "@/api/ai-features/legal-research";
 import { Trash } from "lucide-react";
 
 interface LegalFilters {
@@ -102,10 +102,25 @@ const LegalResearch = () => {
       const res = await sendLegalResearchAdvanced(question, payloadFilters);
       const data = res.data;
 
+      const keyAuthorities: KeyAuthority[] = (data.key_authorities || []).map(
+        (auth: string | KeyAuthority) => {
+          if (typeof auth === "string") {
+            const [case_name = "Unknown", citation = "", ...rest] = auth.split(", ");
+            return {
+              case_name,
+              citation,
+              excerpt: rest.join(", "),
+              relevance: "",
+            };
+          }
+          return auth;
+        }
+      );
+
       const newResponse: LegalResponse = {
         question,
         summary: data.summary,
-        keyAuthorities: data.key_authorities || [],
+        keyAuthorities,
         analysis: data.analysis,
         citations: data.citations || [],
         filters: { ...filters },

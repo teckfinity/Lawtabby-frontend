@@ -11,6 +11,7 @@ const PDFToolRecommendations = ({ currentTool }: PDFToolRecommendationsProps) =>
     { id: "merge", icon: "📄", label: "Merge", path: "/pdf/merge" },
     { id: "compress", icon: "🗜️", label: "Compress", path: "/pdf/compress" },
     { id: "split", icon: "✂️", label: "Split", path: "/pdf/split" },
+    { id: "convert", icon: "📑", label: "To PDF", path: "/pdf/convert-to-other-formats" },
     { id: "sign", icon: "✍️", label: "Sign", path: "/pdf/sign" },
     { id: "protect", icon: "🔒", label: "Protect", path: "/pdf/protect" },
     { id: "edit", icon: "✏️", label: "Edit", path: "/pdf/edit" },

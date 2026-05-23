@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -18,70 +18,34 @@ import {
   Download,
   Printer
 } from "lucide-react";
-import { getJudgeCaseHistory } from "@/api/Ai_Features_Microsrc/judge_analytcs";
+import { useJudgeCaseHistory } from "@/api/hooks";
+import { useDebounce } from "@/hooks/use-debounce";
 
 const CaseHistory = () => {
   const navigate = useNavigate();
   const { judgeId } = useParams<{ judgeId: string }>();
   const [searchTerm, setSearchTerm] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedCase, setSelectedCase] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
 
-  const [caseHistory, setCaseHistory] = useState<any>({
-    total_cases: 0,
-    active_cases: 0,
-    closed_cases: 0,
-    avg_decision_time: 0,
-    cases: []
-  });
+  // Debounce: React Query only re-runs when debouncedSearch changes → no extra effects needed
+  const debouncedSearch = useDebounce(searchTerm, 600);
+  const judgeIdNum = judgeId ? Number(judgeId) : undefined;
 
-  // Debounce search input - no page flicker while typing
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(searchTerm);
-    }, 600);
+  const {
+    data: caseHistoryData,
+    isLoading: loading,
+    isFetching,
+  } = useJudgeCaseHistory(judgeIdNum, { search: debouncedSearch || undefined });
 
-    return () => clearTimeout(timer);
-  }, [searchTerm]);
-
-  // Fetch data only on mount and when debounced search changes
-  useEffect(() => {
-    if (!judgeId) return;
-
-    const fetchCaseHistory = async () => {
-      try {
-        // Show loading only on first load
-        if (caseHistory.cases.length === 0) {
-          setLoading(true);
-        }
-
-        const res = await getJudgeCaseHistory(Number(judgeId), {
-          search: debouncedSearch || undefined,
-        });
-        setCaseHistory(res.data);
-      } catch (error) {
-        console.error("Failed to load case history:", error);
-        setCaseHistory({
-          total_cases: 0,
-          active_cases: 0,
-          closed_cases: 0,
-          avg_decision_time: 0,
-          cases: []
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchCaseHistory();
-  }, [judgeId, debouncedSearch]);
+  const caseHistory = caseHistoryData ?? {
+    total_cases: 0, active_cases: 0, closed_cases: 0, avg_decision_time: 0, cases: [],
+  };
 
   const statistics = {
-    total_cases: caseHistory.total_cases || 0,
-    active_cases: caseHistory.active_cases || 0,
-    closed_cases: caseHistory.closed_cases || 0,
-    avg_decision_time: caseHistory.avg_decision_time || 0,
+    total_cases:       caseHistory.total_cases       || 0,
+    active_cases:      caseHistory.active_cases       || 0,
+    closed_cases:      caseHistory.closed_cases       || 0,
+    avg_decision_time: caseHistory.avg_decision_time  || 0,
   };
 
   const cases = caseHistory.cases || [];
@@ -118,8 +82,8 @@ const CaseHistory = () => {
     window.print();
   };
 
-  // Show loading only on initial load
-  if (loading && caseHistory.cases.length === 0) {
+  // Show full-page loading only on the very first load (no data yet)
+  if (loading && cases.length === 0) {
     return (
       <div className="w-full min-h-screen flex items-center justify-center">
         <p className="text-muted-foreground">Loading case history...</p>

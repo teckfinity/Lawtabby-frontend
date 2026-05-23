@@ -81,7 +81,7 @@ const PDFTools = () => {
       color: "text-legal-info",
       bgColor: "bg-legal-info/12",
       action: "Convert PDF",
-      path: "/pdf/convert-from"
+      path: "/pdf/pdf-to-other-formats"
     },
     {
       title: "Other formats to PDF",
@@ -90,7 +90,7 @@ const PDFTools = () => {
       color: "text-gold",
       bgColor: "bg-gold-light/20",
       action: "Convert to PDF",
-      path: "/pdf/convert-to"
+      path: "/pdf/convert-to-other-formats"
     },
     {
       title: "OCR",
