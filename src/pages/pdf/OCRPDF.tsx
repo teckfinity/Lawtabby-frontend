@@ -67,19 +67,39 @@ const OCRPDF = () => {
       const response = await convertOCRToPDF(file, selectedLanguage);
 
       if (response?.data) {
-        const { message, data } = response.data;
-        toast.success(message || "OCR completed successfully!");
+        const { message, data, ocr_processing: ocrMeta } = response.data;
+        const ocrFailed =
+          ocrMeta?.ocr_layer_status === "returned_original_fallback";
+
+        if (ocrFailed) {
+          toast.warning(
+            message ||
+              "OCR engines could not process this file. Ensure the server has Tesseract/OCRmyPDF installed.",
+            { duration: 8000 },
+          );
+        } else {
+          toast.success(message || "OCR completed successfully!");
+        }
 
         const pdfUrl = data?.pdf || "";
-        const fileName = `ocr_${file.name.replace(/\.[^/.]+$/, "")}.pdf`;
+        if (!pdfUrl) {
+          toast.error("No download URL returned from server.");
+          return;
+        }
 
+        const fileName = `ocr_${file.name.replace(/\.[^/.]+$/, "")}.pdf`;
         setDownloadInfo({ pdfUrl, fileName });
       } else {
         toast.error("Failed to process OCR. Please try again.");
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("OCR API Error:", error);
-      toast.error(error?.response?.data?.detail || "OCR processing failed.");
+      const err = error as { response?: { data?: { error?: string; detail?: string } } };
+      toast.error(
+        err?.response?.data?.error ||
+          err?.response?.data?.detail ||
+          "OCR processing failed.",
+      );
     } finally {
       setIsProcessing(false);
     }

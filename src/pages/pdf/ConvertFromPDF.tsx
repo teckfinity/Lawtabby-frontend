@@ -108,7 +108,9 @@ const ConvertFromPDF = () => {
       }
     } catch (error) {
       console.error("Error converting PDF:", error);
-      toast.error("Conversion failed. Please try again.");
+      const message =
+        error instanceof Error ? error.message : "Conversion failed. Please try again.";
+      toast.error(message, { duration: 10000 });
       setCurrentStep("upload");
     }
   };

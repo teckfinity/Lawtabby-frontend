@@ -122,6 +122,7 @@ const PageOverlay = memo(
     pageHeight,
     mosaicMode,
     behindContent,
+    previewScale = 1,
   }: {
     pageIndex: number;
     watermarkType: WatermarkType;
@@ -138,6 +139,7 @@ const PageOverlay = memo(
     pageHeight: number;
     mosaicMode: boolean;
     behindContent: boolean;
+    previewScale?: number;
   }) => {
     const mosaicPositions = [
       { x: 16.67, y: 83.33 }, // top-left
@@ -163,8 +165,8 @@ const PageOverlay = memo(
               position: "absolute",
               left: `${x}%`,
               top: `${y}%`,
-              transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
-              fontSize: `${(fontSize * pageWidth) / 1000}px`,
+              transform: `translate(-50%, -50%) rotate(${-rotation}deg)`,
+              fontSize: `${fontSize * previewScale}px`,
               fontFamily:
                 fontFamily === "Helvetica"
                   ? "sans-serif"
@@ -190,8 +192,8 @@ const PageOverlay = memo(
               position: "absolute",
               left: `${x}%`,
               top: `${y}%`,
-              transform: `translate(-50%, -50%) rotate(${rotation}deg)`,
-              width: `${(200 * pageWidth) / 1000}px`,
+              transform: `translate(-50%, -50%) rotate(${-rotation}deg)`,
+              width: `${200 * previewScale}px`,
               height: "auto",
               opacity: opacity / 100,
               pointerEvents: "none",
@@ -303,6 +305,9 @@ const PDFLivePreview = memo(
                     {...watermarkSettings}
                     pageWidth={dims.width}
                     pageHeight={dims.height}
+                    previewScale={
+                      containerWidth && dims.width ? containerWidth / dims.width : 1
+                    }
                   />
                 )}
               </div>
@@ -760,7 +765,7 @@ const StampPDF = () => {
               variant="outline"
               size="sm"
               className="h-8 px-2 text-xs"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => pdfUploadInputRef.current?.click()}
             >
               Change
             </Button>
@@ -913,6 +918,11 @@ const StampPDF = () => {
                 onCheckedChange={setBehindContent}
               />
             </div>
+            {behindContent && (
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                Exported PDF places the stamp behind page content. The live preview is an approximation; download to verify final placement.
+              </p>
+            )}
           </CardContent>
         </Card>
 

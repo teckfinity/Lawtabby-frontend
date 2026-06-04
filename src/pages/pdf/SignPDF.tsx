@@ -77,17 +77,31 @@ interface Signer {
 /* ────────────────────────────────────────────────────────────────────── */
 /*  Font options with proper font families                                */
 /* ────────────────────────────────────────────────────────────────────── */
-const FONT_OPTIONS = [
-  { value: "Alex Brush", label: "Alex", style: "font-alex-brush" },
-  { value: "Allura", label: "Allura", style: "font-allura" },
-  { value: "Mrs Saint Delafield", label: "Handle", style: "font-mrs-saint-delafield" },
-  { value: "Kristi", label: "Kristi", style: "font-kristi" },
-  { value: "Italianno", label: "Lassie", style: "font-italianno" },
-  { value: "Mr Dafoe", label: "Mark", style: "font-mr-dafoe" },
-  { value: "Satisfy", label: "Satisfy", style: "font-satisfy" },
-  { value: "Zeyada", label: "Zeyada", style: "font-zeyada" },
-  { value: "Shadows Into Light", label: "Shadows", style: "font-shadows-into-light" },
+const SIMPLE_FONT_OPTIONS = [
+  { value: "Inter", label: "Simple Sans", style: "font-sans", group: "simple" as const },
+  { value: "Libre Baskerville", label: "Simple Serif", style: "font-legal", group: "simple" as const },
 ];
+
+const SIGNATURE_FONT_OPTIONS = [
+  { value: "Alex Brush", label: "Alex", style: "font-alex-brush", group: "signature" as const },
+  { value: "Allura", label: "Allura", style: "font-allura", group: "signature" as const },
+  { value: "Mrs Saint Delafield", label: "Handle", style: "font-mrs-saint-delafield", group: "signature" as const },
+  { value: "Kristi", label: "Kristi", style: "font-kristi", group: "signature" as const },
+  { value: "Italianno", label: "Italianno", style: "font-italianno", group: "signature" as const },
+  { value: "Mr Dafoe", label: "Mark", style: "font-mr-dafoe", group: "signature" as const },
+  { value: "Satisfy", label: "Satisfy", style: "font-satisfy", group: "signature" as const },
+  { value: "Zeyada", label: "Zeyada", style: "font-zeyada", group: "signature" as const },
+  { value: "Shadows Into Light", label: "Shadows", style: "font-shadows-into-light", group: "signature" as const },
+];
+
+const FONT_OPTIONS = [...SIMPLE_FONT_OPTIONS, ...SIGNATURE_FONT_OPTIONS];
+
+function defaultSignatureColor(): string {
+  return document.documentElement.classList.contains("dark") ? "#ffffff" : "#111827";
+}
+
+const SIGNATURE_DIALOG_CONTENT_CLASS =
+  "w-[calc(100vw-1rem)] sm:w-full max-w-2xl max-h-[90dvh] overflow-y-auto overscroll-contain p-0 gap-0";
 
 /* ────────────────────────────────────────────────────────────────────── */
 /*  SignatureCreator – type / draw / upload / 12 presets                 */
@@ -97,17 +111,21 @@ const FONT_OPTIONS = [
 const SignatureCreator = ({
   onSave,
   initialName,
+  onCancel,
+  saveButtonLabel = "Save Signature",
 }: {
   onSave: (cfg: SignatureConfig) => void;
   initialName: string;
+  onCancel?: () => void;
+  saveButtonLabel?: string;
 }) => {
   const [method, setMethod] = useState<"type" | "draw" | "upload" | "preset">("type");
   const [text, setText] = useState(initialName);
-  const [color, setColor] = useState("#000000");
-  const [font, setFont] = useState("Helvetica");
+  const [color, setColor] = useState(defaultSignatureColor);
+  const [font, setFont] = useState(SIGNATURE_FONT_OPTIONS[0].value);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [drawing, setDrawing] = useState(false);
-  const [penColor, setPenColor] = useState("#000000");
+  const [penColor, setPenColor] = useState(defaultSignatureColor);
   const [lineW, setLineW] = useState(2);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const DRAW_W = 480;
@@ -125,39 +143,39 @@ const SignatureCreator = ({
   }, [method, penColor, lineW]);
 
   /* ---------- TYPE ---------- */
-  const saveTyped = () => {
+  const saveTyped = async () => {
     if (!text.trim()) {
       toast.error("Please enter your signature text");
       return;
     }
-    
-    // Create a canvas to render the text as an image
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    
-    // Set canvas size
+
     const fontSize = 48;
+    try {
+      await document.fonts.load(`${fontSize}px "${font}"`);
+    } catch {
+      /* proceed with fallback */
+    }
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
     canvas.width = Math.max(text.length * fontSize * 0.6 + 40, 200);
     canvas.height = fontSize + 40;
-    
-    // Set font with the selected Google Font
+
     ctx.font = `${fontSize}px "${font}", cursive`;
     ctx.fillStyle = color;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    
-    // Draw text
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
     ctx.fillText(text, 20, canvas.height / 2);
-    
-    // Convert to image data
-    const imageData = canvas.toDataURL('image/png');
-    
-    onSave({ 
-      type: "image", 
-      content: imageData, 
-      width: canvas.width / 2, 
-      height: canvas.height / 2 
+
+    const imageData = canvas.toDataURL("image/png");
+
+    onSave({
+      type: "image",
+      content: imageData,
+      width: canvas.width / 2,
+      height: canvas.height / 2,
     });
   };
 
@@ -299,25 +317,52 @@ const SignatureCreator = ({
           {/* Font selector with visual preview */}
           <div>
             <Label>Font Style</Label>
-            <div className="grid grid-cols-2 gap-2 mt-1.5">
-              {FONT_OPTIONS.map((fontOption) => (
-                <button
-                  key={fontOption.value}
-                  onClick={() => setFont(fontOption.value)}
-                  className={`p-3 border rounded-lg text-left transition-all ${
-                    font === fontOption.value
-                      ? "border-primary bg-primary/5 ring-2 ring-primary/20"
-                      : "border-border hover:border-primary/50"
-                  }`}
-                >
-                  <div className={`text-lg ${fontOption.style}`} style={{ color }}>
-                    {text || "Sample"}
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {fontOption.label}
-                  </div>
-                </button>
-              ))}
+            <p className="text-xs text-muted-foreground mt-1 mb-2">Simple fonts for plain text; script fonts for signatures.</p>
+            <div className="space-y-3 mt-1.5">
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">Simple</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {SIMPLE_FONT_OPTIONS.map((fontOption) => (
+                    <button
+                      key={fontOption.value}
+                      type="button"
+                      onClick={() => setFont(fontOption.value)}
+                      className={`p-3 border rounded-lg text-left transition-all ${
+                        font === fontOption.value
+                          ? "border-primary bg-primary/5 ring-2 ring-primary/20"
+                          : "border-border hover:border-primary/50"
+                      }`}
+                    >
+                      <div className={`text-base ${fontOption.style}`} style={{ color, fontFamily: `"${fontOption.value}", sans-serif` }}>
+                        {text || "Sample"}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">{fontOption.label}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-muted-foreground mb-1">Signature style</p>
+                <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                  {SIGNATURE_FONT_OPTIONS.map((fontOption) => (
+                    <button
+                      key={fontOption.value}
+                      type="button"
+                      onClick={() => setFont(fontOption.value)}
+                      className={`p-3 border rounded-lg text-left transition-all ${
+                        font === fontOption.value
+                          ? "border-primary bg-primary/5 ring-2 ring-primary/20"
+                          : "border-border hover:border-primary/50"
+                      }`}
+                    >
+                      <div className={`text-xl ${fontOption.style}`} style={{ color, fontFamily: `"${fontOption.value}", cursive` }}>
+                        {text || "Sample"}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">{fontOption.label}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -341,7 +386,7 @@ const SignatureCreator = ({
           )}
 
           <Button onClick={saveTyped} className="w-full">
-            Save Signature
+            {saveButtonLabel}
           </Button>
         </div>
       )}
@@ -388,7 +433,7 @@ const SignatureCreator = ({
             </Button>
           </div>
           <Button onClick={saveDrawn} className="w-full">
-            Save Signature
+            {saveButtonLabel}
           </Button>
         </div>
       )}
@@ -417,6 +462,13 @@ const SignatureCreator = ({
           </p>
         </div>
       )}
+      {onCancel && (
+        <div className="flex gap-2 pt-2 border-t sticky bottom-0 bg-background pb-1">
+          <Button type="button" variant="outline" className="flex-1" onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
+      )}
     </div>
   );
 };
@@ -441,7 +493,7 @@ const ReSignModal = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className={SIGNATURE_DIALOG_CONTENT_CLASS}>
         <DialogHeader>
           <DialogTitle>Update {fieldType}</DialogTitle>
         </DialogHeader>
@@ -456,6 +508,8 @@ const ReSignModal = ({
               onSave(cfg);
               onClose();
             }}
+            onCancel={onClose}
+            saveButtonLabel="Save Signature"
             initialName={localName}
           />
         </div>
@@ -493,7 +547,9 @@ const SignPDF = () => {
   const [progress, setProgress] = useState(0);
   const [numPages, setNumPages] = useState(0);
   const [page, setPage] = useState(1);
-  const [scale, setScale] = useState(1.30);
+  const [scale, setScale] = useState(1);
+  const [containerWidth, setContainerWidth] = useState(640);
+  const pdfContainerRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const pdfUploadInputRef = useRef<HTMLInputElement>(null); // NEW REF
 
@@ -508,6 +564,7 @@ const SignPDF = () => {
 
   /* ---------- Modals ---------- */
   const [showSingleModal, setShowSingleModal] = useState(false);
+  const [showStampOnlyModal, setShowStampOnlyModal] = useState(false);
   const [showMultiModal, setShowMultiModal] = useState(false);
   const [showReSignModal, setShowReSignModal] = useState(false);
   const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
@@ -522,6 +579,20 @@ const SignPDF = () => {
   const [signedUrl, setSignedUrl] = useState<string | null>(null);
 
   const [pdfPagePts, setPdfPagePts] = useState<Array<{ width: number; height: number }>>([]);
+
+  const pagePts = pdfPagePts[page - 1];
+  const renderScale =
+    pagePts && pagePts.width > 0 ? (containerWidth * scale) / pagePts.width : scale;
+
+  useEffect(() => {
+    if (!pdfContainerRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = Math.max(280, entries[0].contentRect.width - 24);
+      setContainerWidth(w);
+    });
+    ro.observe(pdfContainerRef.current);
+    return () => ro.disconnect();
+  }, [file, mode]);
 
   /* ──────────────────────────────────────── */
   /*  PDF upload & validation                 */
@@ -593,13 +664,29 @@ const SignPDF = () => {
   /*  Single signer – save name + signatures  */
   /* ──────────────────────────────────────── */
   const finishSingle = () => {
-    if (!fullName.trim() || !fullSig) {
-      toast.error("Name & signature required");
+    if (!fullName.trim()) {
+      toast.error("Full name is required");
+      return;
+    }
+    if (!fullSig) {
+      toast.error("Signature is required");
       return;
     }
     setSigners([{ id: "single-1", name: fullName.trim() }]);
     setShowSingleModal(false);
     toast.success("Ready – place signature fields on the PDF");
+  };
+
+  const finishStampOnly = () => {
+    if (!stampImg) {
+      toast.error("Upload a company stamp image");
+      return;
+    }
+    setSigners([{ id: "single-1", name: fullName.trim() || "Signer" }]);
+    setShowStampOnlyModal(false);
+    setPlacing("stamp");
+    setCurrentSignerId("single-1");
+    toast.success("Stamp ready – click on the PDF to place it");
   };
 
   /* ──────────────────────────────────────── */
@@ -853,8 +940,8 @@ const SignPDF = () => {
   const clickPdf = (e: React.MouseEvent) => {
     if (!placing || !pageRef.current) return;
     const rect = pageRef.current.getBoundingClientRect();
-    const rx = (e.clientX - rect.left) / scale;
-    const ry = (e.clientY - rect.top) / scale;
+    const rx = (e.clientX - rect.left) / renderScale;
+    const ry = (e.clientY - rect.top) / renderScale;
     placeField(placing, rx, ry, page);
     setPlacing(null);
     setCurrentSignerId(null);
@@ -893,8 +980,8 @@ const SignPDF = () => {
     return (
       <Rnd
         key={f.id}
-        size={{ width: f.width * scale, height: f.height * scale }}
-        position={{ x: f.x * scale, y: f.y * scale }}
+        size={{ width: f.width * renderScale, height: f.height * renderScale }}
+        position={{ x: f.x * renderScale, y: f.y * renderScale }}
         onDragStop={(_, d) => {
           setFields((prev) =>
             prev.map((x) => {
@@ -902,8 +989,8 @@ const SignPDF = () => {
               return clampPlacedFieldToPage(
                 {
                   ...x,
-                  x: d.x / scale,
-                  y: d.y / scale,
+                  x: d.x / renderScale,
+                  y: d.y / renderScale,
                 },
                 pdfPagePts[x.page - 1],
               );
@@ -917,10 +1004,10 @@ const SignPDF = () => {
               return clampPlacedFieldToPage(
                 {
                   ...x,
-                  width: parseFloat(ref.style.width) / scale,
-                  height: parseFloat(ref.style.height) / scale,
-                  x: pos.x / scale,
-                  y: pos.y / scale,
+                  width: parseFloat(ref.style.width) / renderScale,
+                  height: parseFloat(ref.style.height) / renderScale,
+                  x: pos.x / renderScale,
+                  y: pos.y / renderScale,
                 },
                 pdfPagePts[x.page - 1],
               );
@@ -948,13 +1035,11 @@ const SignPDF = () => {
           onDoubleClick={(e) => {
             if (isTextEditable) {
               e.stopPropagation();
-              const newText = prompt("Edit text:", f.value || "");
-              if (newText !== null) {
-                setFields((prev) =>
-                  prev.map((x) => (x.id === f.id ? { ...x, value: newText } : x))
-                );
-                toast.success("Text updated");
-              }
+            }
+          }}
+          onClick={(e) => {
+            if (isTextEditable) {
+              e.stopPropagation();
             }
           }}
         >
@@ -965,19 +1050,39 @@ const SignPDF = () => {
               className="max-w-full max-h-full object-contain pointer-events-none select-none" 
               draggable={false}
             />
+          ) : isTextEditable ? (
+            <input
+              type="text"
+              value={f.value || ""}
+              onChange={(e) => {
+                e.stopPropagation();
+                setFields((prev) =>
+                  prev.map((x) => (x.id === f.id ? { ...x, value: e.target.value } : x))
+                );
+              }}
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              className="w-full h-full bg-transparent border-none outline-none text-center text-sm font-medium capitalize px-1"
+              style={{
+                color: f.color || "#000000",
+                fontFamily: f.font || "Helvetica",
+                fontSize: `${Math.min(14, f.height * 0.35)}px`,
+              }}
+              autoFocus={false}
+            />
           ) : (
             <span
               className="text-sm font-medium capitalize select-none"
-              style={{ 
-                color: f.color || "#000000", 
+              style={{
+                color: f.color || "#000000",
                 fontFamily: f.font || "Helvetica",
-                fontSize: `${Math.min(14, f.height * 0.35)}px`
+                fontSize: `${Math.min(14, f.height * 0.35)}px`,
               }}
             >
               {f.value}
             </span>
           )}
-          
+
           <Icon className="absolute top-1 left-1 h-3 w-3 opacity-50" />
           
           {/* Edit button (only for signatures/initials in single mode) */}
@@ -1261,7 +1366,7 @@ const SignPDF = () => {
                   <Button
                     variant="outline"
                     size="icon"
-                    onClick={() => setScale((s) => Math.max(s - 0.2, 0.5))}
+                    onClick={() => setScale((s) => Math.max(s - 0.1, 0.5))}
                     disabled={scale <= 0.5}
                   >
                     <ZoomOut className="h-4 w-4" />
@@ -1272,7 +1377,7 @@ const SignPDF = () => {
                   <Button
                     variant="outline"
                     size="icon"
-                    onClick={() => setScale((s) => Math.min(s + 0.2, 2))}
+                    onClick={() => setScale((s) => Math.min(s + 0.1, 2))}
                     disabled={scale >= 2}
                   >
                     <ZoomIn className="h-4 w-4" />
@@ -1291,7 +1396,8 @@ const SignPDF = () => {
 
               {/* PDF container */}
               <div
-                className={`border-2 rounded-lg bg-gray-50 overflow-auto max-h-[620px] relative ${
+                ref={pdfContainerRef}
+                className={`border-2 rounded-lg bg-gray-50 overflow-auto max-h-[min(70vh,720px)] relative flex justify-center ${
                   placing ? "cursor-crosshair border-primary" : "border-border"
                 }`}
                 onClick={clickPdf}
@@ -1300,7 +1406,7 @@ const SignPDF = () => {
                   <div ref={pageRef} style={{ position: "relative", display: "inline-block" }}>
                     <Page
                       pageNumber={page}
-                      scale={scale}
+                      width={Math.floor(containerWidth * scale)}
                       renderTextLayer={false}
                       renderAnnotationLayer={false}
                     />
@@ -1441,10 +1547,7 @@ const SignPDF = () => {
                     </button>
                   ) : (
                     <button
-                      onClick={() => {
-                        setActiveTab("stamp");
-                        setShowSingleModal(true);
-                      }}
+                      onClick={() => setShowStampOnlyModal(true)}
                       className="w-full flex items-center gap-3 p-3 rounded-lg border-2 border-border hover:border-purple-400/50 transition-all"
                     >
                       <div className="w-8 h-8 bg-purple-500/20 rounded-lg flex items-center justify-center">
@@ -1644,9 +1747,15 @@ const SignPDF = () => {
 
         {/* ──────────────────────── SINGLE SIGNER MODAL ──────────────────────── */}
         <Dialog open={showSingleModal} onOpenChange={setShowSingleModal}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogContent className={SIGNATURE_DIALOG_CONTENT_CLASS}>
             <DialogHeader>
-              <DialogTitle>Create Your Signature</DialogTitle>
+              <DialogTitle>
+                {activeTab === "stamp"
+                  ? "Add Company Stamp"
+                  : activeTab === "initials"
+                    ? "Create Your Initials"
+                    : "Create Your Signature"}
+              </DialogTitle>
             </DialogHeader>
 
             <div className="space-y-5 py-4">
@@ -1696,6 +1805,8 @@ const SignPDF = () => {
                     setFullSig(cfg);
                     toast.success("Signature saved");
                   }}
+                  onCancel={() => setShowSingleModal(false)}
+                  saveButtonLabel="Save and Continue"
                   initialName={fullName}
                 />
               )}
@@ -1707,6 +1818,8 @@ const SignPDF = () => {
                     setInitSig(cfg);
                     toast.success("Initials saved");
                   }}
+                  onCancel={() => setShowSingleModal(false)}
+                  saveButtonLabel="Save and Continue"
                   initialName={initials}
                 />
               )}
@@ -1748,8 +1861,62 @@ const SignPDF = () => {
               <Button variant="outline" onClick={() => setShowSingleModal(false)}>
                 Cancel
               </Button>
-              <Button onClick={finishSingle} disabled={!fullSig || !fullName.trim()}>
+              <Button
+                onClick={finishSingle}
+                disabled={!fullSig || !fullName.trim()}
+              >
                 Continue
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* ──────────────────────── STAMP-ONLY MODAL ──────────────────────── */}
+        <Dialog open={showStampOnlyModal} onOpenChange={setShowStampOnlyModal}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add Company Stamp</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div>
+                <Label>Your name (optional)</Label>
+                <Input
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                  placeholder="John Doe"
+                  className="mt-1.5"
+                />
+              </div>
+              <div>
+                <Label>Upload stamp image</Label>
+                <Input
+                  type="file"
+                  accept="image/*"
+                  className="mt-1.5"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    const r = new FileReader();
+                    r.onload = () => {
+                      setStampImg(r.result as string);
+                      toast.success("Stamp uploaded");
+                    };
+                    r.readAsDataURL(f);
+                  }}
+                />
+              </div>
+              {stampImg && (
+                <div className="p-4 border rounded-lg bg-muted/30 text-center">
+                  <img src={stampImg} alt="Stamp preview" className="max-h-32 mx-auto rounded" />
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 pt-2 border-t">
+              <Button variant="outline" onClick={() => setShowStampOnlyModal(false)}>
+                Cancel
+              </Button>
+              <Button onClick={finishStampOnly} disabled={!stampImg}>
+                Use Stamp
               </Button>
             </div>
           </DialogContent>

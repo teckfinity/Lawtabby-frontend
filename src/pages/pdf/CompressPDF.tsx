@@ -29,9 +29,9 @@ function formatFileSize(bytes: number): string {
 }
 
 const TIER_LABEL: Record<string, string> = {
-  extreme: "High compression",
-  recommended: "Balanced compression",
-  less: "Mild compression (best fidelity)",
+  extreme: "High compression (up to ~75% smaller on scans)",
+  recommended: "Medium compression (target ~40–50% smaller)",
+  less: "Low compression (target ~25–35% smaller, best fidelity)",
 };
 
 const CompressPDF = () => {
@@ -74,9 +74,13 @@ const CompressPDF = () => {
     }, 150);
 
     try {
-      // Map compressionLevel to quality number (example: low=80, medium=60, high=40)
-      const qualityMap: Record<string, number> = { low: 80, medium: 60, high: 40 };
-      const response = await compressPDFApi(file, qualityMap[compressionLevel]);
+      const tierMap: Record<string, "extreme" | "recommended" | "less"> = {
+        low: "less",
+        medium: "recommended",
+        high: "extreme",
+      };
+      const tier = tierMap[compressionLevel] ?? "recommended";
+      const response = await compressPDFApi(file, tier);
 
       // Use split_pdf.compressed_file instead of file_url
       if (response.data && response.data.split_pdf?.compressed_file) {

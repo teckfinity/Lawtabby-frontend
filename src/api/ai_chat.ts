@@ -17,6 +17,34 @@ apiClient.interceptors.request.use((config) => {
   return Promise.reject(error);
 });
 
+export type ChatSource = {
+  title: string;
+  court?: string;
+  author?: string;
+  date?: string;
+  url?: string;
+  excerpt?: string;
+  description?: string;
+  source_type: "case_law" | "external_reference";
+};
+
+export type ChatMessageResponse = {
+  id: number;
+  role: "ai";
+  content: string;
+  created_at: string;
+  sources?: ChatSource[];
+  external_references?: ChatSource[];
+  rag_used?: boolean;
+};
+
+export type SendChatMessageResult = {
+  message: ChatMessageResponse;
+  sources: ChatSource[];
+  external_references: ChatSource[];
+  rag_used: boolean;
+};
+
 // 1. Create new conversation
 export const createConversation = async (): Promise<{ conversation_id: number; title: string; created_at: string }> => {
   const response = await apiClient.post("/api/conversations/", {
@@ -28,14 +56,24 @@ export const createConversation = async (): Promise<{ conversation_id: number; t
 // 2. Send message in a conversation
 export const sendChatMessage = async (
   conversationId: number,
-  message: string
-): Promise<{ id: number; role: "ai"; content: string; created_at: string }> => {
+  message: string,
+  options?: { useRag?: boolean }
+): Promise<SendChatMessageResult> => {
   if (!message.trim()) throw new Error("Message is required.");
 
-  const response = await apiClient.post(`/api/conversations/${conversationId}/chat/`, {
-    message,
-  });
-  return response.data.message;
+  const payload: { message: string; use_rag?: boolean } = { message };
+  if (options?.useRag !== undefined) {
+    payload.use_rag = options.useRag;
+  }
+
+  const response = await apiClient.post(`/api/conversations/${conversationId}/chat/`, payload);
+  return {
+    message: response.data.message,
+    sources: response.data.sources ?? response.data.message?.sources ?? [],
+    external_references:
+      response.data.external_references ?? response.data.message?.external_references ?? [],
+    rag_used: response.data.rag_used ?? response.data.message?.rag_used ?? false,
+  };
 };
 
 // 3. Get full conversation details (history)
@@ -49,6 +87,9 @@ export const getConversation = async (
     role: "human" | "ai";
     content: string;
     created_at: string;
+    sources?: ChatSource[];
+    external_references?: ChatSource[];
+    rag_used?: boolean;
   }>;
 }> => {
   const response = await apiClient.get(`/api/conversations/${conversationId}/`);
