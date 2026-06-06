@@ -67,7 +67,7 @@ const Index = () => {
                   <Button
                     size="lg"
                     className="text-lg px-8 py-6 shadow-lg hover:shadow-xl transition-all"
-                    onClick={() => navigate("/edit-pdf")}
+                    onClick={() => navigate("/pdf/edit")}
                   >
                     <FileEdit className="h-5 w-5 mr-2" />
                     Start Editing PDFs

@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
-import PDFToHTMLEditor from "@/components/PDFToHTMLEditor";
+import PDFTextEditor from "@/components/PDFTextEditor";
 import {
   Select,
   SelectContent,
@@ -982,12 +982,21 @@ const EditPDF = () => {
           <div className="mt-6">
             <Card>
               <CardContent className="p-0 h-[calc(100vh-200px)] min-h-[600px]">
-                <PDFToHTMLEditor
+                <PDFTextEditor
                   file={file}
-                  onSave={(newFile) => {
+                  onSave={async (newFile) => {
                     setFile(newFile);
                     setIsWordMode(false);
-                    toast.success("PDF updated successfully!");
+                    setSelectedTool("");
+                    try {
+                      const buf = await newFile.arrayBuffer();
+                      const pdf = await PDFDocument.load(buf);
+                      setNumPages(pdf.getPageCount());
+                    } catch {
+                      /* keep prior page count */
+                    }
+                    setCurrentStep("download");
+                    toast.success("PDF text updated successfully!");
                   }}
                   onCancel={cancelWordMode}
                 />
