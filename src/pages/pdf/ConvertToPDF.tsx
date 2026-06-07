@@ -8,6 +8,10 @@ import { Progress } from "@/components/ui/progress";
 import { convertWordToPDF } from "@/api";
 import axios from "axios";
 import { PDFToolDownloadResult } from "@/components/pdf/PDFToolDownloadResult";
+import {
+  buildLexorbitConvertedFilename,
+  triggerBlobDownload,
+} from "@/utils/lexorbitFilename";
 
 function summarizeUploadedNames(names: string[], maxChars = 100): string {
   const joined = names.join(", ");
@@ -74,7 +78,7 @@ const ConvertToPDF = () => {
           toast.success(`${file.name} converted successfully`);
         }
         convertedResults.push({
-          name: file.name.replace(/\.[^/.]+$/, ".pdf"),
+          name: buildLexorbitConvertedFilename(file.name, "pdf"),
           blob,
         });
 

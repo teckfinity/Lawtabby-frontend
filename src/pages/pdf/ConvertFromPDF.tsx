@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -16,8 +16,24 @@ import {
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
-import axios from "axios";
-import { convertPDF } from "@/api";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  convertPdfToFormat,
+  fetchConvertedFileBlob,
+  type ConversionPipelineMeta,
+} from "@/api/pdf/convert";
+import { fetchOcrLanguages, type OcrLanguage, type OcrLanguageOption } from "@/api/pdf/ocr";
+import {
+  buildPdfToFormatDownloadName,
+  triggerBlobDownload,
+} from "@/utils/lexorbitFilename";
 
 type ProcessStep = "upload" | "processing" | "download";
 
@@ -28,24 +44,6 @@ function formatUploadSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-function pdfStem(name: string): string {
-  return name.replace(/\.pdf$/i, "");
-}
-
-/** Suggested download name (server URLs may not include a friendly filename). */
-function expectedConvertedFilename(uploadName: string, formatKey: string): string {
-  const stem = pdfStem(uploadName) || "document";
-  const ext: Record<string, string> = {
-    docx: "docx",
-    xlsx: "xlsx",
-    pptx: "pptx",
-    jpg: "jpg",
-    png: "png",
-    txt: "txt",
-  };
-  return `${stem}.${ext[formatKey] ?? formatKey}`;
-}
-
 const ConvertFromPDF = () => {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -54,6 +52,25 @@ const ConvertFromPDF = () => {
   const [currentStep, setCurrentStep] = useState<ProcessStep>("upload");
   const [progress, setProgress] = useState(0);
   const [convertedFileUrl, setConvertedFileUrl] = useState<string | null>(null);
+  const [downloadFilename, setDownloadFilename] = useState<string>("");
+  const [conversionMessage, setConversionMessage] = useState<string>("");
+  const [wordPipeline, setWordPipeline] = useState<ConversionPipelineMeta | null>(null);
+  const [pptPipeline, setPptPipeline] = useState<ConversionPipelineMeta | null>(null);
+  const [ocrLanguage, setOcrLanguage] = useState<OcrLanguage>("eng");
+  const [forceOcr, setForceOcr] = useState(false);
+  const [languageOptions, setLanguageOptions] = useState<OcrLanguageOption[]>([
+    { code: "eng", label: "English", installed: true },
+  ]);
+
+  useEffect(() => {
+    fetchOcrLanguages()
+      .then((res) => {
+        if (res.data?.languages?.length) setLanguageOptions(res.data.languages);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const needsOcrOptions = selectedFormat === "docx" || selectedFormat === "pptx";
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
@@ -88,24 +105,24 @@ const ConvertFromPDF = () => {
         setProgress(progressValue);
       }, 300);
 
-      // Call unified API endpoint
-      const response = await convertPDF(file, mapFormat(selectedFormat));
+      const result = await convertPdfToFormat(file, mapFormat(selectedFormat), {
+        ocrLanguage: needsOcrOptions ? ocrLanguage : undefined,
+        forceOcr: needsOcrOptions ? forceOcr : undefined,
+      });
 
       clearInterval(progressInterval);
       setProgress(100);
 
-      // Fix response handling
-      const data = response?.data || response;
-      const convertedFile = data?.conversion_data?.converted_file;
-
-      if (convertedFile) {
-        setConvertedFileUrl(convertedFile);
-        toast.success(data?.message || "Conversion completed!");
-        setTimeout(() => setCurrentStep("download"), 700);
-      } else {
-        toast.error("Invalid response from server.");
-        setCurrentStep("upload");
-      }
+      setConvertedFileUrl(result.downloadUrl);
+      setDownloadFilename(
+        result.downloadFilename ||
+          buildPdfToFormatDownloadName(file.name, selectedFormat),
+      );
+      setConversionMessage(result.message || "Conversion completed!");
+      setWordPipeline(result.wordPipeline ?? null);
+      setPptPipeline(result.pptPipeline ?? null);
+      toast.success(result.message || "Conversion completed!");
+      setTimeout(() => setCurrentStep("download"), 700);
     } catch (error) {
       console.error("Error converting PDF:", error);
       const message =
@@ -134,21 +151,23 @@ const ConvertFromPDF = () => {
     }
   };
 
-const downloadFile = () => {
+const downloadFile = async () => {
   if (!convertedFileUrl || !file) {
     toast.info("No converted file available for download.");
     return;
   }
 
-  const link = document.createElement("a");
-  link.href = convertedFileUrl;
-  link.download = expectedConvertedFilename(file.name, selectedFormat);
-
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-
-  toast.success("File downloaded successfully!");
+  try {
+    const blob = await fetchConvertedFileBlob(convertedFileUrl);
+    const name =
+      downloadFilename || buildPdfToFormatDownloadName(file.name, selectedFormat);
+    triggerBlobDownload(blob, name);
+    toast.success("File downloaded successfully!");
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Download failed. Please try again.";
+    toast.error(message);
+  }
 };
 
 
@@ -163,6 +182,10 @@ const downloadFile = () => {
     setFile(null);
     setSelectedFormat("");
     setConvertedFileUrl(null);
+    setDownloadFilename("");
+    setConversionMessage("");
+    setWordPipeline(null);
+    setPptPipeline(null);
     setCurrentStep("upload");
     setProgress(0);
   };
@@ -303,6 +326,36 @@ const downloadFile = () => {
                 </Card>
               ))}
             </div>
+            {needsOcrOptions && (
+              <div className="mt-6 space-y-4 rounded-lg border p-4 text-left">
+                <h4 className="font-medium">OCR options (scanned PDFs)</h4>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">OCR language</label>
+                  <Select value={ocrLanguage} onValueChange={(v) => setOcrLanguage(v as OcrLanguage)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {languageOptions.map(({ code, label, installed }) => (
+                        <SelectItem key={code} value={code} disabled={!installed}>
+                          {label}{!installed ? " (not installed)" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="convert-force-ocr"
+                    checked={forceOcr}
+                    onCheckedChange={(v) => setForceOcr(v === true)}
+                  />
+                  <label htmlFor="convert-force-ocr" className="text-sm cursor-pointer">
+                    Force OCR before conversion
+                  </label>
+                </div>
+              </div>
+            )}
             <div className="flex justify-center mt-6">
               <Button
                onClick={convertFile} 
@@ -355,7 +408,11 @@ const downloadFile = () => {
     );
 
     const outName =
-      file && selectedFormat ? expectedConvertedFilename(file.name, selectedFormat) : "Converted file";
+      downloadFilename ||
+      (file && selectedFormat ? buildPdfToFormatDownloadName(file.name, selectedFormat) : "Converted file");
+
+    const pipeline = wordPipeline || pptPipeline;
+    const pipelineEngine = pipeline?.chosen_engine || null;
 
     return (
       <div className="max-w-2xl mx-auto text-center">
@@ -370,8 +427,12 @@ const downloadFile = () => {
               <div>
                 <h3 className="text-xl font-semibold mb-2">Conversion Complete!</h3>
                 <p className="text-muted-foreground">
-                  Your PDF <span className="font-medium text-foreground">{file?.name}</span> has been
-                  converted to {selectedOption?.name}.
+                  {conversionMessage || (
+                    <>
+                      Your PDF <span className="font-medium text-foreground">{file?.name}</span> has been
+                      converted to {selectedOption?.name}.
+                    </>
+                  )}
                 </p>
               </div>
               <div className="bg-muted rounded-lg p-4 text-left">
@@ -386,6 +447,12 @@ const downloadFile = () => {
                     <p className="text-sm text-muted-foreground truncate" title={`${file?.name ?? ""}`}>
                       Source PDF: {file?.name} · {formatUploadSize(file?.size ?? 0)}
                     </p>
+                    {pipelineEngine && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Conversion engine: {pipelineEngine.replace(/_/g, " ")}
+                        {pipeline?.ocr_prep_layer_applied ? " · OCR pre-processing applied" : ""}
+                      </p>
+                    )}
                   </div>
                   <div className="text-green-600 font-medium text-sm shrink-0">✓ Done</div>
                 </div>

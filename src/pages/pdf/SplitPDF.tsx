@@ -9,6 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
 import { splitPDF as splitPDFApi } from "@/api";
+import {
+  buildLexorbitProcessedFilename,
+  triggerBlobDownload,
+} from "@/utils/lexorbitFilename";
 
 type ProcessStep = "upload" | "processing" | "download";
 type SplitMode = "range" | "pages" | "size";
@@ -100,10 +104,13 @@ const SplitPDF = () => {
       const isZipFile = data?.is_zip === true;
       const count = data?.total_files_created || 1;
 
-      // Generate clean filename
-      const cleanName = isZipFile
-        ? `split_pages_${count}_files.zip`
-        : `split_part_1.pdf`;
+      const cleanName =
+        data?.download_filename ??
+        buildLexorbitProcessedFilename(
+          file.name,
+          "split",
+          isZipFile ? "zip" : "pdf",
+        );
 
       setDownloadUrl(url);
       setFileName(cleanName);
@@ -143,14 +150,7 @@ const SplitPDF = () => {
       if (!res.ok) throw new Error("Download failed");
 
       const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+      triggerBlobDownload(blob, fileName);
 
       toast.success(`${isZip ? "ZIP" : "PDF"} downloaded!`);
     } catch (err) {

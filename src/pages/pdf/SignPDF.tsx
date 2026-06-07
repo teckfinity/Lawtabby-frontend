@@ -20,6 +20,10 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import {
+  buildLexorbitProcessedFilename,
+  triggerBrowserDownload,
+} from "@/utils/lexorbitFilename";
 import { Progress } from "@/components/ui/progress";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
 import { Document, Page, pdfjs } from "react-pdf";
@@ -1202,12 +1206,10 @@ const SignPDF = () => {
   /* ──────────────────────────────────────── */
   const downloadSigned = () => {
     if (!signedUrl || !file) return;
-    const a = document.createElement("a");
-    a.href = signedUrl;
-    // Remove .pdf extension if it exists to prevent double extension
-    const nameWithoutPdf = file.name.endsWith('.pdf') ? file.name.slice(0, -4) : file.name;
-    a.download = `signed_${nameWithoutPdf}.pdf`;
-    a.click();
+    triggerBrowserDownload(
+      signedUrl,
+      buildLexorbitProcessedFilename(file.name, "signed"),
+    );
     toast.success("Download started!");
   };
 
@@ -1710,7 +1712,7 @@ const SignPDF = () => {
                     </div>
                     <div className="flex-1 text-left">
                       <h4 className="font-medium">
-                        signed_{file.name.endsWith('.pdf') ? file.name.slice(0, -4) : file.name}.pdf
+                        {buildLexorbitProcessedFilename(file.name, "signed")}
                       </h4>
                       <p className="text-sm text-muted-foreground">
                         {(file.size / 1024 / 1024).toFixed(2)} MB

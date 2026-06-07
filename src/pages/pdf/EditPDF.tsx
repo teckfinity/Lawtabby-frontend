@@ -36,6 +36,10 @@ import {
   Move,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  buildLexorbitProcessedFilename,
+  triggerBlobDownload,
+} from "@/utils/lexorbitFilename";
 import { Document, Page, pdfjs } from "react-pdf";
 import { Progress } from "@/components/ui/progress";
 import "react-pdf/dist/Page/AnnotationLayer.css";
@@ -738,10 +742,7 @@ const EditPDF = () => {
       }
       const pdfBytes = new Uint8Array(await pdfDoc.save());
       const blob = new Blob([pdfBytes], { type: "application/pdf" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `edited_${file.name}`;
-      a.click();
+      triggerBlobDownload(blob, buildLexorbitProcessedFilename(file.name, "edited"));
       toast.success("Downloaded!");
     } catch (e) {
       console.error(e);
@@ -924,7 +925,9 @@ const EditPDF = () => {
                 <span className="text-purple-600 font-bold text-xs">PDF</span>
               </div>
               <div className="flex-1 text-left">
-                <h4 className="font-medium">edited_{file?.name}</h4>
+                <h4 className="font-medium">
+                  {file ? buildLexorbitProcessedFilename(file.name, "edited") : "document_lexorbit_edited.pdf"}
+                </h4>
                 <p className="text-sm text-muted-foreground">
                   ready to download
                 </p>

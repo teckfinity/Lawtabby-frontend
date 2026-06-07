@@ -6,7 +6,6 @@ import {
   useEffect,
   useMemo,
   memo,
-  useCallback,
 } from "react";
 import { Button } from "@/components/ui/button";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
@@ -28,12 +27,6 @@ import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import {
   PDFDocument,
-  rgb,
-  degrees,
-  StandardFonts,
-  type PDFFont,
-  type PDFImage,
-  type PDFPage,
 } from "pdf-lib";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -53,61 +46,35 @@ import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+import type { PDFDocumentProxy } from "pdfjs-dist";
+import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import {
+  buildLexorbitProcessedFilename,
+  triggerBlobDownload,
+} from "@/utils/lexorbitFilename";
+import {
+  DEFAULT_STAMP_TEXT,
+  MOSAIC_POSITIONS,
+  composeStampedPage,
+  pngBytesToObjectUrl,
+  previewRenderScale,
+  stampComposeOptionsFromSettings,
+  stampPreviewCacheKey,
+  type StampComposeOptions,
+} from "@/utils/stampPdfCompositor";
+
+pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 type ProcessStep = "upload" | "customize" | "processing" | "download";
 type WatermarkType = "text" | "image";
 
-/* ------------------------------------------------------------------ */
-/* Hook – load PDF once and keep the pdfjs document in a ref          */
-/* ------------------------------------------------------------------ */
-const usePDFDocument = (file: File | null) => {
-  const [pdfDoc, setPdfDoc] = useState<pdfjs.PDFDocumentProxy | null>(null);
-  const [numPages, setNumPages] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!file) {
-      setPdfDoc(null);
-      setNumPages(0);
-      return;
-    }
-
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-
-    const load = async () => {
-      try {
-        const arrayBuffer = await file.arrayBuffer();
-        const doc = await pdfjs.getDocument({ data: arrayBuffer }).promise;
-        if (!cancelled) {
-          setPdfDoc(doc);
-          setNumPages(doc.numPages);
-        }
-      } catch (e: any) {
-        if (!cancelled) setError(e.message);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [file]);
-
-  return { pdfDoc, numPages, loading, error };
-};
+type StampSettings = StampComposeOptions;
 
 /* ------------------------------------------------------------------ */
-/* Page overlay – pure component, only re-renders on watermark change*/
+/* On-top stamp — CSS overlay only (instant, no PDF re-render)        */
 /* ------------------------------------------------------------------ */
-const PageOverlay = memo(
+const OnTopStampOverlay = memo(
   ({
-    pageIndex,
     watermarkType,
     watermarkText,
     fontSize,
@@ -118,219 +85,348 @@ const PageOverlay = memo(
     imageUrl,
     positionX,
     positionY,
-    pageWidth,
-    pageHeight,
     mosaicMode,
-    behindContent,
     previewScale = 1,
-  }: {
-    pageIndex: number;
-    watermarkType: WatermarkType;
-    watermarkText: string;
-    fontSize: number;
-    fontFamily: string;
-    textColor: string;
-    rotation: number;
-    opacity: number;
-    imageUrl: string | null;
-    positionX: number;
-    positionY: number;
-    pageWidth: number;
-    pageHeight: number;
-    mosaicMode: boolean;
-    behindContent: boolean;
-    previewScale?: number;
-  }) => {
-    const mosaicPositions = [
-      { x: 16.67, y: 83.33 }, // top-left
-      { x: 50, y: 83.33 },    // top-center
-      { x: 83.33, y: 83.33 }, // top-right
-      { x: 16.67, y: 50 },    // middle-left
-      { x: 50, y: 50 },       // center
-      { x: 83.33, y: 50 },    // middle-right
-      { x: 16.67, y: 16.67 }, // bottom-left
-      { x: 50, y: 16.67 },    // bottom-center
-      { x: 83.33, y: 16.67 }, // bottom-right
-    ];
+  }: Omit<StampSettings, "behindContent"> & { previewScale?: number }) => {
+    const positions = mosaicMode ? MOSAIC_POSITIONS : [{ x: positionX, y: positionY }];
 
-    const positions = mosaicMode
-      ? mosaicPositions
-      : [{ x: positionX, y: positionY }]; // ← FIXED typo (desapare)
-
-    const renderWatermark = (x: number, y: number, index: number) => (
-      <div key={index}>
-        {watermarkType === "text" && watermarkText && (
-          <div
-            style={{
-              position: "absolute",
-              left: `${x}%`,
-              top: `${y}%`,
-              transform: `translate(-50%, -50%) rotate(${-rotation}deg)`,
-              fontSize: `${fontSize * previewScale}px`,
-              fontFamily:
-                fontFamily === "Helvetica"
-                  ? "sans-serif"
-                  : fontFamily === "Times"
-                  ? "serif"
-                  : "monospace",
-              color: textColor,
-              opacity: opacity / 100,
-              fontWeight: "bold",
-              whiteSpace: "nowrap",
-              userSelect: "none",
-            }}
-          >
-            {watermarkText}
+    return (
+      <div className="pointer-events-none absolute inset-0 z-20">
+        {positions.map((pos, index) => (
+          <div key={index}>
+            {watermarkType === "text" && watermarkText && (
+              <div
+                style={{
+                  position: "absolute",
+                  left: `${pos.x}%`,
+                  top: `${pos.y}%`,
+                  transform: `translate(-50%, -50%) rotate(${-rotation}deg)`,
+                  fontSize: `${fontSize * previewScale}px`,
+                  fontFamily:
+                    fontFamily === "Helvetica"
+                      ? "sans-serif"
+                      : fontFamily === "Times"
+                        ? "serif"
+                        : "monospace",
+                  color: textColor,
+                  opacity: opacity / 100,
+                  fontWeight: "bold",
+                  whiteSpace: "nowrap",
+                  userSelect: "none",
+                }}
+              >
+                {watermarkText}
+              </div>
+            )}
+            {watermarkType === "image" && imageUrl && (
+              <img
+                src={imageUrl}
+                alt=""
+                style={{
+                  position: "absolute",
+                  left: `${pos.x}%`,
+                  top: `${pos.y}%`,
+                  transform: `translate(-50%, -50%) rotate(${-rotation}deg)`,
+                  width: `${200 * previewScale}px`,
+                  height: "auto",
+                  opacity: opacity / 100,
+                }}
+                draggable={false}
+              />
+            )}
           </div>
-        )}
+        ))}
+      </div>
+    );
+  },
+);
+OnTopStampOverlay.displayName = "OnTopStampOverlay";
 
-        {watermarkType === "image" && imageUrl && (
-          <img
-            src={imageUrl}
-            alt="watermark"
-            style={{
-              position: "absolute",
-              left: `${x}%`,
-              top: `${y}%`,
-              transform: `translate(-50%, -50%) rotate(${-rotation}deg)`,
-              width: `${200 * previewScale}px`,
-              height: "auto",
-              opacity: opacity / 100,
-              pointerEvents: "none",
-            }}
+/* ------------------------------------------------------------------ */
+/* PDF page canvas — memoized so toggles never re-render the PDF      */
+/* ------------------------------------------------------------------ */
+const MemoizedPdfPage = memo(
+  ({
+    pageNumber,
+    width,
+    onDimensions,
+  }: {
+    pageNumber: number;
+    width: number;
+    onDimensions: (pageNumber: number, width: number, height: number) => void;
+  }) => (
+    <Page
+      pageNumber={pageNumber}
+      width={width}
+      renderTextLayer={false}
+      renderAnnotationLayer={false}
+      loading={null}
+      className="shadow-md"
+      onRenderSuccess={(page) => {
+        const vp = page.getViewport({ scale: 1 });
+        onDimensions(pageNumber, vp.width, vp.height);
+      }}
+    />
+  ),
+  (prev, next) => prev.pageNumber === next.pageNumber && prev.width === next.width,
+);
+MemoizedPdfPage.displayName = "MemoizedPdfPage";
+
+/* ------------------------------------------------------------------ */
+/* Behind-content preview — canvas compose, keeps previous image        */
+/* ------------------------------------------------------------------ */
+const BehindContentPreview = memo(
+  ({
+    pdfDoc,
+    pageNumber,
+    displayWidth,
+    composeOptions,
+    onReadyChange,
+  }: {
+    pdfDoc: PDFDocumentProxy;
+    pageNumber: number;
+    displayWidth: number;
+    composeOptions: StampComposeOptions;
+    onReadyChange: (ready: boolean) => void;
+  }) => {
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const urlRef = useRef<string | null>(null);
+    const cacheKey = stampPreviewCacheKey(composeOptions);
+
+    useEffect(() => {
+      onReadyChange(!!previewUrl);
+    }, [previewUrl, onReadyChange]);
+
+    useEffect(() => {
+      let cancelled = false;
+      const timer = window.setTimeout(async () => {
+        try {
+          const scale = previewRenderScale(612, displayWidth);
+          const behindOptions: StampComposeOptions = {
+            ...composeOptions,
+            behindContent: true,
+          };
+          const { pngBytes } = await composeStampedPage(
+            pdfDoc,
+            pageNumber - 1,
+            behindOptions,
+            scale,
+          );
+          if (cancelled) return;
+          const url = pngBytesToObjectUrl(pngBytes);
+          if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+          urlRef.current = url;
+          setPreviewUrl(url);
+        } catch (err) {
+          console.error("Behind-content preview failed:", err);
+        }
+      }, 200);
+
+      return () => {
+        cancelled = true;
+        window.clearTimeout(timer);
+      };
+    }, [pdfDoc, pageNumber, displayWidth, cacheKey, composeOptions]);
+
+    useEffect(
+      () => () => {
+        if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+        onReadyChange(false);
+      },
+      [onReadyChange],
+    );
+
+    if (!previewUrl) return null;
+
+    return (
+      <img
+        src={previewUrl}
+        alt=""
+        className="absolute top-0 left-0 z-10 shadow-md block max-w-full h-auto pointer-events-none"
+        style={{ width: displayWidth }}
+        draggable={false}
+      />
+    );
+  },
+);
+BehindContentPreview.displayName = "BehindContentPreview";
+
+/* ------------------------------------------------------------------ */
+/* Single page slot — PDF stable; only overlay / compose layer changes */
+/* ------------------------------------------------------------------ */
+const PreviewPageSlot = memo(
+  ({
+    pageNumber,
+    displayWidth,
+    isSelected,
+    stampSettings,
+    pdfDoc,
+    onDimensions,
+  }: {
+    pageNumber: number;
+    displayWidth: number;
+    isSelected: boolean;
+    stampSettings: StampSettings;
+    pdfDoc: PDFDocumentProxy | null;
+    onDimensions: (pageNumber: number, width: number, height: number) => void;
+  }) => {
+    const dimsRef = useRef({ width: 612, height: 792 });
+    const [behindPreviewReady, setBehindPreviewReady] = useState(false);
+    const previewScale =
+      displayWidth && dimsRef.current.width
+        ? displayWidth / dimsRef.current.width
+        : 1;
+
+    const handleDimensions = (num: number, w: number, h: number) => {
+      dimsRef.current = { width: w, height: h };
+      onDimensions(num, w, h);
+    };
+
+    const useBehind = isSelected && stampSettings.behindContent && pdfDoc;
+    const hideBasePage = useBehind && behindPreviewReady;
+
+    return (
+      <div
+        className={`relative mb-6 ${!isSelected ? "opacity-40 grayscale-[50%]" : ""}`}
+      >
+        <div className={hideBasePage ? "invisible" : undefined}>
+          <MemoizedPdfPage
+            pageNumber={pageNumber}
+            width={displayWidth}
+            onDimensions={handleDimensions}
+          />
+        </div>
+        {isSelected && !stampSettings.behindContent && (
+          <OnTopStampOverlay
+            watermarkType={stampSettings.watermarkType}
+            watermarkText={stampSettings.watermarkText}
+            fontSize={stampSettings.fontSize}
+            fontFamily={stampSettings.fontFamily}
+            textColor={stampSettings.textColor}
+            rotation={stampSettings.rotation}
+            opacity={stampSettings.opacity}
+            imageUrl={stampSettings.imageUrl}
+            positionX={stampSettings.positionX}
+            positionY={stampSettings.positionY}
+            mosaicMode={stampSettings.mosaicMode}
+            previewScale={previewScale}
+          />
+        )}
+        {useBehind && (
+          <BehindContentPreview
+            pdfDoc={pdfDoc}
+            pageNumber={pageNumber}
+            displayWidth={displayWidth}
+            composeOptions={stampSettings}
+            onReadyChange={setBehindPreviewReady}
           />
         )}
       </div>
     );
-
-    return (
-      <div
-        className="pointer-events-none absolute inset-0"
-        style={{
-          zIndex: behindContent ? 0 : 10,
-          mixBlendMode: behindContent ? "multiply" : "normal",
-        }}
-      >
-        {positions.map((pos, idx) => renderWatermark(pos.x, pos.y, idx))}
-      </div>
-    );
-  }
+  },
 );
-PageOverlay.displayName = "PageOverlay";
+PreviewPageSlot.displayName = "PreviewPageSlot";
 
 /* ------------------------------------------------------------------ */
-/* Live preview – shows all pages, but only stamps selected ones     */
+/* Live preview                                                       */
 /* ------------------------------------------------------------------ */
 const PDFLivePreview = memo(
   ({
     file,
     totalPages,
-    watermarkSettings,
-    applyToAllPages,
-    pageRangeFrom,
-    pageRangeTo,
+    stampSettings,
     selectedPages,
   }: {
     file: File;
     totalPages: number;
-    watermarkSettings: any;
-    applyToAllPages: boolean;
-    pageRangeFrom: number;
-    pageRangeTo: number;
+    stampSettings: StampSettings;
     selectedPages: Set<number>;
   }) => {
-    const { pdfDoc, loading, error } = usePDFDocument(file);
     const containerRef = useRef<HTMLDivElement>(null);
     const [containerWidth, setContainerWidth] = useState(0);
-    const [pageDimensions, setPageDimensions] = useState<
-      Map<number, { width: number; height: number }>
-    >(new Map());
+    const [pdfDoc, setPdfDoc] = useState<PDFDocumentProxy | null>(null);
+    const pageDimensionsRef = useRef<Map<number, { width: number; height: number }>>(
+      new Map(),
+    );
+    const [, bumpDims] = useState(0);
 
-    /* Resize observer */
     useEffect(() => {
       if (!containerRef.current) return;
       const ro = new ResizeObserver((entries) => {
         const w = entries[0].contentRect.width;
-        if (Math.abs(w - containerWidth) > 5) setContainerWidth(w);
+        if (w > 0) setContainerWidth(w);
       });
       ro.observe(containerRef.current);
       return () => ro.disconnect();
-    }, [containerWidth]);
+    }, []);
 
-    /* Get page dimensions */
-    const onRenderSuccess = useCallback(
-      (pageIndex: number, page: any) => {
-        const viewport = page.getViewport({ scale: 1 });
-        setPageDimensions((prev) =>
-          new Map(prev).set(pageIndex, {
-            width: viewport.width,
-            height: viewport.height,
-          })
-        );
-      },
-      []
-    );
+    useEffect(() => {
+      let cancelled = false;
+      let doc: PDFDocumentProxy | null = null;
 
-    if (!pdfDoc) return null;
+      file.arrayBuffer()
+        .then((buf) => pdfjs.getDocument({ data: buf.slice(0) }).promise)
+        .then((loaded) => {
+          if (cancelled) {
+            loaded.destroy();
+            return;
+          }
+          doc = loaded;
+          setPdfDoc(loaded);
+        })
+        .catch((err) => console.error("Preview PDF load failed:", err));
+
+      return () => {
+        cancelled = true;
+        doc?.destroy();
+        setPdfDoc(null);
+      };
+    }, [file]);
+
+    const handleDimensions = (pageNumber: number, w: number, h: number) => {
+      const prev = pageDimensionsRef.current.get(pageNumber);
+      if (prev?.width === w && prev?.height === h) return;
+      pageDimensionsRef.current.set(pageNumber, { width: w, height: h });
+      bumpDims((n) => n + 1);
+    };
+
+    const displayWidth = containerWidth || 400;
 
     return (
       <div
         ref={containerRef}
         className="relative w-full h-full bg-white overflow-auto rounded-lg shadow-inner"
-        style={{ overflowX: "hidden" }}
       >
-        <Document file={file} loading={null}>
-          {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => {
-            const isSelected = selectedPages.has(pageNum);
-            const dims = pageDimensions.get(pageNum) || { width: 800, height: 1100 };
-
-            return (
-              <div
-                key={pageNum}
-                className={`mb-6 relative ${!isSelected ? "opacity-40" : ""}`}
-                style={{ filter: !isSelected ? "grayscale(50%)" : "none" }}
-              >
-                <Page
-                  pageNumber={pageNum}
-                  width={containerWidth || undefined}
-                  renderTextLayer={false}
-                  renderAnnotationLayer={false}
-                  loading={null}
-                  className="shadow-md"
-                  onRenderSuccess={(page) => onRenderSuccess(pageNum, page)}
-                />
-                {isSelected && (
-                  <PageOverlay
-                    pageIndex={pageNum}
-                    {...watermarkSettings}
-                    pageWidth={dims.width}
-                    pageHeight={dims.height}
-                    previewScale={
-                      containerWidth && dims.width ? containerWidth / dims.width : 1
-                    }
-                  />
-                )}
-              </div>
-            );
-          })}
-        </Document>
-
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center bg-white/90 backdrop-blur-sm z-50">
-            <div className="text-lg font-medium text-muted-foreground">
-              Loading PDF...
+        <Document
+          file={file}
+          loading={
+            <div className="flex items-center justify-center p-12 text-muted-foreground">
+              Loading PDF…
             </div>
+          }
+          error={
+            <div className="flex items-center justify-center p-12 text-destructive">
+              Failed to load PDF
+            </div>
+          }
+        >
+          <div className="flex flex-col items-center py-2">
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
+              <PreviewPageSlot
+                key={pageNum}
+                pageNumber={pageNum}
+                displayWidth={displayWidth}
+                isSelected={selectedPages.has(pageNum)}
+                stampSettings={stampSettings}
+                pdfDoc={pdfDoc}
+                onDimensions={handleDimensions}
+              />
+            ))}
           </div>
-        )}
-        {error && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-red-50 text-red-600 p-4 z-50">
-            <p className="font-medium">Failed to load PDF</p>
-            <p className="text-sm mt-1 max-w-md text-center">{error}</p>
-          </div>
-        )}
+        </Document>
       </div>
     );
-  }
+  },
 );
 PDFLivePreview.displayName = "PDFLivePreview";
 
@@ -346,7 +442,7 @@ const StampPDF = () => {
   const [progress, setProgress] = useState(0);
 
   const [watermarkType, setWatermarkType] = useState<WatermarkType>("text");
-  const [watermarkText, setWatermarkText] = useState("CONFIDENTIAL");
+  const [watermarkText, setWatermarkText] = useState(DEFAULT_STAMP_TEXT);
   const [fontSize, setFontSize] = useState(27);
   const [fontFamily, setFontFamily] = useState<
     "Helvetica" | "Times" | "Courier"
@@ -399,22 +495,23 @@ const StampPDF = () => {
     }
   }, [imageWatermark]);
 
-  /* ---------- Watermark settings object for memoization ---------- */
-  const watermarkSettings = useMemo(
-    () => ({
-      watermarkType,
-      watermarkText,
-      fontSize,
-      fontFamily,
-      textColor,
-      rotation,
-      opacity,
-      imageUrl,
-      positionX,
-      positionY,
-      mosaicMode,
-      behindContent,
-    }),
+  /* ---------- Stamp compose options (shared by preview + export) ---------- */
+  const composeOptions = useMemo<StampComposeOptions>(
+    () =>
+      stampComposeOptionsFromSettings({
+        watermarkType,
+        watermarkText,
+        fontSize,
+        fontFamily,
+        textColor,
+        rotation,
+        opacity,
+        imageUrl,
+        positionX,
+        positionY,
+        mosaicMode,
+        behindContent,
+      }),
     [
       watermarkType,
       watermarkText,
@@ -428,7 +525,7 @@ const StampPDF = () => {
       positionY,
       mosaicMode,
       behindContent,
-    ]
+    ],
   );
 
   /* ---------- PDF upload ---------- */
@@ -466,18 +563,7 @@ const StampPDF = () => {
     }
   };
 
-  /* ---------- Watermark processing – EXACT POSITIONING + MOSAIC ---------- */
-  const hexToRgb = (hex: string) => {
-    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return m
-      ? {
-          r: parseInt(m[1], 16) / 255,
-          g: parseInt(m[2], 16) / 255,
-          b: parseInt(m[3], 16) / 255,
-        }
-      : { r: 0, g: 0, b: 0 };
-  };
-
+  /* ---------- Watermark processing ---------- */
   const applyWatermark = async () => {
     if (!file) return toast.error("Upload a PDF first");
     if (watermarkType === "text" && !watermarkText)
@@ -495,95 +581,13 @@ const StampPDF = () => {
       const outPdf = await PDFDocument.create();
       const total = donorPdf.getPageCount();
 
-      setProgress(30);
+      setProgress(20);
 
-      const indices: number[] = Array.from(selectedPages).map((p) => p - 1);
-      const stampSet = new Set(indices);
+      const stampSet = new Set(Array.from(selectedPages).map((p) => p - 1));
 
-      setProgress(50);
+      const pdfjsDoc = await pdfjs.getDocument({ data: buf.slice(0) }).promise;
 
-      const mosaicPositions = [
-        { x: 16.67, y: 83.33 },
-        { x: 50, y: 83.33 },
-        { x: 83.33, y: 83.33 },
-        { x: 16.67, y: 50 },
-        { x: 50, y: 50 },
-        { x: 83.33, y: 50 },
-        { x: 16.67, y: 16.67 },
-        { x: 50, y: 16.67 },
-        { x: 83.33, y: 16.67 },
-      ];
-
-      const positions = mosaicMode
-        ? mosaicPositions
-        : [{ x: positionX, y: positionY }];
-
-      let embeddedFont: PDFFont | null = null;
-      let embeddedImage: PDFImage | null = null;
-
-      const col = hexToRgb(textColor);
-
-      if (watermarkType === "text") {
-        const fontMap = {
-          Helvetica: StandardFonts.HelveticaBold,
-          Times: StandardFonts.TimesRomanBold,
-          Courier: StandardFonts.CourierBold,
-        };
-        embeddedFont = await outPdf.embedFont(fontMap[fontFamily]);
-      } else if (watermarkType === "image" && imageWatermark) {
-        const imgBuf = await imageWatermark.arrayBuffer();
-        embeddedImage =
-          imageWatermark.type === "image/png"
-            ? await outPdf.embedPng(imgBuf)
-            : await outPdf.embedJpg(imgBuf);
-      }
-
-      const stampTextMarks = (
-        targetPage: PDFPage,
-        pageW: number,
-        pageH: number,
-        font: PDFFont,
-      ) => {
-        for (const pos of positions) {
-          const textWidth = font.widthOfTextAtSize(watermarkText, fontSize);
-          const textHeight = fontSize;
-          const x = (pos.x / 100) * pageW - textWidth / 2;
-          const y = ((100 - pos.y) / 100) * pageH - textHeight / 2;
-          targetPage.drawText(watermarkText, {
-            x,
-            y,
-            size: fontSize,
-            font,
-            color: rgb(col.r, col.g, col.b),
-            rotate: degrees(-rotation),
-            opacity: opacity / 100,
-          });
-        }
-      };
-
-      /** Draw image watermark (fixed width in PDF points). */
-      const stampImageMarks = (
-        targetPage: PDFPage,
-        pageW: number,
-        pageH: number,
-        img: PDFImage,
-      ) => {
-        const imgW = 200;
-        const imgH = (img.height / img.width) * imgW;
-
-        for (const pos of positions) {
-          const x = (pos.x / 100) * pageW - imgW / 2;
-          const y = ((100 - pos.y) / 100) * pageH - imgH / 2;
-          targetPage.drawImage(img, {
-            x,
-            y,
-            width: imgW,
-            height: imgH,
-            rotate: degrees(-rotation),
-            opacity: opacity / 100,
-          });
-        }
-      };
+      setProgress(35);
 
       for (let i = 0; i < total; i++) {
         if (!stampSet.has(i)) {
@@ -592,62 +596,49 @@ const StampPDF = () => {
           continue;
         }
 
-        const { width, height } = donorPdf.getPage(i).getSize();
-        const newPage = outPdf.addPage([width, height]);
-        const [embedded] = await outPdf.embedPdf(srcBytes, [i]);
+        setProgress(35 + Math.round((i / Math.max(total, 1)) * 45));
 
-        if (behindContent) {
-          if (embeddedFont && watermarkType === "text") {
-            stampTextMarks(newPage, width, height, embeddedFont);
-          }
-          if (embeddedImage && watermarkType === "image") {
-            stampImageMarks(newPage, width, height, embeddedImage);
-          }
-          newPage.drawPage(embedded, {
-            x: 0,
-            y: 0,
-            width,
-            height,
-          });
-        } else {
-          newPage.drawPage(embedded, {
-            x: 0,
-            y: 0,
-            width,
-            height,
-          });
-          if (embeddedFont && watermarkType === "text") {
-            stampTextMarks(newPage, width, height, embeddedFont);
-          }
-          if (embeddedImage && watermarkType === "image") {
-            stampImageMarks(newPage, width, height, embeddedImage);
-          }
-        }
+        const { pdfWidth, pdfHeight, pngBytes } = await composeStampedPage(
+          pdfjsDoc,
+          i,
+          composeOptions,
+        );
+
+        const embedded = await outPdf.embedPng(pngBytes);
+        const page = outPdf.addPage([pdfWidth, pdfHeight]);
+        page.drawImage(embedded, {
+          x: 0,
+          y: 0,
+          width: pdfWidth,
+          height: pdfHeight,
+        });
       }
 
-      setProgress(80);
+      pdfjsDoc.destroy();
+
+      setProgress(90);
       const bytes = await outPdf.save();
       setWatermarkedPdf(bytes);
       setProgress(100);
       setTimeout(() => setCurrentStep("download"), 600);
     } catch (err) {
       console.error(err);
-      toast.error("Watermark failed");
+      toast.error(
+        err instanceof Error ? err.message : "Watermark failed. Try a smaller PDF.",
+      );
       setCurrentStep("customize");
     }
   };
 
   const downloadFile = () => {
     if (!watermarkedPdf) return;
-    const blob = new Blob([new Uint8Array(watermarkedPdf)], {
-      type: "application/pdf",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `watermarked_${file?.name ?? "doc.pdf"}`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const filename = file
+      ? buildLexorbitProcessedFilename(file.name, "stamped")
+      : "document_lexorbit_stamped.pdf";
+    triggerBlobDownload(
+      new Blob([new Uint8Array(watermarkedPdf)], { type: "application/pdf" }),
+      filename,
+    );
     toast.success("Downloaded!");
   };
 
@@ -656,7 +647,7 @@ const StampPDF = () => {
     setWatermarkedPdf(null);
     setCurrentStep("upload");
     setProgress(0);
-    setWatermarkText("CONFIDENTIAL");
+    setWatermarkText(DEFAULT_STAMP_TEXT);
     setImageWatermark(null);
     setImageUrl(null);
     setMosaicMode(false);
@@ -737,10 +728,7 @@ const StampPDF = () => {
                 <PDFLivePreview
                   file={file}
                   totalPages={totalPages}
-                  watermarkSettings={watermarkSettings}
-                  applyToAllPages={applyToAllPages}
-                  pageRangeFrom={pageRangeFrom}
-                  pageRangeTo={pageRangeTo}
+                  stampSettings={composeOptions}
                   selectedPages={selectedPages}
                 />
               )}
@@ -920,7 +908,13 @@ const StampPDF = () => {
             </div>
             {behindContent && (
               <p className="text-[11px] text-muted-foreground leading-snug">
-                Exported PDF places the stamp behind page content. The live preview is an approximation; download to verify final placement.
+                Softer gray watermark blended into the page — text stays readable. Toggle
+                off for a bold stamp on top.
+              </p>
+            )}
+            {!behindContent && (
+              <p className="text-[11px] text-muted-foreground leading-snug">
+                Bold stamp drawn on top of all content.
               </p>
             )}
           </CardContent>
@@ -1081,7 +1075,11 @@ const StampPDF = () => {
                 <span className="text-purple-600 font-bold text-xs">PDF</span>
               </div>
               <div className="flex-1 text-left">
-                <h4 className="font-medium">watermarked_{file?.name}</h4>
+                <h4 className="font-medium">
+                  {file
+                    ? buildLexorbitProcessedFilename(file.name, "stamped")
+                    : "document_lexorbit_stamped.pdf"}
+                </h4>
                 <p className="text-sm text-muted-foreground">
                   ready to download
                 </p>

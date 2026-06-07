@@ -1,5 +1,8 @@
 import axios from "axios";
 import { apiClient } from "../config";
+import {
+  buildLexorbitConvertedFilename,
+} from "@/utils/lexorbitFilename";
 
 /** Office/LibreOffice conversions can take several minutes on Cloud Run. */
 const CONVERSION_POST_TIMEOUT_MS = 300_000;
@@ -14,7 +17,39 @@ function formatConversionNetworkError(err: unknown): Error | null {
   );
 }
 
-export const convertPDF = async (file: File, outputFormat: string) => {
+export type ConversionPipelineMeta = {
+  pdf_kind?: string;
+  sparse_text_chars_preview?: number;
+  ocr_prep_attempted?: boolean;
+  ocr_prep_layer_applied?: boolean;
+  ocr_prep_primary_engine?: string | null;
+  ocr_prep_processing_seconds?: number;
+  ocr_prep_fallback_reason?: string | null;
+  chosen_engine?: string;
+  docx_plain_text_approx?: number;
+  engine_ranking?: Array<{ engine: string; plain_text_approx?: number }>;
+};
+
+export type PdfToFormatConversionData = {
+  id?: number;
+  converted_file: string;
+  download_filename?: string;
+  output_format?: string;
+  word_pipeline?: ConversionPipelineMeta;
+  ppt_pipeline?: ConversionPipelineMeta;
+};
+
+export type PdfToFormatResponse = {
+  message?: string;
+  error?: string;
+  conversion_data?: PdfToFormatConversionData;
+};
+
+export const convertPDF = async (
+  file: File,
+  outputFormat: string,
+  options?: { ocrLanguage?: string; forceOcr?: boolean },
+) => {
   if (!file) throw new Error("PDF file is required.");
   if (!outputFormat)
     throw new Error(
@@ -24,9 +59,15 @@ export const convertPDF = async (file: File, outputFormat: string) => {
   const formData = new FormData();
   formData.append("input_pdf", file, file.name);
   formData.append("output_format", outputFormat.toLowerCase());
+  if (options?.ocrLanguage) {
+    formData.append("ocr_language", options.ocrLanguage);
+  }
+  if (options?.forceOcr) {
+    formData.append("force_ocr", "true");
+  }
 
   try {
-    return await apiClient.post("/pdf/pdf_to_format/", formData, {
+    return await apiClient.post<PdfToFormatResponse>("/pdf/pdf_to_format/", formData, {
       headers: { "Content-Type": "multipart/form-data" },
       timeout: CONVERSION_POST_TIMEOUT_MS,
     });
@@ -36,6 +77,53 @@ export const convertPDF = async (file: File, outputFormat: string) => {
     throw e;
   }
 };
+
+/** Fetch converted file bytes with auth (Word, Excel, PPT, images zip, text). */
+export async function fetchConvertedFileBlob(downloadUrl: string): Promise<Blob> {
+  const path = toRelativeApiPath(downloadUrl);
+  const res = await apiClient.get(path, { responseType: "blob" });
+  const blob = res.data;
+  if (!(blob instanceof Blob) || blob.size === 0) {
+    throw new Error("Downloaded file is empty.");
+  }
+  const ct = res.headers["content-type"] || "";
+  if (ct.includes("application/json")) {
+    const msg = await parseBlobError(blob);
+    throw new Error(msg || "Server returned an error instead of a file.");
+  }
+  return blob;
+}
+
+export type ConvertPdfToFormatResult = {
+  downloadUrl: string;
+  downloadFilename: string;
+  message?: string;
+  wordPipeline?: ConversionPipelineMeta;
+  pptPipeline?: ConversionPipelineMeta;
+};
+
+/** Convert PDF and return download metadata (file fetched separately via fetchConvertedFileBlob). */
+export async function convertPdfToFormat(
+  file: File,
+  outputFormat: string,
+  options?: { ocrLanguage?: string; forceOcr?: boolean },
+): Promise<ConvertPdfToFormatResult> {
+  const response = await convertPDF(file, outputFormat, options);
+  const data = response.data;
+  const converted = data?.conversion_data?.converted_file;
+  if (!converted) {
+    throw new Error(data?.error || "Invalid response from server.");
+  }
+  return {
+    downloadUrl: converted,
+    downloadFilename:
+      data.conversion_data?.download_filename ||
+      buildLexorbitConvertedFilename(file.name, outputFormat),
+    message: data.message,
+    wordPipeline: data.conversion_data?.word_pipeline,
+    pptPipeline: data.conversion_data?.ppt_pipeline,
+  };
+}
 
 type FormatToPdfSuccess = {
   message?: string;
@@ -152,16 +240,16 @@ export async function convertImagesToPDF(
       const blob = await downloadPdfBlob(
         toRelativeApiPath(payload.conversion_data.converted_pdf)
       );
-      const baseName =
-        files.length === 1
-          ? files[0].name.replace(/\.[^/.]+$/, ".pdf")
-          : "combined-images.pdf";
+      const baseName = buildLexorbitConvertedFilename(
+        files.length === 1 ? files[0].name : files[0].name,
+        "pdf",
+      );
       blobs.push({ name: baseName, blob });
     } else if (payload.conversion_data?.pdfs?.length) {
       for (const entry of payload.conversion_data.pdfs) {
         const blob = await downloadPdfBlob(toRelativeApiPath(entry.converted_pdf));
         blobs.push({
-          name: entry.filename || entry.original_name.replace(/\.[^/.]+$/, ".pdf"),
+          name: entry.filename || buildLexorbitConvertedFilename(entry.original_name, "pdf"),
           blob,
         });
       }

@@ -5,6 +5,10 @@ import { ArrowLeft, Upload, Download, Trash2, RotateCcw, GripVertical } from "lu
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { organizePDF } from "@/api";
+import {
+  buildLexorbitProcessedFilename,
+  triggerBlobDownload,
+} from "@/utils/lexorbitFilename";
 
 // Drag and drop
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
@@ -177,19 +181,7 @@ const OrganizePDF = () => {
 
       const blob = await pdfResponse.blob();
 
-      // Create a local object URL (same-origin, so download attribute works)
-      const blobUrl = window.URL.createObjectURL(blob);
-
-      // Trigger download
-      const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = `organized_${file.name}`;
-      document.body.appendChild(link);
-      link.click();
-
-      // Cleanup
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(blobUrl);
+      triggerBlobDownload(blob, buildLexorbitProcessedFilename(file.name, "organized"));
 
       toast.success("PDF downloaded successfully!");
 

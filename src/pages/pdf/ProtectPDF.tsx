@@ -10,13 +10,9 @@ import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { protectPDF as protectPDFApi } from "@/api";
 import { PDFToolDownloadResult } from "@/components/pdf/PDFToolDownloadResult";
+import { buildLexorbitProcessedFilename } from "@/utils/lexorbitFilename";
 
 type ProcessStep = "upload" | "processing" | "download";
-
-function protectedDownloadFilename(uploadName: string): string {
-  const base = uploadName.replace(/\.pdf$/i, "");
-  return `${base}-protected.pdf`;
-}
 
 const ProtectPDF = () => {
   const navigate = useNavigate();
@@ -107,7 +103,7 @@ const ProtectPDF = () => {
       }
 
       setProtectedFileUrl(fileUrl);
-      setProtectedDownloadName(protectedDownloadFilename(file.name));
+      setProtectedDownloadName(buildLexorbitProcessedFilename(file.name, "protected"));
       setProgress(100);
       setTimeout(() => setCurrentStep("download"), 450);
       toast.success("PDF protected — review and download when ready.");
@@ -139,7 +135,7 @@ const ProtectPDF = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = protectedDownloadName || protectedDownloadFilename(file.name);
+      a.download = protectedDownloadName || buildLexorbitProcessedFilename(file.name, "protected");
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -372,7 +368,7 @@ const ProtectPDF = () => {
           <PDFToolDownloadResult
             title="PDF protected!"
             description="Download your password-protected PDF. The file stays on Lawtabby until you download it."
-            outputFilename={protectedDownloadName || protectedDownloadFilename(file.name)}
+            outputFilename={protectedDownloadName || buildLexorbitProcessedFilename(file.name, "protected")}
             sourceSummary={`Original upload: ${file.name}`}
             onDownload={downloadFile}
             onReset={resetProcess}

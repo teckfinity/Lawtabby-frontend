@@ -6,7 +6,11 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { PDFToolDownloadResult } from "@/components/pdf/PDFToolDownloadResult";
-import { mergePDFs } from "@/api"; // Import the mergePDFs API
+import { mergePDFs } from "@/api";
+import {
+  buildLexorbitFilenameFromUploads,
+  triggerBlobDownload,
+} from "@/utils/lexorbitFilename";
 
 
 function summarizeSourceFiles(names: string[], maxChars = 120): string {
@@ -135,7 +139,12 @@ const MergePDF = () => {
       return;
     }
     setCurrentStep("processing");
-    setProcessedFileName(`merged_${files.length}_files.pdf`);
+    setProcessedFileName(
+      buildLexorbitFilenameFromUploads(
+        files.map((f) => f.file.name),
+        "merged",
+      ),
+    );
     let progressInterval: any = undefined;
     try {
       let currentProgress = 0;
@@ -192,18 +201,11 @@ const MergePDF = () => {
       }
 
       const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
 
-      // Force download
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = processedFileName || `merged_${files.length}_files.pdf`;
-      document.body.appendChild(link);
-      link.click();
-
-      // Cleanup
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      triggerBlobDownload(blob, processedFileName || buildLexorbitFilenameFromUploads(
+        files.map((f) => f.file.name),
+        "merged",
+      ));
 
       toast.success("Download started!");
     } catch (error) {
@@ -408,7 +410,13 @@ const MergePDF = () => {
     <PDFToolDownloadResult
       title="PDFs merged successfully"
       description="Download your merged PDF, or reset to choose different files."
-      outputFilename={processedFileName || `merged_${files.length}_files.pdf`}
+      outputFilename={
+        processedFileName ||
+        buildLexorbitFilenameFromUploads(
+          files.map((f) => f.file.name),
+          "merged",
+        )
+      }
       sourceSummary={`Original files: ${summarizeSourceFiles(files.map((f) => f.name))}`}
       onDownload={downloadFile}
       onReset={resetProcess}
