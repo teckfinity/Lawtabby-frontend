@@ -5,6 +5,7 @@ import SubscriptionPopup from '@/components/SubscriptionPopup';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { getProfileEmoji, hasUserAvatar } from '@/utils/userAvatar';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
@@ -63,7 +64,7 @@ const Profile = () => {
           name: data.name || '',
           email: data.email || '',
           plan: data.plan || 'Free Plan',
-          avatar: data.avatar || 'https://via.placeholder.com/150'
+          avatar: data.avatar || ''
         });
         setTempName(data.name || '');
         setTempEmail(data.email || '');
@@ -248,9 +249,11 @@ const handleAvatarUpload = () => {
               </div>
               <div className="relative">
                 <Avatar className="h-16 w-16">
-                  <AvatarImage src={profile.avatar} alt="Profile" />
-                  <AvatarFallback>
-                    {profile.name.charAt(0).toUpperCase()}
+                  {hasUserAvatar(profile.avatar) && (
+                    <AvatarImage src={profile.avatar} alt="Profile" />
+                  )}
+                  <AvatarFallback className="text-3xl bg-muted">
+                    {getProfileEmoji(profile.name || profile.email)}
                   </AvatarFallback>
                 </Avatar>
                 <Button

@@ -22,6 +22,7 @@ import {
   PanelLeftClose,
   PanelLeft
 } from "lucide-react";
+import { UserAvatar } from "@/components/UserAvatar";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { logoutUser, getUserProfile } from "@/api/user";
@@ -77,7 +78,7 @@ export function AppSidebar() {
   const [libraryOpen, setLibraryOpen] = useState(true);
   const [aiOpen, setAiOpen] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userProfile, setUserProfile] = useState<{ name?: string; avatar?: string }>({});
+  const [userProfile, setUserProfile] = useState<{ name?: string; email?: string; avatar?: string }>({});
 
   useEffect(() => {
     // Check if user is authenticated on mount
@@ -92,6 +93,7 @@ export function AppSidebar() {
         const data = await getUserProfile();
         setUserProfile({
           name: data?.name,
+          email: data?.email,
           avatar: data?.avatar,
         });
       } catch (error) {
@@ -359,17 +361,13 @@ export function AppSidebar() {
             to="/profile" 
             className="flex items-center gap-2 mt-4 p-2 text-xs text-sidebar-foreground/60 hover:bg-sidebar-accent rounded-md transition-colors"
           >
-            {userProfile?.avatar ? (
-              <img
-                src={userProfile.avatar}
-                alt={userProfile.name || "User Avatar"}
-                className="w-6 h-6 rounded-full object-cover"
-              />
-            ) : (
-              <div className="w-6 h-6 bg-sidebar-primary rounded-full flex items-center justify-center text-sidebar-primary-foreground font-medium">
-                {userProfile?.name ? userProfile.name.charAt(0).toUpperCase() : "P"}
-              </div>
-            )}
+            <UserAvatar
+              src={userProfile?.avatar}
+              name={userProfile?.name}
+              email={userProfile?.email}
+              className="w-6 h-6"
+              emojiClassName="text-sm"
+            />
             <div className="flex-1 truncate">
               <p className="truncate">{userProfile?.name || "Profile"}</p>
             </div>
@@ -382,17 +380,13 @@ export function AppSidebar() {
             to="/profile" 
             className="flex items-center justify-center w-10 h-10 hover:bg-sidebar-accent rounded-md transition-colors"
           >
-            {userProfile?.avatar ? (
-              <img
-                src={userProfile.avatar}
-                alt={userProfile.name || "User Avatar"}
-                className="w-8 h-8 rounded-full object-cover"
-              />
-            ) : (
-              <div className="w-8 h-8 bg-sidebar-primary rounded-full flex items-center justify-center text-sidebar-primary-foreground font-medium text-xs">
-                {userProfile?.name ? userProfile.name.charAt(0).toUpperCase() : "A"}
-              </div>
-            )}
+            <UserAvatar
+              src={userProfile?.avatar}
+              name={userProfile?.name}
+              email={userProfile?.email}
+              className="w-8 h-8"
+              emojiClassName="text-base"
+            />
           </NavLink>
         )}
       </div>

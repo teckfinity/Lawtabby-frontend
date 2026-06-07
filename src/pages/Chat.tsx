@@ -7,13 +7,13 @@ import {
   Send,
   Paperclip,
   Bot,
-  User,
   Sparkles,
   RefreshCw,
   FileText,
   ExternalLink,
 } from "lucide-react";
 import { getUserProfile } from "@/api/user";
+import { UserAvatar } from "@/components/UserAvatar";
 import {
   createConversation,
   sendChatMessage,
@@ -42,6 +42,8 @@ const Chat = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
+  const [userDisplayName, setUserDisplayName] = useState<string>("");
+  const [userEmail, setUserEmail] = useState<string>("");
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [isLoadingConversation, setIsLoadingConversation] = useState(true);
 
@@ -108,6 +110,8 @@ const Chat = () => {
       try {
         const profile = await getUserProfile();
         setUserAvatar(profile.avatar || null);
+        setUserDisplayName(profile.name || "");
+        setUserEmail(profile.email || "");
       } catch (err) {
         console.error("Failed to load user profile:", err);
       }
@@ -373,19 +377,13 @@ const Chat = () => {
                 </div>
 
                 {message.type === "user" && (
-                  <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
-                    {userAvatar ? (
-                      <img
-                        src={userAvatar}
-                        alt="User"
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-muted rounded-full flex items-center justify-center">
-                        <User className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                    )}
-                  </div>
+                  <UserAvatar
+                    src={userAvatar}
+                    name={userDisplayName}
+                    email={userEmail}
+                    className="w-8 h-8"
+                    emojiClassName="text-sm"
+                  />
                 )}
               </div>
             ))
