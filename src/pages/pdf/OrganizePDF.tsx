@@ -12,12 +12,7 @@ import {
 
 // Drag and drop
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
-// Correct imports for modern React + Vite/CRA setup
-import * as pdfjsLib from "pdfjs-dist";
-import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-
-// Register the worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+import { pdfjs as pdfjsLib } from "@/lib/pdfjsWorker";
 
 interface PDFPage {
   id: string;

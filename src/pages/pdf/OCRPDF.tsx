@@ -28,7 +28,8 @@ import {
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Document, Page, pdfjs } from "react-pdf";
+import { Document, Page } from "react-pdf";
+import "@/lib/pdfjsWorker";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import {
@@ -43,8 +44,6 @@ import {
 } from "@/api/pdf/ocr";
 import { buildLexorbitProcessedFilename, triggerBlobDownload } from "@/utils/lexorbitFilename";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
-
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 const DEFAULT_LANGUAGE_OPTIONS: OcrLanguageOption[] = [
   { code: "eng", label: "English", installed: true },

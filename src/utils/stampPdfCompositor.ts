@@ -108,11 +108,20 @@ export type CompositedPageResult = {
   pngBytes: Uint8Array;
 };
 
+/** Opacity scale applied in behind-content mode so the watermark reads as a
+ *  soft underlay instead of a bold stamp. NOTE: with a dark stamp color, plain
+ *  `multiply` at full opacity is pixel-identical to drawing on top — the mode
+ *  must also soften the stamp to be visually distinct. */
+const BEHIND_CONTENT_OPACITY_SCALE = 0.55;
+
 /**
  * Render one PDF page with stamp composited.
  *
- * - **On top:** page first, then stamp painted over content.
- * - **Behind content:** page first, then stamp with `multiply` blend so text stays dominant.
+ * - **On top:** page first, then stamp painted over content at full strength.
+ * - **Behind content:** page first, then a softened stamp blended with `multiply` —
+ *   light/white areas take the watermark while text and graphics stay dark and
+ *   readable on top. Works for any PDF, including ones that paint an opaque page
+ *   background (which would fully hide a literal behind-the-page stamp).
  */
 export async function composeStampedPage(
   pdfDoc: PDFDocumentProxy,
@@ -142,11 +151,14 @@ export async function composeStampedPage(
   if (options.behindContent) {
     ctx.save();
     ctx.globalCompositeOperation = "multiply";
-    await drawStampOnCanvas(ctx, canvas.width, canvas.height, renderScale, {
-      ...options,
-      textColor: "#888888",
-      opacity: Math.min(options.opacity, 45),
-    });
+    await drawStampOnCanvas(
+      ctx,
+      canvas.width,
+      canvas.height,
+      renderScale,
+      options,
+      BEHIND_CONTENT_OPACITY_SCALE,
+    );
     ctx.restore();
   } else {
     await drawStampOnCanvas(ctx, canvas.width, canvas.height, renderScale, options);
@@ -182,8 +194,14 @@ export function stampComposeOptionsFromSettings(settings: {
 }
 
 export function previewRenderScale(pdfPageWidthPt: number, displayWidthPx: number): number {
-  if (!displayWidthPx || !pdfPageWidthPt) return 1.25;
-  return Math.min(STAMP_EXPORT_RENDER_SCALE, Math.max(1, displayWidthPx / pdfPageWidthPt));
+  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+  if (!displayWidthPx || !pdfPageWidthPt) return 1.25 * dpr;
+  // Render at device resolution so the composited preview stays as sharp as
+  // the live react-pdf page it replaces (capped to keep canvases small).
+  return Math.min(
+    STAMP_EXPORT_RENDER_SCALE * dpr,
+    Math.max(1, (displayWidthPx * dpr) / pdfPageWidthPt),
+  );
 }
 
 export function pngBytesToObjectUrl(pngBytes: Uint8Array): string {

@@ -9,7 +9,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
-import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import "@/lib/pdfjsWorker";
 import {
   countModifiedBlocks,
   extractPdfEditorPages,
@@ -40,9 +40,6 @@ const PDFTextEditor = ({ file, onSave, onCancel }: PDFTextEditorProps) => {
     setActiveBlockId(null);
 
     try {
-      const pdfjsLib = await import("pdfjs-dist");
-      pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
-
       const extracted = await extractPdfEditorPages(file);
       if (!extracted.length) {
         throw new Error("This PDF has no pages.");
@@ -258,6 +255,11 @@ function EditableTextBlock({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const isModified = block.text.trim() !== block.originalText.trim();
+  // The page background image already shows the original text. Keep the DOM
+  // text invisible until the block is edited, otherwise it renders twice
+  // (slightly offset) and the page looks broken. Once active/modified, paint
+  // an opaque cover over the canvas text and show the live DOM text instead.
+  const showOverlayText = isActive || isModified;
 
   useEffect(() => {
     const el = ref.current;
@@ -277,10 +279,10 @@ function EditableTextBlock({
       title="Click to edit this text"
       className={`absolute outline-none cursor-text rounded-sm px-0.5 transition-shadow ${
         isActive
-          ? "ring-2 ring-primary bg-white/95 shadow-sm z-20"
+          ? "ring-2 ring-primary shadow-sm z-20"
           : isModified
-            ? "bg-amber-100/90 hover:ring-1 hover:ring-amber-400 z-10"
-            : "bg-white/85 hover:ring-1 hover:ring-primary/40 z-10"
+            ? "ring-1 ring-amber-400/80 z-10"
+            : "hover:ring-1 hover:ring-primary/30 hover:bg-primary/5 z-10"
       }`}
       style={{
         left: block.displayX,
@@ -297,7 +299,13 @@ function EditableTextBlock({
         fontWeight: block.fontWeight,
         fontStyle: block.fontStyle,
         lineHeight: 1.15,
-        color: "#111",
+        color: showOverlayText
+          ? `rgb(${Math.round(block.textColor.r * 255)}, ${Math.round(block.textColor.g * 255)}, ${Math.round(block.textColor.b * 255)})`
+          : "transparent",
+        caretColor: `rgb(${Math.round(block.textColor.r * 255)}, ${Math.round(block.textColor.g * 255)}, ${Math.round(block.textColor.b * 255)})`,
+        backgroundColor: showOverlayText
+          ? `rgb(${Math.round(block.coverColor.r * 255)}, ${Math.round(block.coverColor.g * 255)}, ${Math.round(block.coverColor.b * 255)})`
+          : "transparent",
         whiteSpace: "pre-wrap",
         wordBreak: "break-word",
       }}

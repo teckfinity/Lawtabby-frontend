@@ -42,12 +42,12 @@ import { Switch } from "@/components/ui/switch";
 import { useNavigate } from "react-router-dom";
 
 /* ---------- react-pdf ---------- */
-import { Document, Page, pdfjs } from "react-pdf";
+import { Document, Page } from "react-pdf";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 
 import type { PDFDocumentProxy } from "pdfjs-dist";
-import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import { pdfjs } from "@/lib/pdfjsWorker";
 import {
   buildLexorbitProcessedFilename,
   triggerBlobDownload,
@@ -62,8 +62,6 @@ import {
   stampPreviewCacheKey,
   type StampComposeOptions,
 } from "@/utils/stampPdfCompositor";
-
-pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
 type ProcessStep = "upload" | "customize" | "processing" | "download";
 type WatermarkType = "text" | "image";
@@ -906,13 +904,12 @@ const StampPDF = () => {
                 onCheckedChange={setBehindContent}
               />
             </div>
-            {behindContent && (
+            {behindContent ? (
               <p className="text-[11px] text-muted-foreground leading-snug">
-                Softer gray watermark blended into the page — text stays readable. Toggle
-                off for a bold stamp on top.
+                Softer watermark blended into the page — content stays readable on
+                top. Use the opacity control to tune how strong it appears.
               </p>
-            )}
-            {!behindContent && (
+            ) : (
               <p className="text-[11px] text-muted-foreground leading-snug">
                 Bold stamp drawn on top of all content.
               </p>

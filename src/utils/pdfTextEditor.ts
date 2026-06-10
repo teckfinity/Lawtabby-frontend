@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import { pdfjs as pdfjsLib } from "@/lib/pdfjsWorker";
 
 /** A selectable / editable text region on one PDF page. */
 export interface PdfTextBlock {
@@ -22,6 +23,9 @@ export interface PdfTextBlock {
   fontFamily: string;
   fontWeight: "normal" | "bold";
   fontStyle: "normal" | "italic";
+  /** Sampled from page background (0–1 RGB) for invisible text replacement. */
+  coverColor: { r: number; g: number; b: number };
+  textColor: { r: number; g: number; b: number };
 }
 
 export interface PdfEditorPage {
@@ -130,7 +134,108 @@ function groupLineItems(items: RawLineItem[]): RawLineItem[][] {
   return lines;
 }
 
-function mergeLineToBlock(line: RawLineItem[], pageIndex: number): PdfTextBlock {
+type Rgb01 = { r: number; g: number; b: number };
+
+function sampleCanvasPatch(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): Rgb01 {
+  const scale = RENDER_SCALE;
+  const sx = Math.max(0, Math.floor(x * scale));
+  const sy = Math.max(0, Math.floor(y * scale));
+  const sw = Math.max(1, Math.floor(w * scale));
+  const sh = Math.max(1, Math.floor(h * scale));
+  const maxW = ctx.canvas.width - sx;
+  const maxH = ctx.canvas.height - sy;
+  if (maxW <= 0 || maxH <= 0) {
+    return { r: 1, g: 1, b: 1 };
+  }
+  const data = ctx.getImageData(sx, sy, Math.min(sw, maxW), Math.min(sh, maxH)).data;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  let n = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < 16) continue;
+    r += data[i];
+    g += data[i + 1];
+    b += data[i + 2];
+    n++;
+  }
+  if (!n) return { r: 1, g: 1, b: 1 };
+  return { r: r / n / 255, g: g / n / 255, b: b / n / 255 };
+}
+
+function sampleBackgroundForBlock(
+  ctx: CanvasRenderingContext2D,
+  displayX: number,
+  displayY: number,
+  displayWidth: number,
+  displayHeight: number,
+): Rgb01 {
+  const pad = 2;
+  const patches = [
+    sampleCanvasPatch(ctx, displayX - pad, displayY - pad, pad * 2, pad * 2),
+    sampleCanvasPatch(
+      ctx,
+      displayX + displayWidth - pad,
+      displayY - pad,
+      pad * 2,
+      pad * 2,
+    ),
+    sampleCanvasPatch(
+      ctx,
+      displayX - pad,
+      displayY + displayHeight - pad,
+      pad * 2,
+      pad * 2,
+    ),
+    sampleCanvasPatch(
+      ctx,
+      displayX + displayWidth - pad,
+      displayY + displayHeight - pad,
+      pad * 2,
+      pad * 2,
+    ),
+  ];
+  return {
+    r: patches.reduce((s, p) => s + p.r, 0) / patches.length,
+    g: patches.reduce((s, p) => s + p.g, 0) / patches.length,
+    b: patches.reduce((s, p) => s + p.b, 0) / patches.length,
+  };
+}
+
+function estimateTextColor(
+  ctx: CanvasRenderingContext2D,
+  displayX: number,
+  displayY: number,
+  displayWidth: number,
+  displayHeight: number,
+  background: Rgb01,
+): Rgb01 {
+  const center = sampleCanvasPatch(
+    ctx,
+    displayX + displayWidth * 0.15,
+    displayY + displayHeight * 0.15,
+    Math.max(4, displayWidth * 0.7),
+    Math.max(4, displayHeight * 0.7),
+  );
+  const bgLum = background.r * 0.299 + background.g * 0.587 + background.b * 0.114;
+  const fgLum = center.r * 0.299 + center.g * 0.587 + center.b * 0.114;
+  if (Math.abs(fgLum - bgLum) > 0.08) {
+    return center;
+  }
+  return bgLum > 0.55 ? { r: 0, g: 0, b: 0 } : { r: 1, g: 1, b: 1 };
+}
+
+function mergeLineToBlock(
+  line: RawLineItem[],
+  pageIndex: number,
+  ctx: CanvasRenderingContext2D,
+): PdfTextBlock {
   const text = line
     .map((item) => item.str)
     .join(" ")
@@ -148,9 +253,18 @@ function mergeLineToBlock(line: RawLineItem[], pageIndex: number): PdfTextBlock 
   const fontName = line[0].fontName;
   const { fontFamily, fontWeight, fontStyle } = detectFont(fontName);
 
-  const padX = Math.max(2, fontSize * 0.15);
-  const padY = Math.max(2, fontSize * 0.2);
-  const coverHeight = fontSize * 1.25 + padY * 2;
+  const padX = Math.max(1, fontSize * 0.08);
+  const padY = Math.max(1, fontSize * 0.1);
+  const coverHeight = fontSize * 1.15 + padY * 2;
+  const coverColor = sampleBackgroundForBlock(ctx, displayX, displayY, displayRight - displayX, displayBottom - displayY);
+  const textColor = estimateTextColor(
+    ctx,
+    displayX,
+    displayY,
+    displayRight - displayX,
+    displayBottom - displayY,
+    coverColor,
+  );
 
   return {
     id: `block-${pageIndex}-${displayX.toFixed(1)}-${displayY.toFixed(1)}`,
@@ -171,12 +285,13 @@ function mergeLineToBlock(line: RawLineItem[], pageIndex: number): PdfTextBlock 
     fontFamily,
     fontWeight,
     fontStyle,
+    coverColor,
+    textColor,
   };
 }
 
 /** Extract pages, background images, and grouped editable text blocks from a PDF file. */
 export async function extractPdfEditorPages(file: File): Promise<PdfEditorPage[]> {
-  const pdfjsLib = await import("pdfjs-dist");
   const arrayBuffer = await file.arrayBuffer();
   const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
 
@@ -212,7 +327,7 @@ export async function extractPdfEditorPages(file: File): Promise<PdfEditorPage[]
     }
 
     const blocks = groupLineItems(rawItems).map((line) =>
-      mergeLineToBlock(line, pageNum - 1),
+      mergeLineToBlock(line, pageNum - 1, ctx),
     );
 
     pages.push({
@@ -293,24 +408,26 @@ function applyTextBlockEdit(
   const { height: pageHeight } = page.getSize();
   const coverBottom = pageHeight - block.pdfCoverY - block.pdfCoverHeight;
 
+  const bg = block.coverColor ?? { r: 1, g: 1, b: 1 };
   page.drawRectangle({
     x: block.pdfCoverX,
     y: coverBottom,
     width: block.pdfCoverWidth,
     height: block.pdfCoverHeight,
-    color: rgb(1, 1, 1),
+    color: rgb(bg.r, bg.g, bg.b),
     borderWidth: 0,
   });
 
   const font = pickFont(block, fonts);
   const textY = pageHeight - block.pdfBaseline;
+  const fg = block.textColor ?? { r: 0, g: 0, b: 0 };
 
   page.drawText(block.text, {
     x: block.pdfX,
     y: textY,
     size: block.fontSize,
     font,
-    color: rgb(0, 0, 0),
+    color: rgb(fg.r, fg.g, fg.b),
     maxWidth: block.pdfCoverWidth,
     lineHeight: block.fontSize * 1.15,
   });

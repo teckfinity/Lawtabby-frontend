@@ -40,14 +40,13 @@ import {
   buildLexorbitProcessedFilename,
   triggerBlobDownload,
 } from "@/utils/lexorbitFilename";
-import { Document, Page, pdfjs } from "react-pdf";
+import { Document, Page } from "react-pdf";
+import "@/lib/pdfjsWorker";
 import { Progress } from "@/components/ui/progress";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import Draggable from "react-draggable";
-
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 type ProcessStep = "upload" | "processing" | "download";
 
