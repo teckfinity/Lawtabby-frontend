@@ -12,7 +12,9 @@ import { toast } from "sonner";
 import "@/lib/pdfjsWorker";
 import {
   countModifiedBlocks,
+  ensureTextContrast,
   extractPdfEditorPages,
+  rgb01ToCss,
   savePdfTextEdits,
   type PdfEditorPage,
   type PdfTextBlock,
@@ -255,19 +257,34 @@ function EditableTextBlock({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const isModified = block.text.trim() !== block.originalText.trim();
+  const editText = block.text || block.originalText;
   // The page background image already shows the original text. Keep the DOM
   // text invisible until the block is edited, otherwise it renders twice
   // (slightly offset) and the page looks broken. Once active/modified, paint
   // an opaque cover over the canvas text and show the live DOM text instead.
   const showOverlayText = isActive || isModified;
+  const displayTextColor = ensureTextContrast(block.textColor, block.coverColor);
+
+  const syncTextToElement = (el: HTMLDivElement) => {
+    if (el.textContent !== editText) {
+      el.textContent = editText;
+    }
+  };
 
   useEffect(() => {
     const el = ref.current;
-    if (!el || document.activeElement === el) return;
-    if (el.textContent !== block.text) {
-      el.textContent = block.text;
+    if (!el) return;
+    if (document.activeElement !== el) {
+      syncTextToElement(el);
     }
-  }, [block.text]);
+  }, [editText]);
+
+  const handleFocus = (e: React.FocusEvent<HTMLDivElement>) => {
+    // Must populate text on focus — useEffect skips while focused, so without
+    // this the box opens empty and the original text looks like it vanished.
+    syncTextToElement(e.currentTarget);
+    onFocus();
+  };
 
   return (
     <div
@@ -299,17 +316,13 @@ function EditableTextBlock({
         fontWeight: block.fontWeight,
         fontStyle: block.fontStyle,
         lineHeight: 1.15,
-        color: showOverlayText
-          ? `rgb(${Math.round(block.textColor.r * 255)}, ${Math.round(block.textColor.g * 255)}, ${Math.round(block.textColor.b * 255)})`
-          : "transparent",
-        caretColor: `rgb(${Math.round(block.textColor.r * 255)}, ${Math.round(block.textColor.g * 255)}, ${Math.round(block.textColor.b * 255)})`,
-        backgroundColor: showOverlayText
-          ? `rgb(${Math.round(block.coverColor.r * 255)}, ${Math.round(block.coverColor.g * 255)}, ${Math.round(block.coverColor.b * 255)})`
-          : "transparent",
+        color: showOverlayText ? rgb01ToCss(displayTextColor) : "transparent",
+        caretColor: rgb01ToCss(displayTextColor),
+        backgroundColor: showOverlayText ? rgb01ToCss(block.coverColor) : "transparent",
         whiteSpace: "pre-wrap",
         wordBreak: "break-word",
       }}
-      onFocus={onFocus}
+      onFocus={handleFocus}
       onBlur={(e) => {
         onChange(e.currentTarget.textContent ?? "");
         onBlur();

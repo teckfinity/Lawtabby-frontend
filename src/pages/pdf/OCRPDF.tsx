@@ -108,7 +108,7 @@ function StructuredTextPreview({ pages }: { pages: StructuredTextPage[] }) {
             }
             if (block.type === "list") {
               return (
-                <p key={idx} className="text-sm pl-4 text-foreground">
+                <p key={idx} className="text-sm pl-4 text-foreground whitespace-pre-line">
                   {block.text}
                 </p>
               );
@@ -121,7 +121,7 @@ function StructuredTextPreview({ pages }: { pages: StructuredTextPage[] }) {
               );
             }
             return (
-              <p key={idx} className="text-sm text-foreground leading-relaxed">
+              <p key={idx} className="text-sm text-foreground leading-relaxed whitespace-pre-line">
                 {block.text}
               </p>
             );
