@@ -7,16 +7,18 @@ import {
   Send,
   Paperclip,
   Bot,
-  User,
   Sparkles,
   RefreshCw,
   FileText,
+  ExternalLink,
 } from "lucide-react";
 import { getUserProfile } from "@/api/user";
+import { UserAvatar } from "@/components/UserAvatar";
 import {
   createConversation,
   sendChatMessage,
   getConversation,
+  type ChatSource,
 } from "@/api/ai_chat";
 
 // Define message type
@@ -25,6 +27,9 @@ interface ChatMessage {
   type: "user" | "ai";
   content: string;
   timestamp: string;
+  sources?: ChatSource[];
+  externalReferences?: ChatSource[];
+  ragUsed?: boolean;
   file?: {
     name: string;
     type: string;
@@ -37,6 +42,8 @@ const Chat = () => {
   const [isTyping, setIsTyping] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
+  const [userDisplayName, setUserDisplayName] = useState<string>("");
+  const [userEmail, setUserEmail] = useState<string>("");
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [isLoadingConversation, setIsLoadingConversation] = useState(true);
 
@@ -69,7 +76,10 @@ const Chat = () => {
             type: msg.role === "ai" ? "ai" : "user",
             content: msg.content,
             timestamp: formatTime(msg.created_at),
-            file: null, // backend doesn't return file info
+            sources: msg.sources ?? [],
+            externalReferences: msg.external_references ?? [],
+            ragUsed: msg.rag_used ?? false,
+            file: null,
           }));
 
           setMessages(backendMessages.length > 0 ? backendMessages : getWelcomeMessage());
@@ -100,6 +110,8 @@ const Chat = () => {
       try {
         const profile = await getUserProfile();
         setUserAvatar(profile.avatar || null);
+        setUserDisplayName(profile.name || "");
+        setUserEmail(profile.email || "");
       } catch (err) {
         console.error("Failed to load user profile:", err);
       }
@@ -123,7 +135,7 @@ const Chat = () => {
       id: 1,
       type: "ai",
       content:
-        "Hello! I'm your AI legal assistant. I can help you analyze documents, summarize cases, research legal precedents, and answer questions about legal matters. How can I assist you today?",
+        "Hello! I'm your AI legal assistant. I can help with general legal research questions, document summaries, and educational explanations.\n\nImportant: Responses are for assistance only — not legal advice, not for use in legal proceedings, and not a substitute for a licensed attorney. Always consult a qualified lawyer for matters affecting your rights or obligations.\n\nHow can I help you today?",
       timestamp: "Just now",
     },
   ];
@@ -171,13 +183,16 @@ const Chat = () => {
     try {
       // Note: Currently backend doesn't support file, so sending only text
       // When backend adds file support, we'll update sendChatMessage to accept file
-      const aiResponse = await sendChatMessage(conversationId, inputValue || "Uploaded a file");
+      const result = await sendChatMessage(conversationId, messageContent);
 
       const aiMessage: ChatMessage = {
-        id: aiResponse.id,
+        id: result.message.id,
         type: "ai",
-        content: aiResponse.content,
-        timestamp: formatTime(aiResponse.created_at),
+        content: result.message.content,
+        timestamp: formatTime(result.message.created_at),
+        sources: result.sources,
+        externalReferences: result.external_references,
+        ragUsed: result.rag_used,
       };
 
       setMessages((prev) => [...prev, aiMessage]);
@@ -224,6 +239,12 @@ const Chat = () => {
       {/* Chat Messages */}
       <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:pl-12">
         <div className="max-w-4xl mx-auto space-y-6">
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-muted-foreground">
+            <strong className="text-foreground font-medium">Disclaimer:</strong> AI responses
+            are for general assistance and research only. They are not legal advice, not
+            intended for legal proceedings, and do not create an attorney-client
+            relationship. Consult a licensed attorney for legal decisions.
+          </div>
           {isLoadingConversation ? (
             <div className="text-center text-muted-foreground py-10">
               Loading conversation...
@@ -252,7 +273,76 @@ const Chat = () => {
                   >
                     <CardContent className="p-4">
                       <div className="text-sm leading-relaxed space-y-2">
-                        <p>{message.content}</p>
+                        <p className="whitespace-pre-wrap">{message.content}</p>
+
+                        {message.type === "ai" &&
+                          (message.sources?.length || message.externalReferences?.length) ? (
+                          <div className="mt-3 pt-3 border-t border-border/60 space-y-2">
+                            {message.ragUsed && message.sources && message.sources.length > 0 && (
+                              <div>
+                                <p className="text-xs font-medium text-muted-foreground mb-1">
+                                  Related cases
+                                </p>
+                                <ul className="space-y-1">
+                                  {message.sources.map((source, idx) => (
+                                    <li key={`case-${idx}`} className="text-xs">
+                                      {source.url ? (
+                                        <a
+                                          href={source.url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-legal-primary hover:underline inline-flex items-center gap-1"
+                                        >
+                                          {source.title}
+                                          <ExternalLink className="h-3 w-3" />
+                                        </a>
+                                      ) : (
+                                        <span>{source.title}</span>
+                                      )}
+                                      {(source.court || source.date) && (
+                                        <span className="text-muted-foreground">
+                                          {" "}
+                                          — {[source.court, source.date?.slice(0, 10)]
+                                            .filter(Boolean)
+                                            .join(", ")}
+                                        </span>
+                                      )}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {message.externalReferences &&
+                              message.externalReferences.length > 0 && (
+                              <div>
+                                <p className="text-xs font-medium text-muted-foreground mb-1">
+                                  Further research
+                                </p>
+                                <ul className="space-y-1">
+                                  {message.externalReferences.map((ref, idx) => (
+                                    <li key={`ref-${idx}`} className="text-xs">
+                                      <a
+                                        href={ref.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-legal-primary hover:underline inline-flex items-center gap-1"
+                                      >
+                                        {ref.title}
+                                        <ExternalLink className="h-3 w-3" />
+                                      </a>
+                                      {ref.description && (
+                                        <span className="text-muted-foreground">
+                                          {" "}
+                                          — {ref.description}
+                                        </span>
+                                      )}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
 
                         {/* Show file preview if exists */}
                         {message.file && (
@@ -287,19 +377,13 @@ const Chat = () => {
                 </div>
 
                 {message.type === "user" && (
-                  <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0">
-                    {userAvatar ? (
-                      <img
-                        src={userAvatar}
-                        alt="User"
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <div className="w-full h-full bg-muted rounded-full flex items-center justify-center">
-                        <User className="h-4 w-4 text-muted-foreground" />
-                      </div>
-                    )}
-                  </div>
+                  <UserAvatar
+                    src={userAvatar}
+                    name={userDisplayName}
+                    email={userEmail}
+                    className="w-8 h-8"
+                    emojiClassName="text-sm"
+                  />
                 )}
               </div>
             ))

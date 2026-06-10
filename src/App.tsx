@@ -90,7 +90,9 @@ const App = () => (
         <TooltipProvider>
           <Toaster />
           <Sonner />
-          <BrowserRouter>
+          <BrowserRouter
+            future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+          >
             <SidebarProvider>
               <Routes>
                 {/* Redirect root to SignIn */}

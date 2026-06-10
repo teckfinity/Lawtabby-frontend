@@ -5,6 +5,7 @@ import { ArrowLeft, Download, Trash2 } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
+import { buildLexorbitProcessedFilename } from "@/utils/lexorbitFilename";
 
 const DownloadProtectedPDF = () => {
   const navigate = useNavigate();
@@ -31,7 +32,7 @@ const DownloadProtectedPDF = () => {
     
     const link = document.createElement('a');
     link.href = pdfUrl;
-    link.download = `protected_${fileName}`;
+    link.download = buildLexorbitProcessedFilename(fileName, "protected");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

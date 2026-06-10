@@ -2,7 +2,7 @@
 /*  SignPDF.tsx – frontend-only version with full drag/resize/re-sign       */
 /*  UPLOAD UI NOW IDENTICAL TO StampPDF (only visual change)                */
 /* ────────────────────────────────────────────────────────────────────────── */
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -17,12 +17,24 @@ import {
   Trash,
   Edit3,
   FileText,
+  ChevronDown,
 } from "lucide-react";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import {
+  buildLexorbitProcessedFilename,
+  triggerBrowserDownload,
+} from "@/utils/lexorbitFilename";
 import { Progress } from "@/components/ui/progress";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
-import { Document, Page, pdfjs } from "react-pdf";
+import { Document, Page } from "react-pdf";
+import "@/lib/pdfjsWorker";
 import {
   Dialog,
   DialogContent,
@@ -36,10 +48,16 @@ import "react-pdf/dist/Page/TextLayer.css";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import { Rnd } from "react-rnd";
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
-
 type ProcessStep = "upload" | "processing" | "download";
-type FieldType = "signature" | "initials" | "date" | "stamp" | "name" | "text";
+type FieldType =
+  | "signature"
+  | "initials"
+  | "date"
+  | "stamp"
+  | "name"
+  | "text"
+  | "checkmark"
+  | "image";
 
 type SignatureType = "text" | "image";
 
@@ -75,43 +93,128 @@ interface Signer {
 }
 
 /* ────────────────────────────────────────────────────────────────────── */
-/*  Font options with proper font families                                */
+/*  Signature styles — three curated choices                              */
 /* ────────────────────────────────────────────────────────────────────── */
-const FONT_OPTIONS = [
-  { value: "Alex Brush", label: "Alex", style: "font-alex-brush" },
-  { value: "Allura", label: "Allura", style: "font-allura" },
-  { value: "Mrs Saint Delafield", label: "Handle", style: "font-mrs-saint-delafield" },
-  { value: "Kristi", label: "Kristi", style: "font-kristi" },
-  { value: "Italianno", label: "Lassie", style: "font-italianno" },
-  { value: "Mr Dafoe", label: "Mark", style: "font-mr-dafoe" },
-  { value: "Satisfy", label: "Satisfy", style: "font-satisfy" },
-  { value: "Zeyada", label: "Zeyada", style: "font-zeyada" },
-  { value: "Shadows Into Light", label: "Shadows", style: "font-shadows-into-light" },
-];
+const SIGNATURE_STYLES = [
+  { id: "professional", label: "Professional", font: "Libre Baskerville", style: "font-legal" },
+  { id: "handwritten", label: "Handwritten", font: "Shadows Into Light", style: "font-shadows-into-light" },
+  { id: "elegant", label: "Elegant", font: "Allura", style: "font-allura" },
+] as const;
+
+type SignatureBuildRef = React.MutableRefObject<(() => Promise<SignatureConfig | null>) | null>;
+
+function defaultSignatureColor(): string {
+  return document.documentElement.classList.contains("dark") ? "#ffffff" : "#111827";
+}
+
+function deriveInitials(fullName: string): string {
+  return fullName
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("")
+    .slice(0, 4);
+}
+
+async function renderTextToSignatureImage(
+  text: string,
+  fontFamily: string,
+  color: string,
+  fontSize = 48,
+): Promise<SignatureConfig> {
+  try {
+    await document.fonts.load(`${fontSize}px "${fontFamily}"`);
+  } catch {
+    /* fallback */
+  }
+
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("Could not create signature preview");
+  }
+
+  canvas.width = Math.max(text.length * fontSize * 0.62 + 40, 160);
+  canvas.height = fontSize + 40;
+
+  ctx.font = `${fontSize}px "${fontFamily}", cursive`;
+  ctx.fillStyle = color;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, 20, canvas.height / 2);
+
+  return {
+    type: "image",
+    content: canvas.toDataURL("image/png"),
+    width: canvas.width / 2,
+    height: canvas.height / 2,
+  };
+}
+
+/** Flex shell: header + scroll body + sticky footer (avoids clipping action buttons). */
+const SIGNATURE_DIALOG_SHELL_CLASS =
+  "flex flex-col w-[calc(100vw-1.5rem)] max-w-2xl max-h-[min(92dvh,880px)] overflow-hidden p-0 gap-0 sm:rounded-lg";
+const SIGNATURE_DIALOG_HEADER_CLASS = "shrink-0 px-5 pt-5 pb-2 pr-12";
+const SIGNATURE_DIALOG_BODY_CLASS =
+  "flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 py-3";
+const SIGNATURE_DIALOG_FOOTER_CLASS =
+  "shrink-0 border-t bg-background px-5 py-4 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-2";
+
+/** Prevent Enter in inputs from activating dialog footer buttons. */
+function preventDialogEnterSubmit(e: React.KeyboardEvent) {
+  if (e.key !== "Enter") return;
+  const tag = (e.target as HTMLElement).tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA") {
+    e.preventDefault();
+  }
+}
 
 /* ────────────────────────────────────────────────────────────────────── */
-/*  SignatureCreator – type / draw / upload / 12 presets                 */
-/*  → Shows the typed name inside every preset preview                     */
-/*  → Font selector now shows visual preview of each font                  */
+/*  SignatureCreator – streamlined draw / type / upload                   */
 /* ────────────────────────────────────────────────────────────────────── */
 const SignatureCreator = ({
   onSave,
   initialName,
+  onCancel,
+  saveButtonLabel = "Save Signature",
+  embedded = false,
+  saveRef,
+  showPreview = true,
 }: {
   onSave: (cfg: SignatureConfig) => void;
   initialName: string;
+  onCancel?: () => void;
+  saveButtonLabel?: string;
+  embedded?: boolean;
+  saveRef?: SignatureBuildRef;
+  showPreview?: boolean;
 }) => {
-  const [method, setMethod] = useState<"type" | "draw" | "upload" | "preset">("type");
+  const [method, setMethod] = useState<"draw" | "type" | "upload">("draw");
   const [text, setText] = useState(initialName);
-  const [color, setColor] = useState("#000000");
-  const [font, setFont] = useState("Helvetica");
+  const textTouchedRef = useRef(false);
+  const [styleId, setStyleId] = useState<(typeof SIGNATURE_STYLES)[number]["id"]>("elegant");
+  const [color, setColor] = useState(defaultSignatureColor);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [uploadPreview, setUploadPreview] = useState<SignatureConfig | null>(null);
+  const [typedPreview, setTypedPreview] = useState<SignatureConfig | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [drawing, setDrawing] = useState(false);
-  const [penColor, setPenColor] = useState("#000000");
+  const [penColor, setPenColor] = useState(defaultSignatureColor);
   const [lineW, setLineW] = useState(2);
+  const [drawVersion, setDrawVersion] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const DRAW_W = 480;
   const DRAW_H = 160;
+
+  const activeStyle =
+    SIGNATURE_STYLES.find((s) => s.id === styleId) ?? SIGNATURE_STYLES[2];
+
+  useEffect(() => {
+    if (!textTouchedRef.current && initialName.trim()) {
+      setText(initialName);
+    }
+  }, [initialName]);
 
   useEffect(() => {
     if (method === "draw") {
@@ -124,48 +227,60 @@ const SignatureCreator = ({
     }
   }, [method, penColor, lineW]);
 
-  /* ---------- TYPE ---------- */
-  const saveTyped = () => {
-    if (!text.trim()) {
-      toast.error("Please enter your signature text");
+  useEffect(() => {
+    if (method !== "type") {
+      setTypedPreview(null);
       return;
     }
-    
-    // Create a canvas to render the text as an image
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    
-    // Set canvas size
-    const fontSize = 48;
-    canvas.width = Math.max(text.length * fontSize * 0.6 + 40, 200);
-    canvas.height = fontSize + 40;
-    
-    // Set font with the selected Google Font
-    ctx.font = `${fontSize}px "${font}", cursive`;
-    ctx.fillStyle = color;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    
-    // Draw text
-    ctx.fillText(text, 20, canvas.height / 2);
-    
-    // Convert to image data
-    const imageData = canvas.toDataURL('image/png');
-    
-    onSave({ 
-      type: "image", 
-      content: imageData, 
-      width: canvas.width / 2, 
-      height: canvas.height / 2 
+    const sample = text.trim() || initialName.trim();
+    if (!sample) {
+      setTypedPreview(null);
+      return;
+    }
+    let cancelled = false;
+    void renderTextToSignatureImage(sample, activeStyle.font, color).then((cfg) => {
+      if (!cancelled) setTypedPreview(cfg);
     });
+    return () => {
+      cancelled = true;
+    };
+  }, [method, text, initialName, activeStyle.font, color]);
+
+  const buildCurrentSignature = useCallback(async (): Promise<SignatureConfig | null> => {
+    if (method === "type") {
+      const sample = text.trim() || initialName.trim();
+      if (!sample) return null;
+      return renderTextToSignatureImage(sample, activeStyle.font, color);
+    }
+    if (method === "draw") {
+      const data = canvasRef.current?.toDataURL("image/png") ?? "";
+      if (!data || data === "data:,") return null;
+      return { type: "image", content: data, width: 200, height: 60 };
+    }
+    return uploadPreview;
+  }, [method, text, initialName, activeStyle.font, color, uploadPreview]);
+
+  useEffect(() => {
+    if (!embedded || !saveRef) return;
+    saveRef.current = buildCurrentSignature;
+    return () => {
+      saveRef.current = null;
+    };
+  }, [embedded, saveRef, buildCurrentSignature]);
+
+  const applySignature = async () => {
+    const cfg = await buildCurrentSignature();
+    if (!cfg) {
+      if (method === "draw") toast.error("Please draw your signature first");
+      else if (method === "upload") toast.error("Please upload a signature image");
+      else toast.error("Please enter your signature text");
+      return;
+    }
+    onSave(cfg);
   };
 
-  /* ---------- DRAW ---------- */
   const canvasPointFromEvent = (
-    e:
-      | React.MouseEvent<HTMLCanvasElement>
-      | React.TouchEvent<HTMLCanvasElement>,
+    e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>,
   ) => {
     const canvas = canvasRef.current!;
     const rect = canvas.getBoundingClientRect();
@@ -182,15 +297,14 @@ const SignatureCreator = ({
       cx = me.clientX;
       cy = me.clientY;
     }
-    const x = ((cx - rect.left) / rect.width) * DRAW_W;
-    const y = ((cy - rect.top) / rect.height) * DRAW_H;
-    return { x, y };
+    return {
+      x: ((cx - rect.left) / rect.width) * DRAW_W,
+      y: ((cy - rect.top) / rect.height) * DRAW_H,
+    };
   };
 
-  const start = (
-    e:
-      | React.MouseEvent<HTMLCanvasElement>
-      | React.TouchEvent<HTMLCanvasElement>,
+  const startDraw = (
+    e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>,
   ) => {
     e.preventDefault();
     setDrawing(true);
@@ -203,10 +317,9 @@ const SignatureCreator = ({
     ctx.beginPath();
     ctx.moveTo(x, y);
   };
-  const move = (
-    e:
-      | React.MouseEvent<HTMLCanvasElement>
-      | React.TouchEvent<HTMLCanvasElement>,
+
+  const moveDraw = (
+    e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>,
   ) => {
     if (!drawing) return;
     e.preventDefault();
@@ -216,21 +329,18 @@ const SignatureCreator = ({
     ctx.lineTo(x, y);
     ctx.stroke();
   };
-  const stop = () => setDrawing(false);
-  const clear = () => {
-    const ctx = canvasRef.current?.getContext("2d");
-    ctx?.clearRect(0, 0, DRAW_W, DRAW_H);
-  };
-  const saveDrawn = () => {
-    const data = canvasRef.current?.toDataURL("image/png") ?? "";
-    if (!data || data === "data:,") {
-      toast.error("Please draw your signature first");
-      return;
-    }
-    onSave({ type: "image", content: data, width: 200, height: 60 });
+
+  const stopDraw = () => {
+    if (drawing) setDrawVersion((v) => v + 1);
+    setDrawing(false);
   };
 
-  /* ---------- UPLOAD ---------- */
+  const clearDraw = () => {
+    const ctx = canvasRef.current?.getContext("2d");
+    ctx?.clearRect(0, 0, DRAW_W, DRAW_H);
+    setDrawVersion((v) => v + 1);
+  };
+
   const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     if (!f) return;
@@ -241,181 +351,228 @@ const SignatureCreator = ({
       img.onload = () => {
         const ratio = img.naturalWidth / img.naturalHeight;
         const w = 200;
-        const h = w / ratio;
-        onSave({ type: "image", content: data, width: w, height: h });
+        const cfg: SignatureConfig = {
+          type: "image",
+          content: data,
+          width: w,
+          height: w / ratio,
+        };
+        setUploadPreview(cfg);
+        if (!embedded) onSave(cfg);
       };
       img.src = data;
     };
     r.readAsDataURL(f);
+    e.target.value = "";
   };
 
+  const drawPreview =
+    method === "draw" ? canvasRef.current?.toDataURL("image/png") : null;
+  const previewImage =
+    method === "type"
+      ? typedPreview?.content
+      : method === "draw"
+        ? drawPreview && drawPreview !== "data:," ? drawPreview : null
+        : uploadPreview?.content;
+
+  const previewLabel =
+    method === "type"
+      ? text.trim() || initialName.trim() || "Your signature"
+      : method === "upload"
+        ? "Uploaded signature"
+        : "Drawn signature";
 
   return (
     <div className="space-y-4">
-      {/* Tabs */}
-      <div className="flex gap-1 border-b">
-        {(["type", "draw", "upload"] as const).map((m) => (
-          <button
-            key={m}
-            className={`px-4 py-2 capitalize text-sm font-medium transition-colors ${
-              method === m 
-                ? "border-b-2 border-primary text-primary" 
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-            onClick={() => setMethod(m)}
-          >
-            {m === "type" ? "Type" : m === "draw" ? "Draw" : "Upload"}
-          </button>
-        ))}
+      <div>
+        <p className="text-sm text-muted-foreground mb-2">How would you like to sign?</p>
+        <div className="flex rounded-lg border bg-muted/40 p-1 gap-1">
+          {(["draw", "type", "upload"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              className={cn(
+                "flex-1 rounded-md py-2 text-sm font-medium capitalize transition-colors",
+                method === m
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => setMethod(m)}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* TYPE */}
-      {method === "type" && (
-        <div className="space-y-4">
-          <div>
-            <Label>Your Signature Text</Label>
-            <Input 
-              value={text} 
-              onChange={(e) => setText(e.target.value)} 
-              placeholder="Enter your name" 
-              className="mt-1.5"
-            />
-          </div>
-          
-          {/* Color picker */}
-          <div>
-            <Label>Color</Label>
-            <div className="flex gap-2 items-center mt-1.5">
-              <input 
-                type="color" 
-                value={color} 
-                onChange={(e) => setColor(e.target.value)} 
-                className="w-12 h-12 rounded-md border cursor-pointer"
-              />
-              <span className="text-sm text-muted-foreground">{color}</span>
-            </div>
-          </div>
-
-          {/* Font selector with visual preview */}
-          <div>
-            <Label>Font Style</Label>
-            <div className="grid grid-cols-2 gap-2 mt-1.5">
-              {FONT_OPTIONS.map((fontOption) => (
-                <button
-                  key={fontOption.value}
-                  onClick={() => setFont(fontOption.value)}
-                  className={`p-3 border rounded-lg text-left transition-all ${
-                    font === fontOption.value
-                      ? "border-primary bg-primary/5 ring-2 ring-primary/20"
-                      : "border-border hover:border-primary/50"
-                  }`}
-                >
-                  <div className={`text-lg ${fontOption.style}`} style={{ color }}>
-                    {text || "Sample"}
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {fontOption.label}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Preview */}
-          {text && (
-            <div className="p-4 border rounded-lg bg-muted/30">
-              <Label className="text-xs text-muted-foreground mb-2 block">Preview</Label>
-              <div className="flex items-center justify-center py-4">
-                <span 
-                  className={FONT_OPTIONS.find(f => f.value === font)?.style}
-                  style={{ 
-                    color, 
-                    fontSize: '24px',
-                    fontWeight: font === 'Helvetica' ? 400 : 'normal'
-                  }}
-                >
-                  {text}
-                </span>
-              </div>
-            </div>
-          )}
-
-          <Button onClick={saveTyped} className="w-full">
-            Save Signature
-          </Button>
-        </div>
-      )}
-
-      {/* DRAW */}
       {method === "draw" && (
         <div className="space-y-3">
-          <Label>Draw Your Signature</Label>
           <canvas
             ref={canvasRef}
             width={DRAW_W}
             height={DRAW_H}
-            className="border-2 border-dashed border-border w-full max-w-xl bg-white rounded-lg cursor-crosshair touch-none h-44 mx-auto block"
-            onMouseDown={start}
-            onMouseMove={move}
-            onMouseUp={stop}
-            onMouseLeave={stop}
-            onTouchStart={start}
-            onTouchMove={move}
-            onTouchEnd={stop}
-            onTouchCancel={stop}
+            className="border border-dashed border-border w-full bg-white rounded-lg cursor-crosshair touch-none h-40 block"
+            onMouseDown={startDraw}
+            onMouseMove={moveDraw}
+            onMouseUp={stopDraw}
+            onMouseLeave={stopDraw}
+            onTouchStart={startDraw}
+            onTouchMove={moveDraw}
+            onTouchEnd={stopDraw}
+            onTouchCancel={stopDraw}
             style={{ touchAction: "none" }}
           />
-          <div className="flex gap-2 items-center">
-            <input 
-              type="color" 
-              value={penColor} 
-              onChange={(e) => setPenColor(e.target.value)} 
-              className="w-12 h-12 rounded-md border cursor-pointer"
-            />
-            <div className="flex-1">
-              <Label className="text-xs">Pen Width</Label>
-              <input 
-                type="range" 
-                min={1} 
-                max={8} 
-                value={lineW} 
-                onChange={(e) => setLineW(+e.target.value)} 
-                className="w-full"
-              />
-            </div>
-            <Button variant="outline" size="sm" onClick={clear}>
+          <div className="flex justify-end">
+            <Button type="button" variant="outline" size="sm" onClick={clearDraw}>
               Clear
             </Button>
           </div>
-          <Button onClick={saveDrawn} className="w-full">
-            Save Signature
-          </Button>
         </div>
       )}
 
-      {/* UPLOAD */}
+      {method === "type" && (
+        <div className="space-y-3">
+          <div>
+            <Label>Signature text</Label>
+            <Input
+              value={text}
+              onChange={(e) => {
+                textTouchedRef.current = true;
+                setText(e.target.value);
+              }}
+              placeholder={initialName || "Enter your name"}
+              className="mt-1.5"
+            />
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {SIGNATURE_STYLES.map((style) => (
+              <button
+                key={style.id}
+                type="button"
+                onClick={() => setStyleId(style.id)}
+                className={cn(
+                  "rounded-lg border p-2 text-center transition-all",
+                  styleId === style.id
+                    ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                    : "border-border hover:border-primary/40",
+                )}
+              >
+                <div
+                  className={cn("text-lg truncate", style.style)}
+                  style={{ color, fontFamily: `"${style.font}", cursive` }}
+                >
+                  {text.trim() || initialName.trim() || "Aa"}
+                </div>
+                <div className="text-[10px] text-muted-foreground mt-1">{style.label}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {method === "upload" && (
         <div className="space-y-3">
-          <Label>Upload Signature Image</Label>
-          <input 
-            ref={fileInputRef} 
-            type="file" 
-            accept="image/*" 
-            onChange={handleUpload} 
-            className="hidden" 
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleUpload}
+            className="hidden"
           />
-          <Button 
-            onClick={() => fileInputRef.current?.click()} 
+          <Button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
             className="w-full"
             variant="outline"
           >
             <Upload className="h-4 w-4 mr-2" />
-            Choose Image File
+            Choose image
           </Button>
-          <p className="text-xs text-muted-foreground text-center">
-            PNG, JPG, or SVG format supported
-          </p>
+          <p className="text-xs text-muted-foreground text-center">PNG or JPG</p>
         </div>
+      )}
+
+      {showPreview && (
+        <div className="rounded-lg border bg-muted/20 p-4 space-y-2">
+          <Label className="text-xs text-muted-foreground">Preview</Label>
+          <div className="flex items-center justify-center min-h-[72px] border-t border-border/60 pt-3">
+            {previewImage ? (
+              <img
+                src={previewImage}
+                alt="Signature preview"
+                className="max-h-16 max-w-full object-contain"
+                key={`${method}-${drawVersion}-${typedPreview?.content?.slice(0, 24)}`}
+              />
+            ) : (
+              <span
+                className={cn("text-2xl", method === "type" ? activeStyle.style : "")}
+                style={{
+                  color,
+                  fontFamily:
+                    method === "type" ? `"${activeStyle.font}", cursive` : undefined,
+                }}
+              >
+                {method === "type" ? previewLabel : "—"}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      <Collapsible open={advancedOpen} onOpenChange={setAdvancedOpen}>
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground"
+          >
+            <ChevronDown
+              className={cn("h-4 w-4 transition-transform", advancedOpen && "rotate-180")}
+            />
+            Advanced options
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="pt-3 space-y-3">
+          <div className="flex gap-2 items-center">
+            <Label className="shrink-0 text-xs">Color</Label>
+            <input
+              type="color"
+              value={method === "draw" ? penColor : color}
+              onChange={(e) => {
+                if (method === "draw") setPenColor(e.target.value);
+                else setColor(e.target.value);
+              }}
+              className="w-10 h-10 rounded-md border cursor-pointer"
+            />
+            <span className="text-xs text-muted-foreground">
+              {method === "draw" ? penColor : color}
+            </span>
+          </div>
+          {method === "draw" && (
+            <div>
+              <Label className="text-xs">Pen width</Label>
+              <input
+                type="range"
+                min={1}
+                max={8}
+                value={lineW}
+                onChange={(e) => setLineW(+e.target.value)}
+                className="w-full mt-1"
+              />
+            </div>
+          )}
+        </CollapsibleContent>
+      </Collapsible>
+
+      {!embedded && (
+        <Button type="button" onClick={() => void applySignature()} className="w-full">
+          {saveButtonLabel}
+        </Button>
+      )}
+
+      {onCancel && !embedded && (
+        <Button type="button" variant="outline" className="w-full" onClick={onCancel}>
+          Cancel
+        </Button>
       )}
     </div>
   );
@@ -437,27 +594,48 @@ const ReSignModal = ({
   currentValue?: string;
   onSave: (cfg: SignatureConfig) => void;
 }) => {
-  const [localName, setLocalName] = useState(currentValue || "");
+  const saveRef = useRef<(() => Promise<SignatureConfig | null>) | null>(null);
+
+  const apply = async () => {
+    const cfg = await saveRef.current?.();
+    if (!cfg) {
+      toast.error("Create your signature first");
+      return;
+    }
+    onSave(cfg);
+    onClose();
+  };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
+    <Dialog
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) {
+          saveRef.current = null;
+          onClose();
+        }
+      }}
+    >
+      <DialogContent className={SIGNATURE_DIALOG_SHELL_CLASS}>
+        <DialogHeader className={SIGNATURE_DIALOG_HEADER_CLASS}>
           <DialogTitle>Update {fieldType}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4">
-          <Input
-            value={localName}
-            onChange={(e) => setLocalName(e.target.value)}
-            placeholder={`Enter ${fieldType}`}
-          />
+        <div className={SIGNATURE_DIALOG_BODY_CLASS} onKeyDown={preventDialogEnterSubmit}>
           <SignatureCreator
-            onSave={(cfg) => {
-              onSave(cfg);
-              onClose();
-            }}
-            initialName={localName}
+            embedded
+            saveRef={saveRef}
+            onSave={onSave}
+            saveButtonLabel="Save Signature"
+            initialName={currentValue || ""}
           />
+        </div>
+        <div className={SIGNATURE_DIALOG_FOOTER_CLASS}>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={() => void apply()}>
+            Apply Signature
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
@@ -482,6 +660,46 @@ function clampPlacedFieldToPage(
 }
 
 /* ────────────────────────────────────────────────────────────────────── */
+/*  Sidebar field palette button                                         */
+/* ────────────────────────────────────────────────────────────────────── */
+const FieldButton = ({
+  label,
+  hint,
+  icon,
+  iconBg,
+  active,
+  activeClass,
+  hoverClass,
+  onClick,
+}: {
+  label: string;
+  hint: string;
+  icon: React.ReactNode;
+  iconBg: string;
+  active: boolean;
+  activeClass: string;
+  hoverClass: string;
+  onClick: () => void;
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className={cn(
+      "w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-all",
+      active ? activeClass : `border-border ${hoverClass}`,
+    )}
+  >
+    <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center", iconBg)}>
+      {icon}
+    </div>
+    <div className="flex-1 text-left">
+      <div className="text-sm font-medium">{label}</div>
+      <div className="text-xs text-muted-foreground">{hint}</div>
+    </div>
+  </button>
+);
+
+/* ────────────────────────────────────────────────────────────────────── */
 /*  Main component                                                       */
 /* ────────────────────────────────────────────────────────────────────── */
 const SignPDF = () => {
@@ -489,13 +707,22 @@ const SignPDF = () => {
 
   /* ---------- Core state ---------- */
   const [file, setFile] = useState<File | null>(null);
+  const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
   const [step, setStep] = useState<ProcessStep>("upload");
   const [progress, setProgress] = useState(0);
   const [numPages, setNumPages] = useState(0);
   const [page, setPage] = useState(1);
-  const [scale, setScale] = useState(1.30);
+  const [scale, setScale] = useState(1);
+  const [containerWidth, setContainerWidth] = useState(640);
+  const pdfContainerRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
   const pdfUploadInputRef = useRef<HTMLInputElement>(null); // NEW REF
+  const imageFieldInputRef = useRef<HTMLInputElement>(null);
+  const [pendingImage, setPendingImage] = useState<{
+    data: string;
+    width: number;
+    height: number;
+  } | null>(null);
 
   const [mode, setMode] = useState<"single" | "multiple" | null>(null);
   const [signers, setSigners] = useState<Signer[]>([]);
@@ -504,7 +731,6 @@ const SignPDF = () => {
   /* ---------- Signature configs ---------- */
   const [fullSig, setFullSig] = useState<SignatureConfig | null>(null);
   const [initSig, setInitSig] = useState<SignatureConfig | null>(null);
-  const [stampImg, setStampImg] = useState<string | null>(null);
 
   /* ---------- Modals ---------- */
   const [showSingleModal, setShowSingleModal] = useState(false);
@@ -512,8 +738,13 @@ const SignPDF = () => {
   const [showReSignModal, setShowReSignModal] = useState(false);
   const [editingFieldId, setEditingFieldId] = useState<string | null>(null);
   const [fullName, setFullName] = useState("");
-  const [initials, setInitials] = useState("");
-  const [activeTab, setActiveTab] = useState<"signature" | "initials" | "stamp">("signature");
+  const signatureSaveRef = useRef<(() => Promise<SignatureConfig | null>) | null>(null);
+  const sharedSignatureSaveRef = useRef<(() => Promise<SignatureConfig | null>) | null>(null);
+
+  const pdfDocumentFile = useMemo(() => {
+    if (!pdfBytes) return null;
+    return { data: pdfBytes.slice() };
+  }, [pdfBytes]);
 
   /* ---------- Fields ---------- */
   const [fields, setFields] = useState<PlacedField[]>([]);
@@ -522,6 +753,20 @@ const SignPDF = () => {
   const [signedUrl, setSignedUrl] = useState<string | null>(null);
 
   const [pdfPagePts, setPdfPagePts] = useState<Array<{ width: number; height: number }>>([]);
+
+  const pagePts = pdfPagePts[page - 1];
+  const renderScale =
+    pagePts && pagePts.width > 0 ? (containerWidth * scale) / pagePts.width : scale;
+
+  useEffect(() => {
+    if (!pdfContainerRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = Math.max(280, entries[0].contentRect.width - 24);
+      setContainerWidth(w);
+    });
+    ro.observe(pdfContainerRef.current);
+    return () => ro.disconnect();
+  }, [file, mode]);
 
   /* ──────────────────────────────────────── */
   /*  PDF upload & validation                 */
@@ -534,6 +779,8 @@ const SignPDF = () => {
       toast.error("Invalid PDF file");
       return;
     }
+    const buf = await f.arrayBuffer();
+    setPdfBytes(new Uint8Array(buf));
     setPdfPagePts([]);
     setFile(f);
     setMode(null);
@@ -541,7 +788,7 @@ const SignPDF = () => {
     setFields([]);
     setFullSig(null);
     setInitSig(null);
-    setStampImg(null);
+    setPendingImage(null);
     setPage(1);
     toast.success("PDF uploaded successfully");
     e.target.value = "";
@@ -554,21 +801,24 @@ const SignPDF = () => {
     return view[0] === 0x25 && view[1] === 0x50 && view[2] === 0x44 && view[3] === 0x46 && view[4] === 0x2d;
   };
 
-  const onLoadSuccess = ({ numPages }: { numPages: number }) => {
+  const onLoadSuccess = useCallback(({ numPages }: { numPages: number }) => {
     setNumPages(numPages);
-    toast.success(`PDF loaded – ${numPages} page(s)`);
-  };
+  }, []);
+
+  const onPdfLoadError = useCallback((error: Error) => {
+    console.error("Sign PDF preview failed:", error);
+    toast.error("Failed to load PDF preview. Try re-uploading the file.");
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     async function loadDims() {
-      if (!file) {
+      if (!pdfBytes) {
         setPdfPagePts([]);
         return;
       }
       try {
-        const raw = await file.arrayBuffer();
-        const doc = await PDFDocument.load(raw);
+        const doc = await PDFDocument.load(pdfBytes);
         const pts: Array<{ width: number; height: number }> = [];
         for (let i = 0; i < doc.getPageCount(); i++) {
           const pg = doc.getPage(i);
@@ -587,18 +837,47 @@ const SignPDF = () => {
     return () => {
       cancelled = true;
     };
-  }, [file]);
+  }, [pdfBytes]);
 
   /* ──────────────────────────────────────── */
-  /*  Single signer – save name + signatures  */
+  /*  Single signer – apply signature + continue */
   /* ──────────────────────────────────────── */
-  const finishSingle = () => {
-    if (!fullName.trim() || !fullSig) {
-      toast.error("Name & signature required");
+  const handleApplySignature = async () => {
+    if (!fullName.trim()) {
+      toast.error("Full name is required");
       return;
     }
+    const build = signatureSaveRef.current;
+    if (!build) {
+      toast.error("Create your signature first");
+      return;
+    }
+    const cfg = await build();
+    if (!cfg) {
+      toast.error("Create your signature first");
+      return;
+    }
+
+    setFullSig(cfg);
+
+    const initText = deriveInitials(fullName);
+    if (initText) {
+      try {
+        const initCfg = await renderTextToSignatureImage(
+          initText,
+          SIGNATURE_STYLES[2].font,
+          defaultSignatureColor(),
+          36,
+        );
+        setInitSig(initCfg);
+      } catch {
+        setInitSig(null);
+      }
+    }
+
     setSigners([{ id: "single-1", name: fullName.trim() }]);
     setShowSingleModal(false);
+    signatureSaveRef.current = null;
     toast.success("Ready – place signature fields on the PDF");
   };
 
@@ -760,6 +1039,59 @@ const SignPDF = () => {
       return;
     }
 
+    // Checkmark — small fixed-size tick for forms
+    if (type === "checkmark") {
+      setFields((prev) => [
+        ...prev,
+        clampPlacedFieldToPage(
+          {
+            id: `f-${Date.now()}`,
+            type,
+            x,
+            y,
+            page,
+            value: "✓",
+            color: "#000000",
+            width: 28,
+            height: 28,
+            rotation: 0,
+          },
+          pagePts,
+          24,
+          24,
+        ),
+      ]);
+      toast.success("Checkmark placed – drag to move");
+      return;
+    }
+
+    // Image — uses the uploaded pending image
+    if (type === "image") {
+      if (!pendingImage) {
+        toast.error("Upload an image first");
+        return;
+      }
+      setFields((prev) => [
+        ...prev,
+        clampPlacedFieldToPage(
+          {
+            id: `f-${Date.now()}`,
+            type,
+            x,
+            y,
+            page,
+            imageData: pendingImage.data,
+            width: pendingImage.width,
+            height: pendingImage.height,
+            rotation: 0,
+          },
+          pagePts,
+        ),
+      ]);
+      toast.success("Image placed – drag to move, resize with corners");
+      return;
+    }
+
     // Handle text field - empty editable text
     if (type === "text") {
       setFields((prev) => [
@@ -771,7 +1103,7 @@ const SignPDF = () => {
             x,
             y,
             page,
-            value: "Double-click to edit",
+            value: "",
             color: "#000000",
             font: "Helvetica",
             width: w,
@@ -798,17 +1130,21 @@ const SignPDF = () => {
       }
       value = s.name;
       signerId = currentSignerId;
+      if (type === "signature" && fullSig?.type === "image") {
+        imageData = fullSig.content;
+        w = fullSig.width ?? 200;
+        h = fullSig.height ?? 60;
+      } else if (type === "initials" && initSig?.type === "image") {
+        imageData = initSig.content;
+        w = initSig.width ?? 120;
+        h = initSig.height ?? 40;
+      }
     } else {
       // single mode
       if (type === "signature") cfg = fullSig;
       else if (type === "initials") cfg = initSig;
-      else if (type === "stamp") {
-        imageData = stampImg ?? undefined;
-        w = 150;
-        h = 150;
-      }
 
-      if (!cfg && type !== "stamp") {
+      if (!cfg) {
         toast.error(`Create a ${type} first`);
         return;
       }
@@ -852,9 +1188,10 @@ const SignPDF = () => {
 
   const clickPdf = (e: React.MouseEvent) => {
     if (!placing || !pageRef.current) return;
+    if ((e.target as HTMLElement).closest("[data-sign-field]")) return;
     const rect = pageRef.current.getBoundingClientRect();
-    const rx = (e.clientX - rect.left) / scale;
-    const ry = (e.clientY - rect.top) / scale;
+    const rx = (e.clientX - rect.left) / renderScale;
+    const ry = (e.clientY - rect.top) / renderScale;
     placeField(placing, rx, ry, page);
     setPlacing(null);
     setCurrentSignerId(null);
@@ -885,16 +1222,25 @@ const SignPDF = () => {
       ? "bg-orange-50 border-orange-400"
       : f.type === "text"
       ? "bg-pink-50 border-pink-400"
+      : f.type === "checkmark"
+      ? "bg-emerald-50 border-emerald-400"
+      : f.type === "image"
+      ? "bg-slate-50 border-slate-400"
       : "bg-green-50 border-green-400";
 
     const isEditable = (f.type === "signature" || f.type === "initials") && mode === "single";
     const isTextEditable = f.type === "text";
+    const isDateEditable = f.type === "date";
 
     return (
       <Rnd
         key={f.id}
-        size={{ width: f.width * scale, height: f.height * scale }}
-        position={{ x: f.x * scale, y: f.y * scale }}
+        data-sign-field={f.id}
+        size={{ width: f.width * renderScale, height: f.height * renderScale }}
+        position={{ x: f.x * renderScale, y: f.y * renderScale }}
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        onTouchStart={(e) => e.stopPropagation()}
         onDragStop={(_, d) => {
           setFields((prev) =>
             prev.map((x) => {
@@ -902,8 +1248,8 @@ const SignPDF = () => {
               return clampPlacedFieldToPage(
                 {
                   ...x,
-                  x: d.x / scale,
-                  y: d.y / scale,
+                  x: d.x / renderScale,
+                  y: d.y / renderScale,
                 },
                 pdfPagePts[x.page - 1],
               );
@@ -917,10 +1263,10 @@ const SignPDF = () => {
               return clampPlacedFieldToPage(
                 {
                   ...x,
-                  width: parseFloat(ref.style.width) / scale,
-                  height: parseFloat(ref.style.height) / scale,
-                  x: pos.x / scale,
-                  y: pos.y / scale,
+                  width: parseFloat(ref.style.width) / renderScale,
+                  height: parseFloat(ref.style.height) / renderScale,
+                  x: pos.x / renderScale,
+                  y: pos.y / renderScale,
                 },
                 pdfPagePts[x.page - 1],
               );
@@ -948,13 +1294,11 @@ const SignPDF = () => {
           onDoubleClick={(e) => {
             if (isTextEditable) {
               e.stopPropagation();
-              const newText = prompt("Edit text:", f.value || "");
-              if (newText !== null) {
-                setFields((prev) =>
-                  prev.map((x) => (x.id === f.id ? { ...x, value: newText } : x))
-                );
-                toast.success("Text updated");
-              }
+            }
+          }}
+          onClick={(e) => {
+            if (isTextEditable) {
+              e.stopPropagation();
             }
           }}
         >
@@ -965,20 +1309,54 @@ const SignPDF = () => {
               className="max-w-full max-h-full object-contain pointer-events-none select-none" 
               draggable={false}
             />
+          ) : isTextEditable || isDateEditable ? (
+            <input
+              type="text"
+              value={f.value || ""}
+              placeholder={isDateEditable ? "Enter date" : "Type here"}
+              onChange={(e) => {
+                e.stopPropagation();
+                setFields((prev) =>
+                  prev.map((x) => (x.id === f.id ? { ...x, value: e.target.value } : x))
+                );
+              }}
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              className="w-full h-full bg-transparent border-none outline-none text-center text-sm font-medium px-1"
+              style={{
+                color: f.color || "#000000",
+                fontFamily: f.font || "Helvetica",
+                fontSize: `${Math.min(14, f.height * 0.35)}px`,
+                textTransform: isDateEditable ? "none" : "capitalize",
+              }}
+              autoFocus={false}
+            />
+          ) : f.type === "checkmark" ? (
+            <span
+              className="font-bold select-none leading-none"
+              style={{
+                color: f.color || "#000000",
+                fontSize: `${Math.min(f.width, f.height) * renderScale * 0.7}px`,
+              }}
+            >
+              ✓
+            </span>
           ) : (
             <span
               className="text-sm font-medium capitalize select-none"
-              style={{ 
-                color: f.color || "#000000", 
+              style={{
+                color: f.color || "#000000",
                 fontFamily: f.font || "Helvetica",
-                fontSize: `${Math.min(14, f.height * 0.35)}px`
+                fontSize: `${Math.min(14, f.height * 0.35)}px`,
               }}
             >
               {f.value}
             </span>
           )}
-          
-          <Icon className="absolute top-1 left-1 h-3 w-3 opacity-50" />
+
+          {f.type !== "checkmark" && (
+            <Icon className="absolute top-1 left-1 h-3 w-3 opacity-50" />
+          )}
           
           {/* Edit button (only for signatures/initials in single mode) */}
           {isEditable && (
@@ -1020,9 +1398,8 @@ const SignPDF = () => {
   /* ──────────────────────────────────────── */
   const startSigning = async () => {
     if (!file) return;
-    const sigs = fields.filter((f) => f.type === "signature" || f.type === "initials");
-    if (sigs.length === 0) {
-      toast.error("Place at least one signature field");
+    if (fields.length === 0) {
+      toast.error("Place at least one field on the PDF");
       return;
     }
 
@@ -1035,8 +1412,10 @@ const SignPDF = () => {
     }, 180);
 
     try {
-      const arr = await file.arrayBuffer();
-      const pdf = await PDFDocument.load(arr);
+      if (!pdfBytes) {
+        throw new Error("PDF data is missing. Please re-upload the file.");
+      }
+      const pdf = await PDFDocument.load(pdfBytes);
       const pages = pdf.getPages();
 
       const embed = async (src: PlacedField) => {
@@ -1055,6 +1434,17 @@ const SignPDF = () => {
             img = await pdf.embedJpg(bin);
           }
           p.drawImage(img, { x: f.x, y: pdfY, width: f.width, height: f.height });
+        } else if (f.type === "checkmark") {
+          // "✓" is not WinAnsi-encodable; ZapfDingbats char "4" is a checkmark glyph.
+          const dingbats = await pdf.embedFont(StandardFonts.ZapfDingbats);
+          const size = Math.min(f.width, f.height) * 0.8;
+          p.drawText("4", {
+            x: f.x + (f.width - size) / 2,
+            y: pdfY + (f.height - size) / 2,
+            size,
+            font: dingbats,
+            color: f.color ? hexToRgb(f.color) : rgb(0, 0, 0),
+          });
         } else if (f.value) {
           const font = await pdf.embedFont(
             f.font === "Times-Roman" ? StandardFonts.TimesRoman : 
@@ -1097,18 +1487,18 @@ const SignPDF = () => {
   /* ──────────────────────────────────────── */
   const downloadSigned = () => {
     if (!signedUrl || !file) return;
-    const a = document.createElement("a");
-    a.href = signedUrl;
-    // Remove .pdf extension if it exists to prevent double extension
-    const nameWithoutPdf = file.name.endsWith('.pdf') ? file.name.slice(0, -4) : file.name;
-    a.download = `signed_${nameWithoutPdf}.pdf`;
-    a.click();
+    triggerBrowserDownload(
+      signedUrl,
+      buildLexorbitProcessedFilename(file.name, "signed"),
+    );
     toast.success("Download started!");
   };
 
   const reset = () => {
     if (signedUrl) URL.revokeObjectURL(signedUrl);
     setFile(null);
+    setPdfBytes(null);
+    setNumPages(0);
     setStep("upload");
     setProgress(0);
     setFields([]);
@@ -1118,10 +1508,9 @@ const SignPDF = () => {
     setCurrentSignerId(null);
     setFullSig(null);
     setInitSig(null);
-    setStampImg(null);
+    setPendingImage(null);
     setPdfPagePts([]);
     setFullName("");
-    setInitials("");
     setPlacing(null);
     setEditingFieldId(null);
     setPage(1);
@@ -1157,7 +1546,20 @@ const SignPDF = () => {
                   {(file.size / 1024 / 1024).toFixed(2)} MB
                 </p>
               </div>
-              <Button variant="outline" size="sm" onClick={() => setFile(null)}>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setFile(null);
+                  setPdfBytes(null);
+                  setNumPages(0);
+                  setPdfPagePts([]);
+                  setMode(null);
+                  setSigners([]);
+                  setFields([]);
+                }}
+              >
                 Remove
               </Button>
             </div>
@@ -1184,8 +1586,8 @@ const SignPDF = () => {
       <div className="lg:col-span-3">
         {!file ? (
           renderUploadStep()
-        ) : mode === null ? (
-          /* ---------- CHOOSE WHO SIGNS ---------- */
+        ) : mode === null || showSingleModal || showMultiModal ? (
+          /* ---------- CHOOSE WHO SIGNS (hide PDF until signer setup completes) ---------- */
           <div className="flex justify-center">
             <Card className="max-w-3xl w-full">
               <CardContent className="p-8 space-y-6">
@@ -1256,30 +1658,61 @@ const SignPDF = () => {
           <Card>
             <CardContent className="p-4 space-y-4">
                   {/* Zoom & page controls */}
-              <div className="flex items-center justify-between bg-muted/30 p-3 rounded-lg">
+              <div className="flex flex-wrap items-center justify-between gap-2 bg-muted/30 p-3 rounded-lg">
                 <div className="flex items-center gap-2">
                   <Button
                     variant="outline"
                     size="icon"
-                    onClick={() => setScale((s) => Math.max(s - 0.2, 0.5))}
+                    onClick={() => setScale((s) => Math.max(s - 0.1, 0.5))}
                     disabled={scale <= 0.5}
+                    title="Zoom out"
                   >
                     <ZoomOut className="h-4 w-4" />
                   </Button>
-                  <span className="text-sm font-medium min-w-[60px] text-center">
+                  <span className="text-sm font-medium min-w-[52px] text-center">
                     {Math.round(scale * 100)}%
                   </span>
                   <Button
                     variant="outline"
                     size="icon"
-                    onClick={() => setScale((s) => Math.min(s + 0.2, 2))}
+                    onClick={() => setScale((s) => Math.min(s + 0.1, 2))}
                     disabled={scale >= 2}
+                    title="Zoom in"
                   >
                     <ZoomIn className="h-4 w-4" />
                   </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setScale(1)}
+                    disabled={scale === 1}
+                    title="Fit page to width"
+                  >
+                    Fit Width
+                  </Button>
                 </div>
-                <div className="text-sm font-medium text-muted-foreground">
-                  Page {page} of {numPages}
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={page <= 1}
+                    title="Previous page"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </Button>
+                  <span className="text-sm font-medium text-muted-foreground whitespace-nowrap">
+                    Page {page} of {numPages}
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => setPage((p) => Math.min(numPages, p + 1))}
+                    disabled={page >= numPages}
+                    title="Next page"
+                  >
+                    <ArrowLeft className="h-4 w-4 rotate-180" />
+                  </Button>
                 </div>
               </div>
 
@@ -1291,24 +1724,45 @@ const SignPDF = () => {
 
               {/* PDF container */}
               <div
-                className={`border-2 rounded-lg bg-gray-50 overflow-auto max-h-[620px] relative ${
+                ref={pdfContainerRef}
+                className={`border-2 rounded-lg bg-gray-50 overflow-auto max-h-[min(70vh,720px)] relative flex justify-center ${
                   placing ? "cursor-crosshair border-primary" : "border-border"
                 }`}
                 onClick={clickPdf}
               >
-                <Document file={file} onLoadSuccess={onLoadSuccess}>
-                  <div ref={pageRef} style={{ position: "relative", display: "inline-block" }}>
-                    <Page
-                      pageNumber={page}
-                      scale={scale}
-                      renderTextLayer={false}
-                      renderAnnotationLayer={false}
-                    />
-                    {fields
-                      .filter((f) => f.page === page)
-                      .map(renderField)}
+                {pdfDocumentFile && containerWidth > 0 ? (
+                  <Document
+                    file={pdfDocumentFile}
+                    onLoadSuccess={onLoadSuccess}
+                    onLoadError={onPdfLoadError}
+                    loading={
+                      <div className="flex items-center justify-center p-12 text-sm text-muted-foreground">
+                        Loading PDF…
+                      </div>
+                    }
+                    error={
+                      <div className="flex items-center justify-center p-12 text-sm text-destructive">
+                        Failed to load PDF file.
+                      </div>
+                    }
+                  >
+                    <div ref={pageRef} style={{ position: "relative", display: "inline-block" }}>
+                      <Page
+                        pageNumber={page}
+                        width={Math.floor(containerWidth * scale)}
+                        renderTextLayer={false}
+                        renderAnnotationLayer={false}
+                      />
+                      {fields
+                        .filter((f) => f.page === page)
+                        .map(renderField)}
+                    </div>
+                  </Document>
+                ) : (
+                  <div className="flex items-center justify-center p-12 text-sm text-muted-foreground">
+                    Preparing PDF preview…
                   </div>
-                </Document>
+                )}
               </div>
 
               {/* Pagination */}
@@ -1376,163 +1830,202 @@ const SignPDF = () => {
               {/* Single-mode buttons */}
               {mode === "single" && (
                 <div className="space-y-2">
-                  <button
+                  <FieldButton
+                    label="Signature"
+                    hint="Full signature"
+                    icon={<PenTool className="h-4 w-4 text-accent" />}
+                    iconBg="bg-accent/20"
+                    active={placing === "signature"}
+                    activeClass="bg-accent/10 border-accent shadow-sm"
+                    hoverClass="hover:border-accent/50"
                     onClick={() => {
                       setPlacing("signature");
                       setCurrentSignerId(signers[0].id);
                     }}
-                    className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
-                      placing === "signature"
-                        ? "bg-accent/10 border-accent shadow-sm"
-                        : "border-border hover:border-accent/50"
-                    }`}
-                  >
-                    <div className="w-8 h-8 bg-accent/20 rounded-lg flex items-center justify-center">
-                      <PenTool className="h-4 w-4 text-accent" />
-                    </div>
-                    <div className="flex-1 text-left">
-                      <div className="text-sm font-medium">Signature</div>
-                      <div className="text-xs text-muted-foreground">Full signature</div>
-                    </div>
-                  </button>
+                  />
 
                   {initSig && (
-                    <button
+                    <FieldButton
+                      label="Initials"
+                      hint={deriveInitials(fullName) || "Short form"}
+                      icon={<PenTool className="h-4 w-4 text-accent" />}
+                      iconBg="bg-accent/20"
+                      active={placing === "initials"}
+                      activeClass="bg-accent/10 border-accent shadow-sm"
+                      hoverClass="hover:border-accent/50"
                       onClick={() => {
                         setPlacing("initials");
                         setCurrentSignerId(signers[0].id);
                       }}
-                      className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
-                        placing === "initials"
-                          ? "bg-accent/10 border-accent shadow-sm"
-                          : "border-border hover:border-accent/50"
-                      }`}
-                    >
-                      <div className="w-8 h-8 bg-accent/20 rounded-lg flex items-center justify-center">
-                        <PenTool className="h-4 w-4 text-accent" />
-                      </div>
-                      <div className="flex-1 text-left">
-                        <div className="text-sm font-medium">Initials</div>
-                        <div className="text-xs text-muted-foreground">Short form</div>
-                      </div>
-                    </button>
+                    />
                   )}
 
-                  {/* Company Stamp button - opens modal if no stamp, or places if stamp exists */}
-                  {stampImg ? (
-                    <button
-                      onClick={() => {
-                        setPlacing("stamp");
-                        setCurrentSignerId(signers[0].id);
-                      }}
-                      className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
-                        placing === "stamp"
-                          ? "bg-purple-50 border-purple-400 shadow-sm"
-                          : "border-border hover:border-purple-400/50"
-                      }`}
-                    >
-                      <div className="w-8 h-8 bg-purple-500/20 rounded-lg flex items-center justify-center">
-                        <span className="text-purple-600 text-xs font-bold">S</span>
-                      </div>
-                      <div className="flex-1 text-left">
-                        <div className="text-sm font-medium">Company Stamp</div>
-                        <div className="text-xs text-muted-foreground">Official seal</div>
-                      </div>
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        setActiveTab("stamp");
-                        setShowSingleModal(true);
-                      }}
-                      className="w-full flex items-center gap-3 p-3 rounded-lg border-2 border-border hover:border-purple-400/50 transition-all"
-                    >
-                      <div className="w-8 h-8 bg-purple-500/20 rounded-lg flex items-center justify-center">
-                        <span className="text-purple-600 text-xs font-bold">+</span>
-                      </div>
-                      <div className="flex-1 text-left">
-                        <div className="text-sm font-medium">Add Company Stamp</div>
-                        <div className="text-xs text-muted-foreground">Create official seal</div>
-                      </div>
-                    </button>
-                  )}
-
-                  {/* Name button - uses name from signature creation */}
-                  <button
+                  <FieldButton
+                    label="Name"
+                    hint={fullName || "Your name"}
+                    icon={<Edit3 className="h-4 w-4 text-orange-600" />}
+                    iconBg="bg-orange-500/20"
+                    active={placing === "name"}
+                    activeClass="bg-orange-50 border-orange-400 shadow-sm"
+                    hoverClass="hover:border-orange-400/50"
                     onClick={() => {
                       setPlacing("name");
                       setCurrentSignerId(signers[0].id);
                     }}
-                    className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
-                      placing === "name"
-                        ? "bg-orange-50 border-orange-400 shadow-sm"
-                        : "border-border hover:border-orange-400/50"
-                    }`}
-                  >
-                    <div className="w-8 h-8 bg-orange-500/20 rounded-lg flex items-center justify-center">
-                      <Edit3 className="h-4 w-4 text-orange-600" />
-                    </div>
-                    <div className="flex-1 text-left">
-                      <div className="text-sm font-medium">Name</div>
-                      <div className="text-xs text-muted-foreground">{fullName || "Your name"}</div>
-                    </div>
-                  </button>
+                  />
 
-                  {/* Text button - editable textbox */}
-                  <button
+                  <FieldButton
+                    label="Date"
+                    hint="Today's date, editable"
+                    icon={<Calendar className="h-4 w-4 text-blue-600" />}
+                    iconBg="bg-blue-500/20"
+                    active={placing === "date"}
+                    activeClass="bg-blue-50 border-blue-400 shadow-sm"
+                    hoverClass="hover:border-blue-400/50"
+                    onClick={() => setPlacing("date")}
+                  />
+
+                  <FieldButton
+                    label="Text"
+                    hint="Custom textbox"
+                    icon={<Edit3 className="h-4 w-4 text-pink-600" />}
+                    iconBg="bg-pink-500/20"
+                    active={placing === "text"}
+                    activeClass="bg-pink-50 border-pink-400 shadow-sm"
+                    hoverClass="hover:border-pink-400/50"
                     onClick={() => setPlacing("text")}
-                    className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
-                      placing === "text"
-                        ? "bg-pink-50 border-pink-400 shadow-sm"
-                        : "border-border hover:border-pink-400/50"
-                    }`}
-                  >
-                    <div className="w-8 h-8 bg-pink-500/20 rounded-lg flex items-center justify-center">
-                      <Edit3 className="h-4 w-4 text-pink-600" />
-                    </div>
-                    <div className="flex-1 text-left">
-                      <div className="text-sm font-medium">Text</div>
-                      <div className="text-xs text-muted-foreground">Custom textbox</div>
-                    </div>
-                  </button>
+                  />
+
+                  <FieldButton
+                    label="Checkmark"
+                    hint="Tick boxes on forms"
+                    icon={<span className="text-emerald-600 text-sm font-bold">✓</span>}
+                    iconBg="bg-emerald-500/20"
+                    active={placing === "checkmark"}
+                    activeClass="bg-emerald-50 border-emerald-400 shadow-sm"
+                    hoverClass="hover:border-emerald-400/50"
+                    onClick={() => setPlacing("checkmark")}
+                  />
+
+                  <FieldButton
+                    label="Image"
+                    hint={pendingImage ? "Click PDF to place" : "Logo, photo, ID"}
+                    icon={<Upload className="h-4 w-4 text-slate-600" />}
+                    iconBg="bg-slate-500/20"
+                    active={placing === "image"}
+                    activeClass="bg-slate-50 border-slate-400 shadow-sm"
+                    hoverClass="hover:border-slate-400/50"
+                    onClick={() => {
+                      if (pendingImage) {
+                        setPlacing("image");
+                      } else {
+                        imageFieldInputRef.current?.click();
+                      }
+                    }}
+                  />
+                  <input
+                    ref={imageFieldInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (!f) return;
+                      const r = new FileReader();
+                      r.onload = () => {
+                        const data = r.result as string;
+                        const img = new Image();
+                        img.onload = () => {
+                          const w = 150;
+                          setPendingImage({
+                            data,
+                            width: w,
+                            height: w / (img.naturalWidth / img.naturalHeight),
+                          });
+                          setPlacing("image");
+                          toast.success("Image ready – click on the PDF to place it");
+                        };
+                        img.src = data;
+                      };
+                      r.readAsDataURL(f);
+                      e.target.value = "";
+                    }}
+                  />
                 </div>
               )}
 
-              <button
-                onClick={() => setPlacing("date")}
-                className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
-                  placing === "date"
-                    ? "bg-blue-50 border-blue-400 shadow-sm"
-                    : "border-border hover:border-blue-400/50"
-                }`}
-              >
-                <div className="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center">
-                  <Calendar className="h-4 w-4 text-blue-600" />
-                </div>
-                <div className="flex-1 text-left">
-                  <div className="text-sm font-medium">Date</div>
-                  <div className="text-xs text-muted-foreground">Today's date</div>
-                </div>
-              </button>
+              {/* Date button for multiple-signer mode */}
+              {mode === "multiple" && (
+                <FieldButton
+                  label="Date"
+                  hint="Today's date, editable"
+                  icon={<Calendar className="h-4 w-4 text-blue-600" />}
+                  iconBg="bg-blue-500/20"
+                  active={placing === "date"}
+                  activeClass="bg-blue-50 border-blue-400 shadow-sm"
+                  hoverClass="hover:border-blue-400/50"
+                  onClick={() => setPlacing("date")}
+                />
+              )}
 
-              <div className="pt-4 border-t">
+              {/* Placed items */}
+              {fields.length > 0 && (
+                <div className="pt-3 border-t space-y-1.5">
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    Placed Items
+                  </h4>
+                  {fields.map((f) => (
+                    <div
+                      key={f.id}
+                      className="flex items-center gap-2 text-sm rounded-md px-2 py-1.5 bg-muted/40 group"
+                    >
+                      <span className="text-emerald-600 font-bold">✓</span>
+                      <button
+                        type="button"
+                        className="flex-1 text-left capitalize hover:underline"
+                        title={`Go to page ${f.page}`}
+                        onClick={() => setPage(f.page)}
+                      >
+                        {f.type}
+                        <span className="text-xs text-muted-foreground ml-1.5">
+                          p.{f.page}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Remove"
+                        onClick={() => deleteField(f.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="pt-4 border-t space-y-2">
                 <Button
                   onClick={startSigning}
-                  className="w-full"
+                  className="w-full h-auto min-h-11 whitespace-normal text-sm px-3"
                   size="lg"
-                  disabled={fields.filter((f) => f.type !== "date").length === 0}
+                  disabled={fields.length === 0}
                 >
-                  <Download className="h-4 w-4 mr-2" />
-                  Sign PDF
+                  {fields.length === 0 ? (
+                    "Place a field to continue"
+                  ) : (
+                    <>
+                      <Download className="h-4 w-4 mr-2 shrink-0" />
+                      Download Signed PDF
+                    </>
+                  )}
                 </Button>
+                {fields.length === 0 && (
+                  <p className="text-xs text-center text-muted-foreground">
+                    Click a field above, then click on the PDF to place it.
+                  </p>
+                )}
               </div>
-
-              {fields.length > 0 && (
-                <div className="text-xs text-center text-muted-foreground space-y-1 pt-2">
-                  <p className="font-medium">{fields.length} field(s) placed</p>
-                  <p>Drag to move • Corners to resize • Hover for actions</p>
-                </div>
-              )}
             </CardContent>
           </Card>
         </div>
@@ -1607,7 +2100,7 @@ const SignPDF = () => {
                     </div>
                     <div className="flex-1 text-left">
                       <h4 className="font-medium">
-                        signed_{file.name.endsWith('.pdf') ? file.name.slice(0, -4) : file.name}.pdf
+                        {buildLexorbitProcessedFilename(file.name, "signed")}
                       </h4>
                       <p className="text-sm text-muted-foreground">
                         {(file.size / 1024 / 1024).toFixed(2)} MB
@@ -1643,159 +2136,169 @@ const SignPDF = () => {
         )}
 
         {/* ──────────────────────── SINGLE SIGNER MODAL ──────────────────────── */}
-        <Dialog open={showSingleModal} onOpenChange={setShowSingleModal}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Create Your Signature</DialogTitle>
+        <Dialog
+          open={showSingleModal}
+          onOpenChange={(open) => {
+            setShowSingleModal(open);
+            if (!open && signers.length === 0) {
+              setMode(null);
+            }
+          }}
+        >
+          <DialogContent className={SIGNATURE_DIALOG_SHELL_CLASS}>
+            <DialogHeader className={SIGNATURE_DIALOG_HEADER_CLASS}>
+              <DialogTitle>Create Signature</DialogTitle>
             </DialogHeader>
 
-            <div className="space-y-5 py-4">
-              {/* Name & Initials */}
-              <div className="grid grid-cols-2 gap-3">
+            <div className={SIGNATURE_DIALOG_BODY_CLASS} onKeyDown={preventDialogEnterSubmit}>
+              <div className="space-y-4">
                 <div>
                   <Label>Full Name *</Label>
-                  <Input 
-                    value={fullName} 
-                    onChange={(e) => setFullName(e.target.value)} 
-                    placeholder="John Doe" 
-                    className="mt-1.5"
-                  />
-                </div>
-                <div>
-                  <Label>Initials (optional)</Label>
-                  <Input 
-                    value={initials} 
-                    onChange={(e) => setInitials(e.target.value)} 
-                    placeholder="JD" 
-                    className="mt-1.5"
-                  />
-                </div>
-              </div>
-
-              {/* Tabs */}
-              <div className="flex border-b">
-                {(["signature", "initials", "stamp"] as const).map((t) => (
-                  <button
-                    key={t}
-                    className={`px-4 py-2 capitalize transition-colors ${
-                      activeTab === t 
-                        ? "border-b-2 border-primary text-primary font-medium" 
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                    onClick={() => setActiveTab(t)}
-                  >
-                    {t === "signature" ? "Signature" : t === "initials" ? "Initials" : "Company Stamp"}
-                  </button>
-                ))}
-              </div>
-
-              {/* Signature creator */}
-              {activeTab === "signature" && (
-                <SignatureCreator
-                  onSave={(cfg) => {
-                    setFullSig(cfg);
-                    toast.success("Signature saved");
-                  }}
-                  initialName={fullName}
-                />
-              )}
-
-              {/* Initials creator */}
-              {activeTab === "initials" && (
-                <SignatureCreator
-                  onSave={(cfg) => {
-                    setInitSig(cfg);
-                    toast.success("Initials saved");
-                  }}
-                  initialName={initials}
-                />
-              )}
-
-              {/* Company stamp */}
-              {activeTab === "stamp" && (
-                <div className="space-y-3">
-                  <Label>Upload Company Stamp</Label>
                   <Input
-                    type="file"
-                    accept="image/*"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (!f) return;
-                      const r = new FileReader();
-                      r.onload = () => {
-                        setStampImg(r.result as string);
-                        toast.success("Stamp uploaded");
-                      };
-                      r.readAsDataURL(f);
-                    }}
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="John Doe"
                     className="mt-1.5"
                   />
-                  {stampImg && (
-                    <div className="p-4 border rounded-lg bg-muted/30">
-                      <Label className="text-xs text-muted-foreground mb-2 block">Preview</Label>
-                      <img 
-                        src={stampImg} 
-                        alt="stamp preview" 
-                        className="max-h-40 mx-auto rounded" 
-                      />
-                    </div>
+                  {fullName.trim() && (
+                    <p className="text-xs text-muted-foreground mt-1.5">
+                      Initials: <span className="font-medium">{deriveInitials(fullName)}</span>{" "}
+                      (auto-generated)
+                    </p>
                   )}
                 </div>
-              )}
+
+                <SignatureCreator
+                  embedded
+                  saveRef={signatureSaveRef}
+                  onSave={setFullSig}
+                  initialName={fullName}
+                />
+              </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-4 border-t">
-              <Button variant="outline" onClick={() => setShowSingleModal(false)}>
+            <div className={SIGNATURE_DIALOG_FOOTER_CLASS}>
+              <Button
+                type="button"
+                variant="outline"
+                className="sm:min-w-[100px]"
+                onClick={() => {
+                  setShowSingleModal(false);
+                  signatureSaveRef.current = null;
+                  if (signers.length === 0) setMode(null);
+                }}
+              >
                 Cancel
               </Button>
-              <Button onClick={finishSingle} disabled={!fullSig || !fullName.trim()}>
-                Continue
+              <Button
+                type="button"
+                className="sm:min-w-[140px]"
+                onClick={() => void handleApplySignature()}
+                disabled={!fullName.trim()}
+              >
+                Apply Signature
               </Button>
             </div>
           </DialogContent>
         </Dialog>
 
         {/* ──────────────────────── MULTIPLE SIGNERS MODAL ──────────────────────── */}
-        <Dialog open={showMultiModal} onOpenChange={setShowMultiModal}>
-          <DialogContent className="max-w-xl">
-            <DialogHeader>
+        <Dialog
+          open={showMultiModal}
+          onOpenChange={(open) => {
+            setShowMultiModal(open);
+            if (!open && signers.filter((s) => s.name.trim()).length < 2) {
+              setMode(null);
+            }
+          }}
+        >
+          <DialogContent className={`${SIGNATURE_DIALOG_SHELL_CLASS} max-w-xl`}>
+            <DialogHeader className={SIGNATURE_DIALOG_HEADER_CLASS}>
               <DialogTitle>Add Multiple Signers</DialogTitle>
             </DialogHeader>
-            <div className="space-y-3 py-4">
-              {signers.map((s, i) => (
-                <div key={s.id} className="flex gap-2 items-start p-3 border rounded-lg">
-                  <div className="flex-1 space-y-2">
-                    <Input
-                      placeholder={`Signer ${i + 1} name *`}
-                      value={s.name}
-                      onChange={(e) => updateSigner(s.id, "name", e.target.value)}
-                    />
-                    <Input
-                      placeholder="Email (optional)"
-                      type="email"
-                      value={s.email ?? ""}
-                      onChange={(e) => updateSigner(s.id, "email", e.target.value)}
-                    />
+            <div className={SIGNATURE_DIALOG_BODY_CLASS} onKeyDown={preventDialogEnterSubmit}>
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Optional: add a shared signature image used for all signers when placing fields.
+                </p>
+                {!fullSig ? (
+                  <SignatureCreator
+                    embedded
+                    saveRef={sharedSignatureSaveRef}
+                    onSave={(cfg) => {
+                      setFullSig(cfg);
+                      sharedSignatureSaveRef.current = null;
+                      toast.success("Shared signature saved");
+                    }}
+                    saveButtonLabel="Save Shared Signature"
+                    initialName="Signature"
+                  />
+                ) : (
+                  <p className="text-sm text-green-700 dark:text-green-300">
+                    Shared signature ready. You can place fields after adding signers.
+                  </p>
+                )}
+                {signers.map((s, i) => (
+                  <div key={s.id} className="flex gap-2 items-start p-3 border rounded-lg">
+                    <div className="flex-1 space-y-2">
+                      <Input
+                        placeholder={`Signer ${i + 1} name *`}
+                        value={s.name}
+                        onChange={(e) => updateSigner(s.id, "name", e.target.value)}
+                      />
+                      <Input
+                        placeholder="Email (optional)"
+                        type="email"
+                        value={s.email ?? ""}
+                        onChange={(e) => updateSigner(s.id, "email", e.target.value)}
+                      />
+                    </div>
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      onClick={() => removeSigner(s.id)}
+                      disabled={signers.length <= 2}
+                    >
+                      <Trash className="h-4 w-4" />
+                    </Button>
                   </div>
-                  <Button 
-                    variant="destructive" 
-                    size="icon" 
-                    onClick={() => removeSigner(s.id)}
-                    disabled={signers.length <= 2}
-                  >
-                    <Trash className="h-4 w-4" />
-                  </Button>
-                </div>
-              ))}
-              <Button variant="outline" className="w-full" onClick={addSigner}>
-                + Add Another Signer
-              </Button>
+                ))}
+                <Button variant="outline" className="w-full" onClick={addSigner}>
+                  + Add Another Signer
+                </Button>
+              </div>
             </div>
-            <div className="flex justify-end gap-2 pt-4 border-t">
-              <Button variant="outline" onClick={() => setShowMultiModal(false)}>
+            <div className={SIGNATURE_DIALOG_FOOTER_CLASS}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setShowMultiModal(false);
+                  sharedSignatureSaveRef.current = null;
+                  if (signers.filter((s) => s.name.trim()).length < 2) setMode(null);
+                }}
+              >
                 Cancel
               </Button>
-              <Button onClick={finishMulti}>
+              {!fullSig && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={async () => {
+                    const cfg = await sharedSignatureSaveRef.current?.();
+                    if (cfg) {
+                      setFullSig(cfg);
+                      sharedSignatureSaveRef.current = null;
+                      toast.success("Shared signature saved");
+                    } else {
+                      toast.error("Create a shared signature first");
+                    }
+                  }}
+                >
+                  Save Shared Signature
+                </Button>
+              )}
+              <Button type="button" onClick={finishMulti}>
                 Continue
               </Button>
             </div>

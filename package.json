@@ -8,7 +8,9 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@azure/msal-browser": "^3.13.1",
@@ -57,7 +59,7 @@
     "lucide-react": "^0.462.0",
     "next-themes": "^0.3.0",
     "pdf-lib": "^1.17.1",
-    "pdfjs-dist": "^5.4.296",
+    "pdfjs-dist": "^5.3.93",
     "react": "^18.3.1",
     "react-apple-login": "^1.1.6",
     "react-apple-signin-auth": "^1.1.0",
@@ -96,6 +98,7 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.38.0",
-    "vite": "^5.4.19"
+    "vite": "^5.4.19",
+    "vitest": "^3.2.6"
   }
 }

@@ -8,6 +8,10 @@ import { Progress } from "@/components/ui/progress";
 import { convertWordToPDF } from "@/api";
 import axios from "axios";
 import { PDFToolDownloadResult } from "@/components/pdf/PDFToolDownloadResult";
+import {
+  buildLexorbitConvertedFilename,
+  triggerBlobDownload,
+} from "@/utils/lexorbitFilename";
 
 function summarizeUploadedNames(names: string[], maxChars = 100): string {
   const joined = names.join(", ");
@@ -51,7 +55,8 @@ const ConvertToPDF = () => {
       const convertedResults: { name: string; blob: Blob }[] = [];
 
       for (const file of files) {
-        const { blob, docxConversionEngine } = await convertWordToPDF(file);
+        const { blob, docxConversionEngine, conversionEngine, conversionWarning } =
+          await convertWordToPDF(file);
 
         const headerBuf = await blob.slice(0, 5).arrayBuffer();
         const magic = new TextDecoder().decode(headerBuf);
@@ -62,16 +67,18 @@ const ConvertToPDF = () => {
           );
         }
 
-        if (docxConversionEngine === "reportlab_fallback") {
-          toast.message(`${file.name} converted (text layout)`, {
+        if (docxConversionEngine === "reportlab_fallback" || conversionEngine === "reportlab_fallback") {
+          toast.warning(`${file.name} converted (limited quality)`, {
             description:
-              "Server used the plain PDF fallback — install LibreOffice on the backend or redeploy Docker with libreoffice-writer for resume-style layouts.",
+              conversionWarning ||
+              "Server used a text-only fallback — images and slide layout are not preserved. Redeploy the API with LibreOffice (impress/calc) and Cloud Run memory ≥ 2Gi.",
+            duration: 10000,
           });
         } else {
           toast.success(`${file.name} converted successfully`);
         }
         convertedResults.push({
-          name: file.name.replace(/\.[^/.]+$/, ".pdf"),
+          name: buildLexorbitConvertedFilename(file.name, "pdf"),
           blob,
         });
 

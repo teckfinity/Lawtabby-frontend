@@ -7,6 +7,10 @@ import { ArrowLeft, Upload, Download, Lock, Unlock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { unlockPDF as unlockPDFApi } from "@/api";
+import {
+  buildLexorbitProcessedFilename,
+  triggerBlobDownload,
+} from "@/utils/lexorbitFilename";
 
 const UnlockPDF = () => {
   const navigate = useNavigate();
@@ -91,14 +95,12 @@ const UnlockPDF = () => {
       if (!res.ok) throw new Error("Failed to fetch unlocked PDF");
 
       const blob = await res.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = "unlocked.pdf";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(blobUrl);
+      triggerBlobDownload(
+        blob,
+        file
+          ? buildLexorbitProcessedFilename(file.name, "unlocked")
+          : "document_lexorbit_unlocked.pdf",
+      );
 
       toast.success("Unlocked PDF downloaded!");
     } catch (error) {

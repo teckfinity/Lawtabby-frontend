@@ -6,7 +6,11 @@ import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { PDFToolDownloadResult } from "@/components/pdf/PDFToolDownloadResult";
-import { compressPDF as compressPDFApi } from "@/api"; // import your API function
+import { compressPDF as compressPDFApi } from "@/api";
+import {
+  buildLexorbitProcessedFilename,
+  triggerBlobDownload,
+} from "@/utils/lexorbitFilename";
 
 type ProcessStep = "upload" | "processing" | "download";
 
@@ -29,9 +33,9 @@ function formatFileSize(bytes: number): string {
 }
 
 const TIER_LABEL: Record<string, string> = {
-  extreme: "High compression",
-  recommended: "Balanced compression",
-  less: "Mild compression (best fidelity)",
+  extreme: "High compression (up to ~75% smaller on scans)",
+  recommended: "Medium compression (target ~40–50% smaller)",
+  less: "Low compression (target ~25–35% smaller, best fidelity)",
 };
 
 const CompressPDF = () => {
@@ -74,9 +78,13 @@ const CompressPDF = () => {
     }, 150);
 
     try {
-      // Map compressionLevel to quality number (example: low=80, medium=60, high=40)
-      const qualityMap: Record<string, number> = { low: 80, medium: 60, high: 40 };
-      const response = await compressPDFApi(file, qualityMap[compressionLevel]);
+      const tierMap: Record<string, "extreme" | "recommended" | "less"> = {
+        low: "less",
+        medium: "recommended",
+        high: "extreme",
+      };
+      const tier = tierMap[compressionLevel] ?? "recommended";
+      const response = await compressPDFApi(file, tier);
 
       // Use split_pdf.compressed_file instead of file_url
       if (response.data && response.data.split_pdf?.compressed_file) {
@@ -121,16 +129,10 @@ const CompressPDF = () => {
       // fetch the file as blob
       const res = await fetch(downloadUrl);
       const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `compressed_${file?.name}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-
-      window.URL.revokeObjectURL(url);
+      const downloadName = file
+        ? buildLexorbitProcessedFilename(file.name, "compressed")
+        : "document_lexorbit_compressed.pdf";
+      triggerBlobDownload(blob, downloadName);
 
       toast.success("Compressed file downloaded successfully!");
     } catch (err) {
@@ -365,7 +367,11 @@ const CompressPDF = () => {
       <PDFToolDownloadResult
         title="Compression complete!"
         description="We only swap in a smaller PDF when it beats your upload byte-for-byte (text-first pipeline)."
-        outputFilename={`compressed_${file?.name ?? "document.pdf"}`}
+        outputFilename={
+          file
+            ? buildLexorbitProcessedFilename(file.name, "compressed")
+            : "document_lexorbit_compressed.pdf"
+        }
         sourceSummary={`${compressedLabel} (was ${originalLabel}) · ${tierLabel || "tier —"}`}
         statusBanner={statusBanner}
         onDownload={downloadFile}

@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
-import PDFToHTMLEditor from "@/components/PDFToHTMLEditor";
+import PDFTextEditor from "@/components/PDFTextEditor";
 import {
   Select,
   SelectContent,
@@ -36,14 +36,17 @@ import {
   Move,
 } from "lucide-react";
 import { toast } from "sonner";
-import { Document, Page, pdfjs } from "react-pdf";
+import {
+  buildLexorbitProcessedFilename,
+  triggerBlobDownload,
+} from "@/utils/lexorbitFilename";
+import { Document, Page } from "react-pdf";
+import "@/lib/pdfjsWorker";
 import { Progress } from "@/components/ui/progress";
 import "react-pdf/dist/Page/AnnotationLayer.css";
 import "react-pdf/dist/Page/TextLayer.css";
 import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 import Draggable from "react-draggable";
-
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 type ProcessStep = "upload" | "processing" | "download";
 
@@ -738,10 +741,7 @@ const EditPDF = () => {
       }
       const pdfBytes = new Uint8Array(await pdfDoc.save());
       const blob = new Blob([pdfBytes], { type: "application/pdf" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `edited_${file.name}`;
-      a.click();
+      triggerBlobDownload(blob, buildLexorbitProcessedFilename(file.name, "edited"));
       toast.success("Downloaded!");
     } catch (e) {
       console.error(e);
@@ -924,7 +924,9 @@ const EditPDF = () => {
                 <span className="text-purple-600 font-bold text-xs">PDF</span>
               </div>
               <div className="flex-1 text-left">
-                <h4 className="font-medium">edited_{file?.name}</h4>
+                <h4 className="font-medium">
+                  {file ? buildLexorbitProcessedFilename(file.name, "edited") : "document_lexorbit_edited.pdf"}
+                </h4>
                 <p className="text-sm text-muted-foreground">
                   ready to download
                 </p>
@@ -982,12 +984,21 @@ const EditPDF = () => {
           <div className="mt-6">
             <Card>
               <CardContent className="p-0 h-[calc(100vh-200px)] min-h-[600px]">
-                <PDFToHTMLEditor
+                <PDFTextEditor
                   file={file}
-                  onSave={(newFile) => {
+                  onSave={async (newFile) => {
                     setFile(newFile);
                     setIsWordMode(false);
-                    toast.success("PDF updated successfully!");
+                    setSelectedTool("");
+                    try {
+                      const buf = await newFile.arrayBuffer();
+                      const pdf = await PDFDocument.load(buf);
+                      setNumPages(pdf.getPageCount());
+                    } catch {
+                      /* keep prior page count */
+                    }
+                    setCurrentStep("download");
+                    toast.success("PDF text updated successfully!");
                   }}
                   onCancel={cancelWordMode}
                 />

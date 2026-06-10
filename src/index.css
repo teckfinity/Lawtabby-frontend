@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600;700&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Alex+Brush&family=Allura&family=Italianno&family=Kristi&family=Mr+Dafoe&family=Mrs+Saint+Delafield&family=Satisfy&family=Shadows+Into+Light&family=Zeyada&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -574,6 +575,19 @@ input[type="range"]::-moz-range-thumb {
   );
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.5s ease-in-out infinite;
+}
+
+/* Signature fonts (Sign PDF) */
+@layer utilities {
+  .font-alex-brush { font-family: "Alex Brush", cursive; }
+  .font-allura { font-family: "Allura", cursive; }
+  .font-mrs-saint-delafield { font-family: "Mrs Saint Delafield", cursive; }
+  .font-kristi { font-family: "Kristi", cursive; }
+  .font-italianno { font-family: "Italianno", cursive; }
+  .font-mr-dafoe { font-family: "Mr Dafoe", cursive; }
+  .font-satisfy { font-family: "Satisfy", cursive; }
+  .font-zeyada { font-family: "Zeyada", cursive; }
+  .font-shadows-into-light { font-family: "Shadows Into Light", cursive; }
 }
 
 /* Reduce motion */
