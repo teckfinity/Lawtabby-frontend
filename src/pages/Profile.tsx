@@ -5,7 +5,7 @@ import SubscriptionPopup from '@/components/SubscriptionPopup';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { getProfileEmoji, hasUserAvatar } from '@/utils/userAvatar';
+import { getProfileEmoji, hasUserAvatar, withAvatarCacheBust, dispatchUserProfileUpdated } from '@/utils/userAvatar';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
@@ -103,6 +103,12 @@ const Profile = () => {
         title: 'Name updated',
         description: 'Your name has been successfully updated.'
       });
+
+      dispatchUserProfileUpdated({
+        name: updatedData.name,
+        email: profile.email,
+        avatar: profile.avatar,
+      });
 } catch (error: any) {
   console.error("Update name error:", error?.response?.data || error);
   toast({
@@ -115,36 +121,58 @@ const Profile = () => {
   };
 
   // ------------------- Update avatar -------------------
-const handleAvatarUpload = () => {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/*";
-  input.onchange = async (e) => {
-    const file = (e.target as HTMLInputElement).files?.[0];
-    if (!file) return;
+  const handleAvatarUpload = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
 
-    try {
-      const payload = { id: profile.id, avatar: file };
-      const updatedData = await updateUserProfile(payload);
+      const previousAvatar = profile.avatar;
+      const previewUrl = URL.createObjectURL(file);
+      setProfile((prev) => ({ ...prev, avatar: previewUrl }));
 
-      setProfile((prev) => ({ ...prev, avatar: updatedData.avatar }));
-      toast({
-        title: "Avatar updated",
-        description: "Your profile picture has been updated.",
-      });
-    } catch (error: any) {
-      console.error("Upload error:", error?.response?.data || error);
-      toast({
-        title: "Upload failed",
-        description:
-          error?.response?.data?.detail ||
-          "Could not update avatar. Please try again.",
-        variant: "destructive",
-      });
-    }
+      try {
+        const payload = { id: profile.id, avatar: file };
+        await updateUserProfile(payload);
+        const fresh = await getUserProfile();
+        const avatarUrl = fresh.avatar
+          ? withAvatarCacheBust(fresh.avatar)
+          : "";
+
+        setProfile((prev) => ({
+          ...prev,
+          avatar: avatarUrl,
+          name: fresh.name || prev.name,
+        }));
+
+        dispatchUserProfileUpdated({
+          name: fresh.name,
+          email: fresh.email,
+          avatar: avatarUrl,
+        });
+
+        toast({
+          title: "Avatar updated",
+          description: "Your profile picture has been updated.",
+        });
+      } catch (error: any) {
+        console.error("Upload error:", error?.response?.data || error);
+        setProfile((prev) => ({ ...prev, avatar: previousAvatar }));
+        toast({
+          title: "Upload failed",
+          description:
+            error?.response?.data?.detail ||
+            "Could not update avatar. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+    input.click();
   };
-  input.click();
-};
 
 
   // ------------------- Update email (local only) -------------------
@@ -248,7 +276,7 @@ const handleAvatarUpload = () => {
                 </p>
               </div>
               <div className="relative">
-                <Avatar className="h-16 w-16">
+                <Avatar className="h-16 w-16" key={profile.avatar || "no-avatar"}>
                   {hasUserAvatar(profile.avatar) && (
                     <AvatarImage src={profile.avatar} alt="Profile" />
                   )}

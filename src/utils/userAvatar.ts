@@ -33,3 +33,22 @@ export function getProfileEmoji(seed?: string | null): string {
   }
   return PROFILE_EMOJIS[Math.abs(hash) % PROFILE_EMOJIS.length];
 }
+
+/** Append a cache-busting query param so browsers reload a replaced avatar. */
+export function withAvatarCacheBust(url: string, version: number = Date.now()): string {
+  if (!url?.trim() || url.startsWith("blob:")) return url;
+  const separator = url.includes("?") ? "&" : "?";
+  return `${url}${separator}v=${version}`;
+}
+
+export type UserProfileUpdateDetail = {
+  name?: string;
+  email?: string;
+  avatar?: string | null;
+};
+
+export const USER_PROFILE_UPDATED_EVENT = "user-profile-updated";
+
+export function dispatchUserProfileUpdated(detail: UserProfileUpdateDetail): void {
+  window.dispatchEvent(new CustomEvent(USER_PROFILE_UPDATED_EVENT, { detail }));
+}
