@@ -1,4 +1,5 @@
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from "pdf-lib";
+import type { PDFPageProxy } from "pdfjs-dist";
 import { pdfjs as pdfjsLib } from "@/lib/pdfjsWorker";
 
 /** A selectable / editable text region on one PDF page. */
@@ -56,6 +57,7 @@ type RawLineItem = {
   pdfBaseline: number;
   fontSize: number;
   fontName: string;
+  textColor?: Rgb01;
 };
 
 const DISPLAY_MAX_WIDTH = 760;
@@ -136,6 +138,75 @@ function groupLineItems(items: RawLineItem[]): RawLineItem[][] {
 
 type Rgb01 = { r: number; g: number; b: number };
 
+function luminance(c: Rgb01): number {
+  return c.r * 0.299 + c.g * 0.587 + c.b * 0.114;
+}
+
+function cmykToRgb(c: number, m: number, y: number, k: number): Rgb01 {
+  return {
+    r: 1 - Math.min(1, c + k),
+    g: 1 - Math.min(1, m + k),
+    b: 1 - Math.min(1, y + k),
+  };
+}
+
+function medianRgb(colors: Rgb01[]): Rgb01 {
+  if (colors.length === 1) return colors[0];
+  const sorted = [...colors].sort((a, b) => luminance(a) - luminance(b));
+  const mid = sorted[Math.floor(sorted.length / 2)];
+  return { ...mid };
+}
+
+/** Read fill colors from PDF drawing ops in the same order as getTextContent items. */
+async function extractShowTextFillColors(page: PDFPageProxy): Promise<Rgb01[]> {
+  const OPS = pdfjsLib.OPS;
+  const opList = await page.getOperatorList();
+  const { fnArray, argsArray } = opList;
+
+  let fillColor: Rgb01 = { r: 0, g: 0, b: 0 };
+  const colors: Rgb01[] = [];
+
+  for (let i = 0; i < fnArray.length; i++) {
+    const fn = fnArray[i];
+    const args = argsArray[i];
+
+    if (fn === OPS.setFillRGBColor) {
+      fillColor = { r: args[0], g: args[1], b: args[2] };
+    } else if (fn === OPS.setFillGray) {
+      fillColor = { r: args[0], g: args[0], b: args[0] };
+    } else if (fn === OPS.setFillCMYKColor) {
+      fillColor = cmykToRgb(args[0], args[1], args[2], args[3]);
+    } else if (fn === OPS.showText || fn === OPS.showSpacedText) {
+      colors.push({ ...fillColor });
+    }
+  }
+
+  return colors;
+}
+
+function resolveLineTextColor(
+  line: RawLineItem[],
+  ctx: CanvasRenderingContext2D,
+  displayX: number,
+  displayY: number,
+  displayWidth: number,
+  displayHeight: number,
+  background: Rgb01,
+): Rgb01 {
+  const fromPdf = line.map((i) => i.textColor).filter((c): c is Rgb01 => !!c);
+  if (fromPdf.length) {
+    return medianRgb(fromPdf);
+  }
+  return extractTextColorFromCanvas(
+    ctx,
+    displayX,
+    displayY,
+    displayWidth,
+    displayHeight,
+    background,
+  );
+}
+
 function sampleCanvasPatch(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -208,7 +279,12 @@ function sampleBackgroundForBlock(
   };
 }
 
-function estimateTextColor(
+/**
+ * Fallback when PDF operator colors are unavailable: pick the darkest (or
+ * lightest on dark backgrounds) foreground pixels — not the average, which
+ * blends anti-aliased edges into light gray.
+ */
+function extractTextColorFromCanvas(
   ctx: CanvasRenderingContext2D,
   displayX: number,
   displayY: number,
@@ -216,19 +292,50 @@ function estimateTextColor(
   displayHeight: number,
   background: Rgb01,
 ): Rgb01 {
-  const center = sampleCanvasPatch(
-    ctx,
-    displayX + displayWidth * 0.15,
-    displayY + displayHeight * 0.15,
-    Math.max(4, displayWidth * 0.7),
-    Math.max(4, displayHeight * 0.7),
-  );
-  const bgLum = background.r * 0.299 + background.g * 0.587 + background.b * 0.114;
-  const fgLum = center.r * 0.299 + center.g * 0.587 + center.b * 0.114;
-  if (Math.abs(fgLum - bgLum) > 0.08) {
-    return center;
+  const scale = RENDER_SCALE;
+  const sx = Math.max(0, Math.floor(displayX * scale));
+  const sy = Math.max(0, Math.floor(displayY * scale));
+  const sw = Math.max(1, Math.floor(displayWidth * scale));
+  const sh = Math.max(1, Math.floor(displayHeight * scale));
+  const maxW = ctx.canvas.width - sx;
+  const maxH = ctx.canvas.height - sy;
+  if (maxW <= 0 || maxH <= 0) {
+    return luminance(background) > 0.5 ? { r: 0, g: 0, b: 0 } : { r: 1, g: 1, b: 1 };
   }
-  return bgLum > 0.55 ? { r: 0, g: 0, b: 0 } : { r: 1, g: 1, b: 1 };
+
+  const data = ctx.getImageData(sx, sy, Math.min(sw, maxW), Math.min(sh, maxH)).data;
+  const bgLum = luminance(background);
+  const fgPixels: Rgb01[] = [];
+
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < 128) continue;
+    const p = { r: data[i] / 255, g: data[i + 1] / 255, b: data[i + 2] / 255 };
+    if (Math.abs(luminance(p) - bgLum) > 0.12) {
+      fgPixels.push(p);
+    }
+  }
+
+  if (!fgPixels.length) {
+    return bgLum > 0.5 ? { r: 0, g: 0, b: 0 } : { r: 1, g: 1, b: 1 };
+  }
+
+  if (bgLum > 0.5) {
+    fgPixels.sort((a, b) => luminance(a) - luminance(b));
+    const darkest = fgPixels.slice(0, Math.max(1, Math.floor(fgPixels.length * 0.15)));
+    return {
+      r: darkest.reduce((s, p) => s + p.r, 0) / darkest.length,
+      g: darkest.reduce((s, p) => s + p.g, 0) / darkest.length,
+      b: darkest.reduce((s, p) => s + p.b, 0) / darkest.length,
+    };
+  }
+
+  fgPixels.sort((a, b) => luminance(b) - luminance(a));
+  const lightest = fgPixels.slice(0, Math.max(1, Math.floor(fgPixels.length * 0.15)));
+  return {
+    r: lightest.reduce((s, p) => s + p.r, 0) / lightest.length,
+    g: lightest.reduce((s, p) => s + p.g, 0) / lightest.length,
+    b: lightest.reduce((s, p) => s + p.b, 0) / lightest.length,
+  };
 }
 
 function mergeLineToBlock(
@@ -257,7 +364,8 @@ function mergeLineToBlock(
   const padY = Math.max(1, fontSize * 0.1);
   const coverHeight = fontSize * 1.15 + padY * 2;
   const coverColor = sampleBackgroundForBlock(ctx, displayX, displayY, displayRight - displayX, displayBottom - displayY);
-  const textColor = estimateTextColor(
+  const textColor = resolveLineTextColor(
+    line,
     ctx,
     displayX,
     displayY,
@@ -319,11 +427,19 @@ export async function extractPdfEditorPages(file: File): Promise<PdfEditorPage[]
 
     const backgroundUrl = canvas.toDataURL("image/jpeg", 0.92);
     const textContent = await page.getTextContent();
+    const showTextColors = await extractShowTextFillColors(page);
 
     const rawItems: RawLineItem[] = [];
+    let colorIndex = 0;
     for (const item of textContent.items as PdfJsTextItem[]) {
+      if (!("str" in item)) continue;
+      const itemColor = showTextColors[colorIndex] ?? { r: 0, g: 0, b: 0 };
+      colorIndex++;
       const parsed = transformTextItem(item, pdfViewport, displayViewport, pdfjsLib.Util);
-      if (parsed) rawItems.push(parsed);
+      if (parsed) {
+        parsed.textColor = itemColor;
+        rawItems.push(parsed);
+      }
     }
 
     const blocks = groupLineItems(rawItems).map((line) =>
@@ -349,19 +465,32 @@ function pickFont(
   fonts: {
     helvetica: PDFFont;
     helveticaBold: PDFFont;
+    helveticaOblique: PDFFont;
+    helveticaBoldOblique: PDFFont;
     times: PDFFont;
     timesBold: PDFFont;
+    timesItalic: PDFFont;
+    timesBoldItalic: PDFFont;
     courier: PDFFont;
+    courierOblique: PDFFont;
   },
 ): PDFFont {
   const isBold = block.fontWeight === "bold";
+  const isItalic = block.fontStyle === "italic";
+
   if (block.fontFamily.startsWith("Times")) {
-    return isBold ? fonts.timesBold : fonts.times;
+    if (isBold && isItalic) return fonts.timesBoldItalic;
+    if (isBold) return fonts.timesBold;
+    if (isItalic) return fonts.timesItalic;
+    return fonts.times;
   }
   if (block.fontFamily.startsWith("Courier")) {
-    return fonts.courier;
+    return isItalic ? fonts.courierOblique : fonts.courier;
   }
-  return isBold ? fonts.helveticaBold : fonts.helvetica;
+  if (isBold && isItalic) return fonts.helveticaBoldOblique;
+  if (isBold) return fonts.helveticaBold;
+  if (isItalic) return fonts.helveticaOblique;
+  return fonts.helvetica;
 }
 
 /** Apply edited text blocks back onto the original PDF (vector, not rasterized). */
@@ -376,9 +505,14 @@ export async function savePdfTextEdits(
   const fonts = {
     helvetica: await pdfDoc.embedFont(StandardFonts.Helvetica),
     helveticaBold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
+    helveticaOblique: await pdfDoc.embedFont(StandardFonts.HelveticaOblique),
+    helveticaBoldOblique: await pdfDoc.embedFont(StandardFonts.HelveticaBoldOblique),
     times: await pdfDoc.embedFont(StandardFonts.TimesRoman),
     timesBold: await pdfDoc.embedFont(StandardFonts.TimesRomanBold),
+    timesItalic: await pdfDoc.embedFont(StandardFonts.TimesRomanItalic),
+    timesBoldItalic: await pdfDoc.embedFont(StandardFonts.TimesRomanBoldItalic),
     courier: await pdfDoc.embedFont(StandardFonts.Courier),
+    courierOblique: await pdfDoc.embedFont(StandardFonts.CourierOblique),
   };
 
   for (const pageData of pages) {
@@ -400,9 +534,14 @@ function applyTextBlockEdit(
   fonts: {
     helvetica: PDFFont;
     helveticaBold: PDFFont;
+    helveticaOblique: PDFFont;
+    helveticaBoldOblique: PDFFont;
     times: PDFFont;
     timesBold: PDFFont;
+    timesItalic: PDFFont;
+    timesBoldItalic: PDFFont;
     courier: PDFFont;
+    courierOblique: PDFFont;
   },
 ) {
   const { height: pageHeight } = page.getSize();
@@ -420,7 +559,7 @@ function applyTextBlockEdit(
 
   const font = pickFont(block, fonts);
   const textY = pageHeight - block.pdfBaseline;
-  const fg = block.textColor ?? { r: 0, g: 0, b: 0 };
+  const fg = ensureTextContrast(block.textColor ?? { r: 0, g: 0, b: 0 }, bg);
 
   page.drawText(block.text, {
     x: block.pdfX,
@@ -431,6 +570,17 @@ function applyTextBlockEdit(
     maxWidth: block.pdfCoverWidth,
     lineHeight: block.fontSize * 1.15,
   });
+}
+
+export function ensureTextContrast(fg: Rgb01, bg: Rgb01): Rgb01 {
+  if (Math.abs(luminance(fg) - luminance(bg)) >= 0.35) {
+    return fg;
+  }
+  return luminance(bg) > 0.5 ? { r: 0, g: 0, b: 0 } : { r: 1, g: 1, b: 1 };
+}
+
+export function rgb01ToCss(c: Rgb01): string {
+  return `rgb(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)})`;
 }
 
 export function countModifiedBlocks(pages: PdfEditorPage[]): number {

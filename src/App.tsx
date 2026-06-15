@@ -3,7 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
-import { SidebarProvider } from "@/components/ui/sidebar";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { ThemeProvider } from "next-themes";
 import { AppSidebar } from "@/components/AppSidebar";
 import { GoogleOAuthProvider } from "@react-oauth/google";
@@ -61,11 +61,11 @@ const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
 
 // ---------- Shared Layout for Protected Pages ----------
 const ProtectedLayout = ({ children }: { children: JSX.Element }) => (
-  <div className="min-h-screen flex w-full bg-background">
+  <div className="flex h-svh w-full overflow-hidden">
     <AppSidebar />
-    <div className="flex-1 flex flex-col">
-      <main className="flex-1 overflow-auto">{children}</main>
-    </div>
+    <SidebarInset className="flex flex-1 flex-col min-h-0 h-svh overflow-y-auto">
+      {children}
+    </SidebarInset>
   </div>
 );
 
@@ -93,7 +93,14 @@ const App = () => (
           <BrowserRouter
             future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
           >
-            <SidebarProvider>
+            <SidebarProvider
+              style={
+                {
+                  "--sidebar-width": "18rem",
+                  "--sidebar-width-icon": "3.5rem",
+                } as React.CSSProperties
+              }
+            >
               <Routes>
                 {/* Redirect root to SignIn */}
                 <Route path="/" element={<Navigate to="/signin" replace />} />

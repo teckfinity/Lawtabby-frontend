@@ -23,6 +23,10 @@ import {
   PanelLeft
 } from "lucide-react";
 import { UserAvatar } from "@/components/UserAvatar";
+import {
+  USER_PROFILE_UPDATED_EVENT,
+  type UserProfileUpdateDetail,
+} from "@/utils/userAvatar";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { logoutUser, getUserProfile } from "@/api/user";
@@ -40,6 +44,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 const mainNavItems = [
   { title: "Home", url: "/dashboard", icon: Home },
@@ -106,6 +111,17 @@ export function AppSidebar() {
     }
   }, [isAuthenticated]);
 
+  useEffect(() => {
+    const onProfileUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<UserProfileUpdateDetail>).detail;
+      if (!detail) return;
+      setUserProfile((prev) => ({ ...prev, ...detail }));
+    };
+
+    window.addEventListener(USER_PROFILE_UPDATED_EVENT, onProfileUpdated);
+    return () => window.removeEventListener(USER_PROFILE_UPDATED_EVENT, onProfileUpdated);
+  }, []);
+
   // Sign Out handler
   const handleSignOut = async () => {
     try {
@@ -131,20 +147,33 @@ export function AppSidebar() {
       : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground";
 
   return (
-    <Sidebar className={`${isCollapsed ? "w-14" : "w-72"} border-r border-sidebar-border`} collapsible="icon">
-      <div className={`flex items-center border-b border-sidebar-border h-16 ${isCollapsed ? 'justify-center px-2' : 'justify-between px-4'}`}>
+    <Sidebar className="border-r border-sidebar-border !z-30" collapsible="icon">
+      <div
+        className={cn(
+          "flex items-center border-b border-sidebar-border h-16 gap-2 shrink-0",
+          isCollapsed ? "justify-center px-2" : "px-4"
+        )}
+      >
         {!isCollapsed && (
-          <div className="text-sidebar-foreground">
-            <h1 className="text-lg font-semibold font-heading tracking-tight">LexOrbit</h1>
-            <p className="text-xs text-sidebar-foreground/70 font-body">Legal intelligence platform</p>
+          <div className="text-sidebar-foreground flex-1 min-w-0">
+            <h1 className="text-lg font-semibold font-heading tracking-tight truncate">LexOrbit</h1>
+            <p className="text-xs text-sidebar-foreground/70 font-body truncate">
+              Legal intelligence platform
+            </p>
           </div>
         )}
         <Button
+          type="button"
           variant="ghost"
           size="icon"
           onClick={toggleSidebar}
-          className="h-8 w-8 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-md transition-colors flex-shrink-0"
-          aria-label="Toggle Sidebar"
+          className={cn(
+            "shrink-0 h-8 w-8 rounded-md",
+            "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            isCollapsed && "mx-auto"
+          )}
+          aria-label={isCollapsed ? "Expand menu" : "Collapse menu"}
+          title={isCollapsed ? "Expand menu" : "Collapse menu"}
         >
           {isCollapsed ? (
             <PanelLeft className="h-4 w-4" />
