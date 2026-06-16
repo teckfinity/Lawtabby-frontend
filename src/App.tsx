@@ -52,6 +52,7 @@ import ContactSupport from "./pages/ContactSupport";
 import TermsOfService from "./pages/TermsOfService";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import NotFound from "./pages/NotFound";
+import UpgradeRequiredListener from "./components/UpgradeRequiredListener";
 
 // ---------- Protected Route ----------
 const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
@@ -93,6 +94,7 @@ const App = () => (
           <BrowserRouter
             future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
           >
+            <UpgradeRequiredListener />
             <SidebarProvider
               style={
                 {

@@ -21,3 +21,4 @@ export * from "./pdf/compress";
 export * from "./pdf/organize";   
 export * from "./pdf/convert";
 export * from "./pdf/ocr";
+export * from "./billing";
