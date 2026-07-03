@@ -1,4 +1,5 @@
 import axios from "axios";
+import { emitUpgradeRequired } from "./upgradeRequired";
 
 export const API_BASE_URL =
   import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
@@ -36,4 +37,21 @@ apiClient.interceptors.request.use(
     return config;
   },
   (error) => Promise.reject(error)
+);
+
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const data = error.response?.data;
+    if (error.response?.status === 402 && data?.upgrade_required) {
+      emitUpgradeRequired({
+        feature_key: data.feature_key,
+        used: data.used,
+        limit: data.limit,
+        message: data.message || data.error,
+        error: data.error,
+      });
+    }
+    return Promise.reject(error);
+  }
 );

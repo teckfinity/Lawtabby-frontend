@@ -11,6 +11,7 @@ import {
   buildLexorbitFilenameFromUploads,
   triggerBlobDownload,
 } from "@/utils/lexorbitFilename";
+import { PdfLibraryPickButton } from "@/components/library/LibraryFileSourceButtons";
 
 
 function summarizeSourceFiles(names: string[], maxChars = 120): string {
@@ -67,8 +68,7 @@ const MergePDF = () => {
     }
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(event.target.files || []);
+  const appendPdfFiles = async (selectedFiles: File[]) => {
     const validFiles: File[] = [];
     for (const file of selectedFiles) {
       if (await isValidPDF(file)) validFiles.push(file);
@@ -85,8 +85,13 @@ const MergePDF = () => {
       preview: `Sample PDF content for ${file.name}`,
       file,
     }));
-    setFiles([...files, ...newFiles]);
+    setFiles((prev) => [...prev, ...newFiles]);
     toast.success(`Added ${validFiles.length} valid PDF file(s)`);
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(event.target.files || []);
+    await appendPdfFiles(selectedFiles);
     event.target.value = "";
   };
 
@@ -280,6 +285,7 @@ const MergePDF = () => {
                 >
                   Select PDF file
                 </Button>
+                <PdfLibraryPickButton onFileReady={(f) => appendPdfFiles([f])} />
               </div>
             </CardContent>
           </Card>

@@ -52,6 +52,7 @@ import {
   buildLexorbitProcessedFilename,
   triggerBlobDownload,
 } from "@/utils/lexorbitFilename";
+import { PdfLibraryPickButton } from "@/components/library/LibraryFileSourceButtons";
 import {
   DEFAULT_STAMP_TEXT,
   MOSAIC_POSITIONS,
@@ -527,8 +528,7 @@ const StampPDF = () => {
   );
 
   /* ---------- PDF upload ---------- */
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
+  const loadPdfFromFile = async (f: File) => {
     if (!f || f.type !== "application/pdf") {
       toast.error("Please select a valid PDF file");
       return;
@@ -549,6 +549,11 @@ const StampPDF = () => {
       console.error(err);
       toast.error("Failed to read PDF");
     }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) await loadPdfFromFile(f);
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -670,10 +675,13 @@ const StampPDF = () => {
                 <p className="text-muted-foreground mb-4">
                   Choose a PDF file from your device
                 </p>
-                <Button onClick={() => pdfUploadInputRef.current?.click()}>
-                  <Upload className="h-4 w-4 mr-2" />
-                  Select PDF File
-                </Button>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <Button onClick={() => pdfUploadInputRef.current?.click()}>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Select PDF File
+                  </Button>
+                  <PdfLibraryPickButton onFileReady={loadPdfFromFile} />
+                </div>
               </div>
             </div>
           ) : (

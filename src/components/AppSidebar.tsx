@@ -2,7 +2,7 @@ import {
   Home, 
   FileText, 
   Library, 
-  History, 
+  // History, 
   LogIn, 
   UserPlus,
   LogOut,
@@ -66,13 +66,13 @@ const aiFeatures = [
   { title: "Document Automation", url: "/ai/automation", icon: FileCheck },
 ];
 
-const historyItems = [
-  "Legal practice analysis",
-  "Legal breakdown summary", 
-  "Court case review",
-  "Contract analysis",
-  "Legal research notes"
-];
+// const historyItems = [
+//   "Legal practice analysis",
+//   "Legal breakdown summary",
+//   "Court case review",
+//   "Contract analysis",
+//   "Legal research notes"
+// ];
 
 export function AppSidebar() {
   const { state, toggleSidebar } = useSidebar();
@@ -84,6 +84,7 @@ export function AppSidebar() {
   const [aiOpen, setAiOpen] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userProfile, setUserProfile] = useState<{ name?: string; email?: string; avatar?: string }>({});
+  const [planSlug, setPlanSlug] = useState('starter');
 
   useEffect(() => {
     // Check if user is authenticated on mount
@@ -101,6 +102,7 @@ export function AppSidebar() {
           email: data?.email,
           avatar: data?.avatar,
         });
+        setPlanSlug(data?.subscription?.plan?.slug || 'starter');
       } catch (error) {
         console.error("Failed to fetch user profile:", error);
       }
@@ -274,7 +276,7 @@ export function AppSidebar() {
           )}
         </SidebarGroup>
 
-        {/* History */}
+        {/* History — hidden for now
         {!isCollapsed && (
           <SidebarGroup>
             <SidebarGroupLabel className="flex items-center gap-2 text-xs font-medium text-sidebar-foreground/70">
@@ -297,22 +299,23 @@ export function AppSidebar() {
             </SidebarGroupContent>
           </SidebarGroup>
         )}
+        */}
       </SidebarContent>
 
       {/* Bottom Section */}
       <div className={`mt-auto border-t border-sidebar-border ${isCollapsed ? 'p-2 flex flex-col items-center gap-2' : 'p-4'}`}>
-        {!isCollapsed && (
+        {!isCollapsed && isAuthenticated && planSlug === 'starter' && (
           <div className="bg-sidebar-accent rounded-lg p-3 mb-4">
-            <h3 className="text-sm font-semibold text-sidebar-accent-foreground mb-1">Try Pro</h3>
+            <h3 className="text-sm font-semibold text-sidebar-accent-foreground mb-1">Upgrade plan</h3>
             <p className="text-xs text-sidebar-accent-foreground/70 mb-2">
-              Upgrade to upload more files and download PDF edits.
+              Get more AI queries, summaries, OCR, and predictive analytics.
             </p>
-            <Button 
-              size="sm" 
+            <Button
+              size="sm"
               className="w-full bg-sidebar-primary hover:bg-sidebar-primary/90"
               onClick={() => navigate('/subscription')}
             >
-              Upgrade Plan
+              View plans & subscribe
             </Button>
           </div>
         )}

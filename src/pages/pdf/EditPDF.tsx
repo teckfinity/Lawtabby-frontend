@@ -40,6 +40,7 @@ import {
   buildLexorbitProcessedFilename,
   triggerBlobDownload,
 } from "@/utils/lexorbitFilename";
+import { PdfLibraryPickButton } from "@/components/library/LibraryFileSourceButtons";
 import { Document, Page } from "react-pdf";
 import "@/lib/pdfjsWorker";
 import { Progress } from "@/components/ui/progress";
@@ -152,8 +153,7 @@ const EditPDF = () => {
   };
 
   /* ---------- FILE UPLOAD ---------- */
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
+  const loadPdfFromFile = async (f: File) => {
     if (!f || f.type !== "application/pdf") {
       toast.error("Please select a valid PDF file");
       return;
@@ -172,6 +172,11 @@ const EditPDF = () => {
       console.error(err);
       toast.error("Failed to read PDF");
     }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) await loadPdfFromFile(f);
     e.target.value = "";
   };
 
@@ -850,10 +855,13 @@ const EditPDF = () => {
                 <Upload className="h-12 w-8 mx-auto text-muted-foreground mb-4" />
                 <h3 className="text-lg font-semibold mb-2">Upload PDF to Edit</h3>
                 <p className="text-muted-foreground mb-4">Choose a PDF file from your device</p>
-                <Button onClick={() => pdfUploadInputRef.current?.click()}>
-                  <Upload className="h-4 w-4 mr-2" />
-                  Select PDF File
-                </Button>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <Button onClick={() => pdfUploadInputRef.current?.click()}>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Select PDF File
+                  </Button>
+                  <PdfLibraryPickButton onFileReady={loadPdfFromFile} />
+                </div>
               </div>
             </div>
           ) : (

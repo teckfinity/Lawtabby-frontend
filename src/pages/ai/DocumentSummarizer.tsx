@@ -21,10 +21,13 @@ import {
   Save,
   Target,
   Zap,
-  Printer
+  Printer,
+  FolderOpen,
 } from "lucide-react";
 import { toast } from "sonner";
 import { sendLegalDocSummary } from "@/api/ai-features/doc-summary";
+import { LibraryPickerDialog } from "@/components/library/LibraryPickerDialog";
+import type { LibraryDocument } from "@/api/ai-features/document-library";
 
 const DocumentSummarizer = () => {
   const [activeTab, setActiveTab] = useState("document");
@@ -32,6 +35,8 @@ const DocumentSummarizer = () => {
   const [summary, setSummary] = useState("");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [libraryDocument, setLibraryDocument] = useState<LibraryDocument | null>(null);
+  const [isLibraryPickerOpen, setIsLibraryPickerOpen] = useState(false);
   const [textInput, setTextInput] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [fullResponse, setFullResponse] = useState<any>(null);
@@ -50,8 +55,8 @@ const DocumentSummarizer = () => {
   });
 
   const handleSummarize = async () => {
-    if (activeTab === "document" && !file) {
-      toast("Please select a file to summarize.");
+    if (activeTab === "document" && !file && !libraryDocument) {
+      toast("Please upload a file or pick one from your library.");
       return;
     }
     if (activeTab === "text" && !textInput.trim()) {
@@ -64,10 +69,11 @@ const DocumentSummarizer = () => {
 
     try {
       const response = await sendLegalDocSummary(
-        activeTab === "document" ? file! : undefined,
+        activeTab === "document" && file ? file : undefined,
         activeTab === "text" ? textInput : undefined,
         {
           action: "process",
+          library_document_id: activeTab === "document" && libraryDocument ? libraryDocument.id : undefined,
           output_format:          settings.outputFormat,
           summary_length:         settings.summaryLength[0],
           confidence_threshold:   settings.confidenceThreshold[0],
@@ -215,12 +221,25 @@ const DocumentSummarizer = () => {
                       Drag & drop or click to upload PDF, DOC, or TXT files
                     </p>
 
-                    <Button
-                      className="bg-legal-primary hover:bg-legal-primary/90"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      Choose File
-                    </Button>
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-4">
+                      <Button
+                        className="bg-legal-primary hover:bg-legal-primary/90"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        Choose File
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => setIsLibraryPickerOpen(true)}
+                      >
+                        <FolderOpen className="h-4 w-4 mr-2" />
+                        Pick from Library
+                      </Button>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground mb-4">
+                      Already uploaded? Use <strong>Pick from Library</strong> — no new upload needed.
+                    </p>
 
                     <input
                       type="file"
@@ -232,6 +251,7 @@ const DocumentSummarizer = () => {
                             toast("File size exceeds 10MB limit.");
                             return;
                           }
+                          setLibraryDocument(null);
                           setFile(selected);
                           toast(`Selected: ${selected.name}`);
                         }
@@ -239,6 +259,23 @@ const DocumentSummarizer = () => {
                       accept=".pdf,.doc,.docx,.txt"
                       className="hidden"
                     />
+
+                    {libraryDocument && (
+                      <div className="mt-4 p-3 bg-muted rounded-lg flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FolderOpen className="h-4 w-4 shrink-0 text-legal-primary" />
+                          <span className="truncate">{libraryDocument.original_filename}</span>
+                          <Badge variant="secondary" className="text-[10px]">Library</Badge>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setLibraryDocument(null)}
+                        >
+                          ✕
+                        </Button>
+                      </div>
+                    )}
 
                     {file && (
                       <div className="mt-4 p-3 bg-muted rounded-lg flex items-center justify-between text-sm">
@@ -749,6 +786,17 @@ const DocumentSummarizer = () => {
             </div>
           </DialogContent>
         </Dialog>
+
+        <LibraryPickerDialog
+          open={isLibraryPickerOpen}
+          onOpenChange={setIsLibraryPickerOpen}
+          compatibleTypes={["pdf", "docx", "txt"]}
+          onSelect={(doc) => {
+            setFile(null);
+            setLibraryDocument(doc);
+            toast(`Using library file: ${doc.original_filename}`);
+          }}
+        />
       </div>
     </div>
   );

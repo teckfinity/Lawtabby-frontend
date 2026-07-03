@@ -82,7 +82,7 @@ const FEATURED_TOOLS = [
   {
     title:       "Document Automation",
     description: "Auto-generate legal docs",
-    href:        "/ai/document-automation",
+    href:        "/ai/automation",
     Icon:        FileCheck,
     highlighted: false,
   },

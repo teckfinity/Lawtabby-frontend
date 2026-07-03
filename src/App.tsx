@@ -41,7 +41,7 @@ import DownloadProtectedPDF from "./pages/pdf/DownloadProtectedPDF";
 import DownloadOCRPDF from "./pages/pdf/DownloadOCRPDF";
 import Profile from "./pages/Profile";
 import Subscription from "./pages/Subscription";
-import History from "./pages/History";
+// import History from "./pages/History";
 import AllActivity from "./pages/AllActivity";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
@@ -52,6 +52,7 @@ import ContactSupport from "./pages/ContactSupport";
 import TermsOfService from "./pages/TermsOfService";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import NotFound from "./pages/NotFound";
+import UpgradeRequiredListener from "./components/UpgradeRequiredListener";
 
 // ---------- Protected Route ----------
 const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
@@ -93,6 +94,7 @@ const App = () => (
           <BrowserRouter
             future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
           >
+            <UpgradeRequiredListener />
             <SidebarProvider
               style={
                 {
@@ -456,7 +458,7 @@ const App = () => (
                     </ProtectedRoute>
                   }
                 />
-                <Route
+                {/* <Route
                   path="/history/:id"
                   element={
                     <ProtectedRoute>
@@ -465,7 +467,7 @@ const App = () => (
                       </ProtectedLayout>
                     </ProtectedRoute>
                   }
-                />
+                /> */}
                 <Route
                   path="/activity"
                   element={

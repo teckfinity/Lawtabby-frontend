@@ -1,5 +1,13 @@
+import { useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import type { ChatStructuredResponse } from "@/types/chatResearch";
+import { cn } from "@/lib/utils";
 
 type Props = {
   structured?: ChatStructuredResponse | null;
@@ -16,38 +24,16 @@ export function ChatResearchMessage({
   showExternalLinks = false,
 }: Props) {
   const data = structured || {};
-  const isGreeting = data.intent === "greeting";
   const cases = (data.cases?.length ? data.cases : fallbackSources) || [];
-  const confidence = data.confidence;
-  const reviewed = data.authorities_reviewed ?? cases.length;
   const judgeInsights = data.judge_insights || [];
   const prediction = data.prediction_data;
-  const showMetrics =
-    !isGreeting &&
-    reviewed > 0 &&
-    confidence != null &&
-    confidence > 0;
+  const [sourcesOpen, setSourcesOpen] = useState(false);
 
   return (
     <div className="space-y-3">
       {data.answer && (
         <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">{data.answer}</p>
       )}
-
-      {showMetrics ? (
-        <div className="flex flex-wrap gap-2">
-          {confidence !== undefined && confidence !== null && confidence >= 40 && (
-            <Badge variant="outline" className="text-xs font-normal">
-              Research confidence: {confidence}%
-            </Badge>
-          )}
-          {reviewed > 0 && (
-            <Badge variant="secondary" className="text-xs font-normal">
-              {reviewed} {reviewed === 1 ? "authority" : "authorities"} reviewed
-            </Badge>
-          )}
-        </div>
-      ) : null}
 
       {judgeInsights.length > 0 && (
         <section className="rounded-md border border-border/60 bg-muted/30 p-3 space-y-2">
@@ -102,38 +88,45 @@ export function ChatResearchMessage({
       )}
 
       {cases.length > 0 && (
-        <section className="space-y-2">
-          <p className="text-xs font-semibold text-muted-foreground">Relevant authorities</p>
-          <ol className="space-y-2 list-none">
-            {cases.map((c, idx) => (
-              <li key={idx} className="text-xs rounded-md border border-border/50 p-2">
-                <div className="flex items-start justify-between gap-2">
-                  <span className="font-medium">
-                    [{idx + 1}] {c.title || "Unknown case"}
-                  </span>
-                  {c.influence_score != null && c.influence_score > 0 && (
-                    <Badge variant="outline" className="text-[10px] shrink-0">
-                      Influence {c.influence_score}
-                    </Badge>
+        <Collapsible open={sourcesOpen} onOpenChange={setSourcesOpen}>
+          <CollapsibleTrigger className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">
+            <ChevronDown
+              className={cn("h-3.5 w-3.5 transition-transform", sourcesOpen && "rotate-180")}
+            />
+            Sources ({cases.length})
+          </CollapsibleTrigger>
+          <CollapsibleContent className="pt-2">
+            <ol className="space-y-2 list-none">
+              {cases.map((c, idx) => (
+                <li key={idx} className="text-xs rounded-md border border-border/50 p-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="font-medium">
+                      [{idx + 1}] {c.title || "Unknown case"}
+                    </span>
+                    {c.influence_score != null && c.influence_score > 0 && (
+                      <Badge variant="outline" className="text-[10px] shrink-0">
+                        Influence {c.influence_score}
+                      </Badge>
+                    )}
+                  </div>
+                  {(c.court || c.date) && (
+                    <p className="text-muted-foreground mt-1">
+                      {[c.court, c.date?.slice?.(0, 10) || c.date].filter(Boolean).join(" · ")}
+                    </p>
                   )}
-                </div>
-                {(c.court || c.date) && (
-                  <p className="text-muted-foreground mt-1">
-                    {[c.court, c.date?.slice?.(0, 10) || c.date].filter(Boolean).join(" · ")}
-                  </p>
-                )}
-                {c.excerpt && (
-                  <p className="text-muted-foreground mt-1 line-clamp-2">{c.excerpt}</p>
-                )}
-              </li>
-            ))}
-          </ol>
-        </section>
+                  {c.excerpt && (
+                    <p className="text-muted-foreground mt-1 line-clamp-3">{c.excerpt}</p>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </CollapsibleContent>
+        </Collapsible>
       )}
 
       {data.authorities && data.authorities.length > 0 && !cases.length && (
         <section>
-          <p className="text-xs font-semibold text-muted-foreground mb-1">Authorities used</p>
+          <p className="text-xs font-semibold text-muted-foreground mb-1">Sources</p>
           <ul className="list-decimal list-inside text-xs space-y-1">
             {data.authorities.map((a, i) => (
               <li key={i}>{a}</li>

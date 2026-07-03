@@ -35,7 +35,7 @@ const Profile = () => {
     id: 0,
     name: '',
     email: '',
-    plan: 'Free Plan',
+    plan: 'Starter',
     avatar: ''
   });
 
@@ -63,7 +63,7 @@ const Profile = () => {
           id: data.id || 0,
           name: data.name || '',
           email: data.email || '',
-          plan: data.plan || 'Free Plan',
+          plan: data.subscription?.plan?.name || data.plan || 'Starter',
           avatar: data.avatar || ''
         });
         setTempName(data.name || '');

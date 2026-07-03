@@ -20,6 +20,7 @@ import {
   getPlatformStats,
   getCaseTypeRates,
   runPrediction,
+  parseCaseDocument,
   savePredictionDraft,
   getPredictionDrafts,
   getPredictionDraftDetail,
@@ -41,7 +42,8 @@ export function usePlatformStats() {
   return useQuery({
     queryKey: queryKeys.predictiveAI.stats(),
     queryFn: async () => (await getPlatformStats()).data.data,
-    staleTime: STALE_5MIN,
+    staleTime: STALE_30S,
+    refetchOnWindowFocus: true,
     retry: 2,
   });
 }
@@ -61,6 +63,7 @@ export function usePredictionDrafts(limit = 20) {
     queryFn: async () => (await getPredictionDrafts(limit)).data.data,
     enabled: isAuth(),
     staleTime: STALE_30S,
+    refetchOnWindowFocus: true,
     retry: 1,
   });
 }
@@ -76,11 +79,29 @@ export function usePredictionDraftDetail(draftId: number | null) {
 
 // ─── Mutations ────────────────────────────────────────────────────────────────
 
+export function useParseCaseDocument() {
+  const { toast } = useToast();
+  return useMutation({
+    mutationFn: (file: File) => parseCaseDocument(file).then((r) => r.data.data),
+    onError: (err: unknown) => {
+      const message =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+        ?? "Could not read this file. Try PDF, Word (.docx), or text.";
+      toast({ title: "Upload failed", description: message, variant: "destructive" });
+    },
+  });
+}
+
 export function useRunPrediction() {
+  const qc = useQueryClient();
   const { toast } = useToast();
   return useMutation({
     mutationFn: (payload: PredictPayload) =>
       runPrediction(payload).then((r) => r.data.data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.predictiveAI.stats() });
+      qc.invalidateQueries({ queryKey: queryKeys.predictiveAI.drafts() });
+    },
     onError: () => {
       toast({
         title: "Prediction failed",
@@ -98,6 +119,7 @@ export function useSaveDraft() {
     mutationFn: (payload: SaveDraftPayload) =>
       savePredictionDraft(payload).then((r) => r.data.data),
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.predictiveAI.stats() });
       qc.invalidateQueries({ queryKey: queryKeys.predictiveAI.drafts() });
       toast({ title: "Saved", description: "Prediction saved to your Recent Predictions." });
     },
@@ -134,6 +156,7 @@ export function useDeleteDraft() {
     },
     onSettled: () => {
       qc.invalidateQueries({ queryKey: queryKeys.predictiveAI.drafts() });
+      qc.invalidateQueries({ queryKey: queryKeys.predictiveAI.stats() });
     },
   });
 }

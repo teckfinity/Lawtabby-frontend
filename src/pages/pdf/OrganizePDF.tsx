@@ -9,6 +9,7 @@ import {
   buildLexorbitProcessedFilename,
   triggerBlobDownload,
 } from "@/utils/lexorbitFilename";
+import { PdfLibraryPickButton } from "@/components/library/LibraryFileSourceButtons";
 
 // Drag and drop
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
@@ -29,8 +30,7 @@ const OrganizePDF = () => {
   const [deletedPages, setDeletedPages] = useState<number[]>([]);
   const [isDownloading, setIsDownloading] = useState(false); // NEW: Loading state
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = event.target.files?.[0];
+  const loadPdfFromFile = async (selectedFile: File) => {
     if (!selectedFile) return;
 
     setFile(selectedFile);
@@ -40,14 +40,13 @@ const OrganizePDF = () => {
       fileReader.onload = async function () {
         const typedarray = new Uint8Array(this.result as ArrayBuffer);
 
-        // Load PDF
         const loadingTask = pdfjsLib.getDocument({ data: typedarray });
         const pdf = await loadingTask.promise;
         const pagesArray: PDFPage[] = [];
 
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i);
-          const viewport = page.getViewport({ scale: 0.25 }); // thumbnail scale
+          const viewport = page.getViewport({ scale: 0.25 });
           const canvas = document.createElement("canvas");
           const context = canvas.getContext("2d");
 
@@ -62,7 +61,7 @@ const OrganizePDF = () => {
           const renderContext = {
             canvasContext: context,
             viewport: viewport,
-          } as any; // FIX: use any to avoid PDFRenderParams issue
+          } as any;
 
           await page.render(renderContext).promise;
 
@@ -85,6 +84,11 @@ const OrganizePDF = () => {
       console.error("PDF load error:", error);
       toast.error("Failed to load PDF");
     }
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0];
+    if (selectedFile) await loadPdfFromFile(selectedFile);
   };
 
   const togglePageSelection = (pageId: string) => {
@@ -213,10 +217,13 @@ const OrganizePDF = () => {
                 <Upload className="h-12 w-8 mx-auto text-muted-foreground mb-4" />
                 <h3 className="text-lg font-semibold mb-2">Upload PDF to Organize</h3>
                 <p className="text-muted-foreground mb-4">Choose a PDF file from your device</p>
-                <Button onClick={() => fileInputRef.current?.click()}>
-                  <Upload className="h-4 w-4 mr-2" />
-                  Select PDF File
-                </Button>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <Button onClick={() => fileInputRef.current?.click()}>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Select PDF File
+                  </Button>
+                  <PdfLibraryPickButton onFileReady={loadPdfFromFile} />
+                </div>
               </div>
             </div>
           ) : (

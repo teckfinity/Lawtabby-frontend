@@ -22,6 +22,9 @@ import { UserAvatar } from "@/components/UserAvatar";
 import { ChatResearchMessage } from "@/components/chat/ChatResearchMessage";
 import { ChatConversationSidebar } from "@/components/chat/ChatConversationSidebar";
 import { ChatToolsMenu } from "@/components/chat/ChatToolsMenu";
+import { LibraryPickerDialog } from "@/components/library/LibraryPickerDialog";
+import { libraryDocumentToFile } from "@/api/ai-features/document-library";
+import { toast } from "sonner";
 import { CHAT_HISTORY_HINT_KEY } from "@/components/chat/ChatHistoryHint";
 import { useSidebar } from "@/components/ui/sidebar";
 import { CHAT_WELCOME, chatInputFooter } from "@/constants/chatWelcome";
@@ -134,6 +137,7 @@ const Chat = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
   const [researchMode, setResearchMode] = useState<ResearchMode>("standard");
+  const [isLibraryPickerOpen, setIsLibraryPickerOpen] = useState(false);
   const [showHistoryHint, setShowHistoryHint] = useState(
     () => !localStorage.getItem(CHAT_HISTORY_HINT_KEY)
   );
@@ -319,6 +323,16 @@ const Chat = () => {
     const file = e.target.files?.[0];
     if (file) setSelectedFile(file);
     e.target.value = "";
+  };
+
+  const handleLibraryFilePick = async (doc: { id: number; original_filename: string }) => {
+    try {
+      const file = await libraryDocumentToFile(doc.id, doc.original_filename);
+      setSelectedFile(file);
+      toast.success(`Attached ${doc.original_filename}`);
+    } catch {
+      toast.error("Could not load file from library.");
+    }
   };
 
   const clearSelectedFile = () => {
@@ -614,6 +628,7 @@ const Chat = () => {
                   researchMode={researchMode}
                   onResearchModeChange={setResearchMode}
                   onUploadClick={() => fileInputRef.current?.click()}
+                  onPickFromLibraryClick={() => setIsLibraryPickerOpen(true)}
                   disabled={isLoadingMessages}
                   onClearMode={() => setResearchMode("standard")}
                 />
@@ -644,6 +659,13 @@ const Chat = () => {
             <ChatInputFooter />
           </div>
         </footer>
+
+        <LibraryPickerDialog
+          open={isLibraryPickerOpen}
+          onOpenChange={setIsLibraryPickerOpen}
+          compatibleTypes={["pdf", "docx", "txt"]}
+          onSelect={handleLibraryFilePick}
+        />
       </div>
     </div>
   );

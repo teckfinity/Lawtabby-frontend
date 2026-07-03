@@ -11,6 +11,7 @@ export type Language = "english" | "spanish" | "french" | "german";
 
 export interface SummarizeOptions {
   action?: "process" | "save" | "reset";
+  library_document_id?: number;
   output_format?: OutputFormat;
   summary_length?: number;
   confidence_threshold?: number;
@@ -32,6 +33,9 @@ export const sendLegalDocSummary = (
   formData.append("action", options.action ?? "process");
   if (document) formData.append("document", document, document.name);
   if (text) formData.append("text", text);
+  if (options.library_document_id != null) {
+    formData.append("library_document_id", String(options.library_document_id));
+  }
   formData.append("output_format", options.output_format ?? "irac");
   if (options.summary_length != null)
     formData.append("summary_length", String(options.summary_length));
