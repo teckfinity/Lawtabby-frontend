@@ -11,6 +11,7 @@ import {
   buildLexorbitProcessedFilename,
   triggerBlobDownload,
 } from "@/utils/lexorbitFilename";
+import { PdfLibraryPickButton } from "@/components/library/LibraryFileSourceButtons";
 
 type ProcessStep = "upload" | "processing" | "download";
 
@@ -200,13 +201,22 @@ const CompressPDF = () => {
                 <Upload className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <h3 className="text-lg font-semibold mb-2">Upload PDF to Compress</h3>
                 <p className="text-muted-foreground mb-4">Choose a PDF file from your device</p>
-                <Button 
-                  onClick={() => document.getElementById('pdf-upload')?.click()}
-                  className="bg-primary hover:bg-primary/90"
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  Select PDF File
-                </Button>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <Button 
+                    onClick={() => document.getElementById('pdf-upload')?.click()}
+                    className="bg-primary hover:bg-primary/90"
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Select PDF File
+                  </Button>
+                  <PdfLibraryPickButton
+                    onFileReady={(f) => {
+                      setFile(f);
+                      setCompressionStats(null);
+                      toast.success("PDF file uploaded successfully");
+                    }}
+                  />
+                </div>
               </div>
             </div>
           ) : (

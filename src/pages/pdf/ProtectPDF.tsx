@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { protectPDF as protectPDFApi } from "@/api";
 import { PDFToolDownloadResult } from "@/components/pdf/PDFToolDownloadResult";
+import { PdfLibraryPickButton } from "@/components/library/LibraryFileSourceButtons";
 import { buildLexorbitProcessedFilename } from "@/utils/lexorbitFilename";
 
 type ProcessStep = "upload" | "processing" | "download";
@@ -45,12 +46,14 @@ const ProtectPDF = () => {
     setCurrentStep("upload");
   };
 
+  const selectPdfFile = (selectedFile: File) => {
+    setFile(selectedFile);
+    toast.success("PDF file uploaded successfully");
+  };
+
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
-    if (selectedFile) {
-      setFile(selectedFile);
-      toast.success("PDF file uploaded successfully");
-    }
+    if (selectedFile) selectPdfFile(selectedFile);
     event.target.value = "";
   };
 
@@ -216,14 +219,17 @@ const ProtectPDF = () => {
                       <h3 className="text-lg font-semibold mb-2">Upload PDF to Protect</h3>
                       <p className="text-muted-foreground mb-4">Choose a PDF file from your device</p>
                       <input id="pdf-upload" type="file" accept=".pdf" className="hidden" onChange={handleFileUpload} />
-                      <Button
-                        type="button"
-                        className="bg-primary hover:bg-primary/90"
-                        onClick={() => (document.getElementById("pdf-upload") as HTMLInputElement)?.click()}
-                      >
-                        <Upload className="h-4 w-4 mr-2" />
-                        Select PDF File
-                      </Button>
+                      <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                        <Button
+                          type="button"
+                          className="bg-primary hover:bg-primary/90"
+                          onClick={() => (document.getElementById("pdf-upload") as HTMLInputElement)?.click()}
+                        >
+                          <Upload className="h-4 w-4 mr-2" />
+                          Select PDF File
+                        </Button>
+                        <PdfLibraryPickButton onFileReady={selectPdfFile} />
+                      </div>
                     </div>
                   </div>
                 ) : (

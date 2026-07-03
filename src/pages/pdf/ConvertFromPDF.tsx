@@ -34,6 +34,7 @@ import {
   buildPdfToFormatDownloadName,
   triggerBlobDownload,
 } from "@/utils/lexorbitFilename";
+import { PdfLibraryPickButton } from "@/components/library/LibraryFileSourceButtons";
 
 type ProcessStep = "upload" | "processing" | "download";
 
@@ -247,10 +248,18 @@ const downloadFile = async () => {
                 <p className="text-muted-foreground mb-4">
                   Choose a PDF file from your device
                   </p>
-                <Button onClick={() => fileInputRef.current?.click()}>
-                  <Upload className="h-4 w-4 mr-2" />
-                  Select PDF File
-                </Button>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <Button onClick={() => fileInputRef.current?.click()}>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Select PDF File
+                  </Button>
+                  <PdfLibraryPickButton
+                    onFileReady={(f) => {
+                      setFile(f);
+                      toast.success("PDF file uploaded successfully");
+                    }}
+                  />
+                </div>
                 <input
                  ref={fileInputRef} 
                  type="file"

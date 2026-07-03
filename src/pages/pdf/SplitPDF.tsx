@@ -13,6 +13,7 @@ import {
   buildLexorbitProcessedFilename,
   triggerBlobDownload,
 } from "@/utils/lexorbitFilename";
+import { PdfLibraryPickButton } from "@/components/library/LibraryFileSourceButtons";
 
 type ProcessStep = "upload" | "processing" | "download";
 type SplitMode = "range" | "pages" | "size";
@@ -180,10 +181,18 @@ const SplitPDF = () => {
                 <Upload className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <h3 className="text-lg font-semibold mb-2">Upload PDF to Split</h3>
                 <p className="text-muted-foreground mb-4">Choose a PDF file</p>
-                <Button onClick={() => document.getElementById("pdf-upload")?.click()}>
-                  <Upload className="h-4 w-4 mr-2" />
-                  Select PDF
-                </Button>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <Button onClick={() => document.getElementById("pdf-upload")?.click()}>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Select PDF
+                  </Button>
+                  <PdfLibraryPickButton
+                    onFileReady={(f) => {
+                      setFile(f);
+                      toast.success("PDF uploaded successfully");
+                    }}
+                  />
+                </div>
               </div>
             </div>
           ) : (

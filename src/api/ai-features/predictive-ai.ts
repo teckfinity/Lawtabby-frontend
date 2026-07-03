@@ -8,10 +8,22 @@ import { aiClient } from "./client";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface PlatformStats {
+  predictions_used: number;
+  predictions_limit: number | null;
+  predictions_remaining: number | null;
   predictions_made: number;
-  accuracy_rate: number;
-  cases_analyzed: number;
-  success_improved: string;
+  case_analyses: number;
+  staff_exempt: boolean;
+  max_upload_mb: number;
+  scope: "user" | "platform";
+}
+
+export interface ParsedCaseDocument {
+  filename: string;
+  case_summary: string;
+  key_facts: string;
+  characters_extracted: number;
+  max_upload_mb?: number;
 }
 
 export interface CaseTypeRate {
@@ -32,14 +44,33 @@ export interface OutcomeBreakdown {
   unfavorable: number;
 }
 
+export interface PredictionFactor {
+  name: string;
+  weight_percent: number;
+  score: number;
+  contribution: number;
+  detail?: string;
+}
+
 export interface PredictionResult {
   success_probability: number;
+  historical_baseline_rate?: number;
+  case_adjustment?: number;
+  adjustment_reasons?: string[];
+  prediction_factors?: PredictionFactor[];
   confidence_level: string;
   outcome_breakdown: OutcomeBreakdown;
+  outcome_breakdown_basis?: string;
   contributing_factors: ContributingFactor[];
   ai_insights: string[];
   estimated_decision_time: string;
+  decision_time_basis?: string;
   total_similar_cases: number;
+  analysis_basis: string;
+  case_analysis_basis?: string;
+  recommendation_label: string;
+  recommendation_action: string;
+  risk_level: string;
 }
 
 export interface PredictionDraftSummary {
@@ -82,6 +113,16 @@ export const getCaseTypeRates = () =>
 
 export const runPrediction = (payload: PredictPayload) =>
   aiClient.post<{ success: boolean; data: PredictionResult }>("/api/predictive-ai/predict/", payload);
+
+export const parseCaseDocument = (document: File) => {
+  const formData = new FormData();
+  formData.append("document", document, document.name);
+  return aiClient.post<{ success: boolean; data: ParsedCaseDocument }>(
+    "/api/predictive-ai/parse-document/",
+    formData,
+    { headers: { "Content-Type": "multipart/form-data" } }
+  );
+};
 
 export const savePredictionDraft = (payload: SaveDraftPayload) =>
   aiClient.post<{ success: boolean; data: { id: number; created_at: string } }>(

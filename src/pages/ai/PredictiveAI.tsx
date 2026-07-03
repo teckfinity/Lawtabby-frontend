@@ -20,8 +20,9 @@ import {
   useRunPrediction,
   useSaveDraft,
   useDeleteDraft,
+  useParseCaseDocument,
 } from "@/api/hooks";
-import type { PredictionResult } from "@/api/ai-features/predictive-ai";
+import { LibraryFileSourceButtons } from "@/components/library/LibraryFileSourceButtons";
 
 // ── Download helper ────────────────────────────────────────────────────────────
 function buildReportText(
@@ -57,25 +58,37 @@ Success Probability: ${result.success_probability}%
 Confidence Level:    ${result.confidence_level}
 Est. Decision Time:  ${result.estimated_decision_time}
 Similar Cases Used:  ${result.total_similar_cases.toLocaleString()}
+${result.recommendation_label ? `\nRecommendation:      ${result.recommendation_label}\n${result.recommendation_action || ""}` : ""}
 
-OUTCOME BREAKDOWN
+OUTCOME BREAKDOWN (similar past cases)
   Favorable:   ${result.outcome_breakdown.favorable}%
   Uncertain:   ${result.outcome_breakdown.uncertain}%
   Unfavorable: ${result.outcome_breakdown.unfavorable}%
 
-CONTRIBUTING FACTORS
+WHAT WE CONSIDERED
 ${result.contributing_factors
-  .map((f) => `  • ${f.name} — ${f.sentiment}${f.detail ? `\n    ${f.detail}` : ""}`)
+  .map((f) => `  • ${f.name}${f.detail ? `: ${f.detail}` : ""}`)
   .join("\n")}
 
-AI INSIGHTS
-${result.ai_insights.map((i) => `  ✓ ${i}`).join("\n")}
+KEY REASONS
+${result.ai_insights.map((i) => `  • ${i}`).join("\n")}
 
 ${line}
 DISCLAIMER: This analysis is for informational purposes only and does
 not constitute legal advice. Consult a qualified attorney.
 ${line}
 `.trim();
+}
+
+const CASE_FILE_ACCEPT =
+  ".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain";
+const CASE_FILE_EXTENSIONS = new Set(["pdf", "docx", "txt"]);
+
+function formatPredictionsLeft(stats: { predictions_limit: number | null; predictions_remaining: number | null } | undefined): string {
+  if (!stats) return "0";
+  if (stats.predictions_limit === 0) return "Upgrade plan";
+  if (stats.predictions_limit == null) return "Unlimited";
+  return String(stats.predictions_remaining ?? 0);
 }
 
 const PredictiveAI = () => {
@@ -104,9 +117,14 @@ const PredictiveAI = () => {
   const runMutation    = useRunPrediction();
   const saveMutation   = useSaveDraft();
   const deleteMutation = useDeleteDraft();
+  const parseMutation  = useParseCaseDocument();
 
   const isAnalyzing = runMutation.isPending;
   const isSaving    = saveMutation.isPending;
+  const isParsingFile = parseMutation.isPending;
+
+  const maxUploadMb = stats?.max_upload_mb ?? 10;
+  const maxUploadBytes = maxUploadMb * 1024 * 1024;
 
   // ── Run Prediction ────────────────────────────────────────────────────────
   const handleRunPrediction = useCallback(async () => {
@@ -193,39 +211,65 @@ const PredictiveAI = () => {
     }
   }, [prediction, caseType, jurisdiction, toast]);
 
-  // ── File Upload for Advanced Analysis ────────────────────────────────────
-  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const ext = file.name.split(".").pop()?.toLowerCase();
-
-    // Only .txt is supported for now
-    if (ext !== "txt") {
+  // ── File Upload for Detailed Analysis ────────────────────────────────────
+  const processCaseFile = useCallback(async (file: File) => {
+    if (!isAuthenticated) {
       toast({
-        title: "Format not supported yet",
-        description: `${ext?.toUpperCase()} support is coming soon. Please use a .txt file for now.`,
+        title: "Sign in required",
+        description: "Please sign in to upload a case document.",
         variant: "destructive",
       });
-      // Reset input
-      if (e.target) e.target.value = "";
+      return;
+    }
+
+    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+    if (ext === "doc") {
+      toast({
+        title: "Use .docx or PDF",
+        description: "Older .doc files are not supported. Save as Word (.docx) or export as PDF.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!CASE_FILE_EXTENSIONS.has(ext)) {
+      toast({
+        title: "File type not supported",
+        description: "Please upload a PDF, Word (.docx), or text (.txt) file.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (file.size > maxUploadBytes) {
+      toast({
+        title: "File too large",
+        description: `Your plan allows up to ${maxUploadMb} MB per document.`,
+        variant: "destructive",
+      });
       return;
     }
 
     setUploadedFile(file);
+    setDetailedSummary("");
+    setDetailedFacts("");
 
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const text = ev.target?.result as string;
-      setDetailedSummary(text.slice(0, 2000).trim());
-      setDetailedFacts(text.slice(2000, 4000).trim());
+    try {
+      const parsed = await parseMutation.mutateAsync(file);
+      setDetailedSummary(parsed.case_summary);
+      setDetailedFacts(parsed.key_facts);
       toast({
-        title: "Document loaded",
-        description: `${file.name} ready for analysis. Click Run Prediction.`,
+        title: "Document ready",
+        description: `${parsed.filename} loaded. Click Run Prediction when ready.`,
       });
-    };
-    reader.readAsText(file);
-  }, [toast]);
+    } catch {
+      setUploadedFile(null);
+    }
+  }, [isAuthenticated, parseMutation, toast, maxUploadBytes, maxUploadMb]);
+
+  const handleFileChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (e.target) e.target.value = "";
+    if (file) await processCaseFile(file);
+  }, [processCaseFile]);
 
   // ── Bar colour for success rates ──────────────────────────────────────────
   const rateBarColor = (rate: number) =>
@@ -233,13 +277,31 @@ const PredictiveAI = () => {
     rate >= 60 ? "bg-legal-primary" :
     rate >= 40 ? "bg-legal-warning" : "bg-destructive";
 
-  // ── Stat cards ────────────────────────────────────────────────────────────
-  const statCards = [
-    { label: "Predictions Made",  value: stats ? stats.predictions_made.toLocaleString() : "—", Icon: Brain     },
-    { label: "Accuracy Rate",     value: stats ? `${stats.accuracy_rate}%`               : "—", Icon: Target    },
-    { label: "Cases Analyzed",    value: stats ? stats.cases_analyzed.toLocaleString()   : "—", Icon: Scale     },
-    { label: "Success Improved",  value: stats ? stats.success_improved                  : "—", Icon: TrendingUp },
-  ];
+  // ── Stat cards ──
+  const statCards = isAuthenticated
+    ? [
+        {
+          label: "Predictions Left",
+          value: formatPredictionsLeft(stats),
+          Icon: Target,
+        },
+        {
+          label: "Predictions Made",
+          value: stats != null ? stats.predictions_made.toLocaleString() : "0",
+          Icon: TrendingUp,
+        },
+        {
+          label: "Used This Month",
+          value: stats != null ? stats.predictions_used.toLocaleString() : "0",
+          Icon: Brain,
+        },
+        {
+          label: "Case Analyses",
+          value: stats != null ? stats.case_analyses.toLocaleString() : "0",
+          Icon: Scale,
+        },
+      ]
+    : [];
 
   // ─────────────────────────────────────────────────────────────────────────
   return (
@@ -260,10 +322,11 @@ const PredictiveAI = () => {
             </div>
           </div>
 
-          {/* Stat cards */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+          {/* Stat cards — signed-in users only */}
+          {isAuthenticated && (
+          <div className="grid grid-cols-1 gap-4 mb-8 md:grid-cols-2 lg:grid-cols-4">
             {statsLoading
-              ? Array.from({ length: 4 }).map((_, i) => (
+              ? Array.from({ length: statCards.length }).map((_, i) => (
                   <Card key={i} className="shadow-card">
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
@@ -290,6 +353,7 @@ const PredictiveAI = () => {
                   </Card>
                 ))}
           </div>
+          )}
         </div>
 
         {/* ── Main grid ── */}
@@ -355,15 +419,31 @@ const PredictiveAI = () => {
                     <div className="space-y-4">
                       {/* File upload area */}
                       <div
-                        onClick={() => fileInputRef.current?.click()}
-                        className="border-2 border-dashed border-input rounded-xl p-10 text-center cursor-pointer hover:border-legal-primary hover:bg-legal-primary/5 transition-all"
+                        className={`border-2 border-dashed border-input rounded-xl p-10 text-center transition-all ${
+                          isParsingFile
+                            ? "opacity-70 cursor-wait"
+                            : uploadedFile
+                            ? "cursor-pointer hover:border-legal-primary hover:bg-legal-primary/5"
+                            : ""
+                        }`}
+                        onClick={() => {
+                          if (!isParsingFile && uploadedFile) {
+                            fileInputRef.current?.click();
+                          }
+                        }}
                       >
-                        {uploadedFile ? (
+                        {isParsingFile ? (
+                          <>
+                            <Zap className="h-10 w-10 text-legal-primary mx-auto mb-3 animate-spin" />
+                            <p className="font-semibold text-foreground">Reading your document…</p>
+                            <p className="text-sm text-muted-foreground mt-1">This usually takes a few seconds</p>
+                          </>
+                        ) : uploadedFile ? (
                           <>
                             <FileText className="h-10 w-10 text-legal-primary mx-auto mb-3" />
                             <p className="font-semibold text-foreground">{uploadedFile.name}</p>
                             <p className="text-sm text-muted-foreground mt-1">
-                              {(uploadedFile.size / 1024).toFixed(1)} KB — Click to replace
+                              {(uploadedFile.size / 1024).toFixed(1)} KB · Click to replace
                             </p>
                           </>
                         ) : (
@@ -371,9 +451,20 @@ const PredictiveAI = () => {
                             <Upload className="h-10 w-10 text-muted-foreground mx-auto mb-3" />
                             <p className="font-semibold text-foreground">Upload Case Document</p>
                             <p className="text-sm text-muted-foreground mt-1">
-                              <span className="text-legal-primary font-medium">.txt supported</span>
-                              {" · "}
-                              <span className="text-muted-foreground/70">PDF, DOC — Coming Soon</span>
+                              PDF, Word (.docx), or text file
+                            </p>
+                            <div className="mt-4">
+                              <LibraryFileSourceButtons
+                                accept={CASE_FILE_ACCEPT}
+                                compatibleTypes={["pdf", "docx", "txt"]}
+                                onFileReady={processCaseFile}
+                                disabled={isParsingFile}
+                                chooseLabel="Choose File"
+                                chooseClassName="bg-legal-primary hover:bg-legal-primary/90"
+                              />
+                            </div>
+                            <p className="text-xs text-muted-foreground/80 mt-3">
+                              Up to {maxUploadMb} MB on your plan · Or pick from Library
                             </p>
                           </>
                         )}
@@ -381,9 +472,10 @@ const PredictiveAI = () => {
                       <input
                         ref={fileInputRef}
                         type="file"
-                        accept=".txt"
+                        accept={CASE_FILE_ACCEPT}
                         className="hidden"
                         onChange={handleFileChange}
+                        disabled={isParsingFile}
                       />
 
                       {/* Also allow manual entry in detailed mode */}
@@ -478,12 +570,34 @@ const PredictiveAI = () => {
                     Prediction Results
                   </CardTitle>
                   <CardDescription>
-                    AI-generated case outcome probability — based on{" "}
-                    <strong>{prediction.total_similar_cases.toLocaleString()}</strong> real cases
+                    {prediction.analysis_basis || (
+                      <>Based on {prediction.total_similar_cases.toLocaleString()} similar past cases in our database.</>
+                    )}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-6">
+
+                    {/* Proceed / caution / reconsider */}
+                    {prediction.recommendation_label && (
+                      <div className={`rounded-lg border p-4 ${
+                        prediction.risk_level === "Low"
+                          ? "border-legal-success/40 bg-legal-success/5"
+                          : prediction.risk_level === "Medium"
+                          ? "border-legal-warning/40 bg-legal-warning/5"
+                          : "border-destructive/40 bg-destructive/5"
+                      }`}>
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1">
+                          Should you proceed?
+                        </p>
+                        <p className="text-lg font-semibold text-foreground">
+                          {prediction.recommendation_label}
+                        </p>
+                        <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
+                          {prediction.recommendation_action}
+                        </p>
+                      </div>
+                    )}
 
                     {/* Hero probability */}
                     <div className="text-center p-6 bg-gradient-primary rounded-lg text-white">
@@ -497,59 +611,15 @@ const PredictiveAI = () => {
                       <p className="text-xs text-white/70 mt-2">
                         Est. decision time: <strong>{prediction.estimated_decision_time}</strong>
                       </p>
+                      <p className="text-xs text-white/60 mt-2 max-w-md mx-auto leading-relaxed">
+                        Not legal advice. Estimate based on similar past cases and your case facts.
+                      </p>
                     </div>
 
-                    {/* Outcome breakdown */}
-                    <div className="grid grid-cols-3 gap-4">
-                      <div className="text-center p-4 border border-border rounded-lg">
-                        <CheckCircle className="h-8 w-8 text-legal-success mx-auto mb-2" />
-                        <p className="text-sm font-medium">Favorable</p>
-                        <p className="text-2xl font-bold">{prediction.outcome_breakdown.favorable}%</p>
-                      </div>
-                      <div className="text-center p-4 border border-border rounded-lg">
-                        <AlertTriangle className="h-8 w-8 text-legal-warning mx-auto mb-2" />
-                        <p className="text-sm font-medium">Uncertain</p>
-                        <p className="text-2xl font-bold">{prediction.outcome_breakdown.uncertain}%</p>
-                      </div>
-                      <div className="text-center p-4 border border-border rounded-lg">
-                        <XCircle className="h-8 w-8 text-destructive mx-auto mb-2" />
-                        <p className="text-sm font-medium">Unfavorable</p>
-                        <p className="text-2xl font-bold">{prediction.outcome_breakdown.unfavorable}%</p>
-                      </div>
-                    </div>
-
-                    {/* Contributing factors */}
-                    {prediction.contributing_factors.length > 0 && (
-                      <div>
-                        <h4 className="font-semibold mb-3">Contributing Factors</h4>
-                        <div className="space-y-2">
-                          {prediction.contributing_factors.map((factor, i) => (
-                            <div key={i} className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                              <div className="flex-1 min-w-0">
-                                <span className="text-sm font-medium">{factor.name}</span>
-                                {factor.detail && (
-                                  <p className="text-xs text-muted-foreground mt-0.5">{factor.detail}</p>
-                                )}
-                              </div>
-                              <Badge
-                                variant={
-                                  factor.sentiment === "Positive" ? "default" :
-                                  factor.sentiment === "Negative" ? "destructive" : "secondary"
-                                }
-                                className="ml-2 shrink-0"
-                              >
-                                {factor.sentiment}
-                              </Badge>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* AI Insights – fully dynamic from API */}
+                    {/* Key Reasons first — main lawyer value */}
                     {prediction.ai_insights.length > 0 && (
                       <div>
-                        <h4 className="font-semibold mb-3">AI Insights</h4>
+                        <h4 className="font-semibold mb-3">Key Reasons</h4>
                         <div className="space-y-2">
                           {prediction.ai_insights.map((insight, i) => (
                             <div key={i} className="flex items-start gap-2 text-sm">
@@ -561,7 +631,50 @@ const PredictiveAI = () => {
                       </div>
                     )}
 
-                    {/* Download + Share – fully wired */}
+                    {/* Outcome breakdown */}
+                    <div>
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="text-center p-4 border border-border rounded-lg">
+                          <CheckCircle className="h-8 w-8 text-legal-success mx-auto mb-2" />
+                          <p className="text-sm font-medium">Favorable</p>
+                          <p className="text-2xl font-bold">{prediction.outcome_breakdown.favorable}%</p>
+                        </div>
+                        <div className="text-center p-4 border border-border rounded-lg">
+                          <AlertTriangle className="h-8 w-8 text-legal-warning mx-auto mb-2" />
+                          <p className="text-sm font-medium">Uncertain</p>
+                          <p className="text-2xl font-bold">{prediction.outcome_breakdown.uncertain}%</p>
+                        </div>
+                        <div className="text-center p-4 border border-border rounded-lg">
+                          <XCircle className="h-8 w-8 text-destructive mx-auto mb-2" />
+                          <p className="text-sm font-medium">Unfavorable</p>
+                          <p className="text-2xl font-bold">{prediction.outcome_breakdown.unfavorable}%</p>
+                        </div>
+                      </div>
+                      {prediction.outcome_breakdown_basis && (
+                        <p className="text-xs text-muted-foreground mt-2 text-center leading-relaxed">
+                          How similar past cases concluded: {prediction.outcome_breakdown_basis}
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Supporting context */}
+                    {prediction.contributing_factors.length > 0 && (
+                      <div>
+                        <h4 className="font-semibold mb-3">What we considered</h4>
+                        <div className="space-y-2">
+                          {prediction.contributing_factors.map((factor, i) => (
+                            <div key={i} className="p-3 bg-muted/50 rounded-lg">
+                              <span className="text-sm font-medium">{factor.name}</span>
+                              {factor.detail && (
+                                <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">{factor.detail}</p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Download + Share */}
                     <div className="flex gap-3">
                       <Button className="flex-1" onClick={handleDownload}>
                         <Download className="h-4 w-4 mr-2" />
@@ -689,41 +802,33 @@ const PredictiveAI = () => {
               </CardContent>
             </Card>
 
-            {/* AI Insights sidebar – dynamic after run, static fallback */}
+            {/* Key Reasons sidebar — only after a prediction run */}
             <Card className="shadow-card bg-gradient-primary text-white">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Brain className="h-5 w-5" />
-                  AI Insights
+                  Key Reasons
                 </CardTitle>
-                <CardDescription className="text-white/80">Key factors for success</CardDescription>
+                <CardDescription className="text-white/80">
+                  {prediction ? "From your latest analysis" : "Run a prediction to see why"}
+                </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-3">
-                  {prediction && prediction.ai_insights.length > 0 ? (
-                    prediction.ai_insights.slice(0, 3).map((insight, i) => (
+                {prediction && prediction.ai_insights.length > 0 ? (
+                  <div className="space-y-3">
+                    {prediction.ai_insights.slice(0, 4).map((insight, i) => (
                       <div key={i} className="flex items-start gap-2">
                         <CheckCircle className="h-4 w-4 mt-0.5 shrink-0" />
                         <span className="text-sm">{insight}</span>
                       </div>
-                    ))
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-2">
-                        <CheckCircle className="h-4 w-4" />
-                        <span className="text-sm">Strong precedent cases found</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <AlertTriangle className="h-4 w-4" />
-                        <span className="text-sm">Consider judge's recent rulings</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <TrendingUp className="h-4 w-4" />
-                        <span className="text-sm">Favorable jurisdiction trends</span>
-                      </div>
-                    </>
-                  )}
-                </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-white/85 leading-relaxed">
+                    Enter your case details and run a prediction. You will get a success estimate,
+                    a proceed or caution recommendation, and plain-language reasons based on similar past cases.
+                  </p>
+                )}
               </CardContent>
             </Card>
           </div>

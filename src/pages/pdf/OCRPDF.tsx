@@ -43,6 +43,7 @@ import {
   type StructuredTextPage,
 } from "@/api/pdf/ocr";
 import { buildLexorbitProcessedFilename, triggerBlobDownload } from "@/utils/lexorbitFilename";
+import { PdfLibraryPickButton } from "@/components/library/LibraryFileSourceButtons";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
 
 const DEFAULT_LANGUAGE_OPTIONS: OcrLanguageOption[] = [
@@ -423,10 +424,19 @@ const OCRPDF = () => {
                       <p className="text-muted-foreground mb-4">
                         Choose a PDF or image file from your device
                       </p>
-                      <Button onClick={() => fileInputRef.current?.click()}>
-                        <Upload className="h-4 w-4 mr-2" />
-                        Select File
-                      </Button>
+                      <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                        <Button onClick={() => fileInputRef.current?.click()}>
+                          <Upload className="h-4 w-4 mr-2" />
+                          Select File
+                        </Button>
+                        <PdfLibraryPickButton
+                          onFileReady={(f) => {
+                            setFile(f);
+                            setResult(null);
+                            toast.success("File uploaded successfully");
+                          }}
+                        />
+                      </div>
                       <input
                         ref={fileInputRef}
                         type="file"

@@ -11,6 +11,7 @@ import {
   buildLexorbitProcessedFilename,
   triggerBlobDownload,
 } from "@/utils/lexorbitFilename";
+import { PdfLibraryPickButton } from "@/components/library/LibraryFileSourceButtons";
 
 const UnlockPDF = () => {
   const navigate = useNavigate();
@@ -21,15 +22,17 @@ const UnlockPDF = () => {
   const [unlockedFileUrl, setUnlockedFileUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const selectPdfFile = (selectedFile: File) => {
+    setFile(selectedFile);
+    setIsUnlocked(false);
+    setUnlockedFileUrl(null);
+    setPassword("");
+    toast.success("PDF file uploaded successfully");
+  };
+
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
-    if (selectedFile) {
-      setFile(selectedFile);
-      setIsUnlocked(false);
-      setUnlockedFileUrl(null);
-      setPassword("");
-      toast.success("PDF file uploaded successfully");
-    }
+    if (selectedFile) selectPdfFile(selectedFile);
   };
 
   const handleButtonClick = () => {
@@ -140,13 +143,16 @@ const UnlockPDF = () => {
                   <h3 className="text-lg font-semibold mb-2">
                     Upload Password-Protected PDF
                   </h3>
-                  <Button
-                    className="bg-primary hover:bg-primary/90"
-                    onClick={handleButtonClick}
-                  >
-                    <Upload className="h-4 w-4 mr-2" />
-                    Select PDF File
-                  </Button>
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-4">
+                    <Button
+                      className="bg-primary hover:bg-primary/90"
+                      onClick={handleButtonClick}
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      Select PDF File
+                    </Button>
+                    <PdfLibraryPickButton onFileReady={selectPdfFile} />
+                  </div>
                   <input
                     id="pdf-upload"
                     type="file"

@@ -41,7 +41,7 @@ import DownloadProtectedPDF from "./pages/pdf/DownloadProtectedPDF";
 import DownloadOCRPDF from "./pages/pdf/DownloadOCRPDF";
 import Profile from "./pages/Profile";
 import Subscription from "./pages/Subscription";
-import History from "./pages/History";
+// import History from "./pages/History";
 import AllActivity from "./pages/AllActivity";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword from "./pages/ResetPassword";
@@ -458,7 +458,7 @@ const App = () => (
                     </ProtectedRoute>
                   }
                 />
-                <Route
+                {/* <Route
                   path="/history/:id"
                   element={
                     <ProtectedRoute>
@@ -467,7 +467,7 @@ const App = () => (
                       </ProtectedLayout>
                     </ProtectedRoute>
                   }
-                />
+                /> */}
                 <Route
                   path="/activity"
                   element={

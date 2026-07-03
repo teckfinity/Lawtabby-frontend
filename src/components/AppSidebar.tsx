@@ -2,7 +2,7 @@ import {
   Home, 
   FileText, 
   Library, 
-  History, 
+  // History, 
   LogIn, 
   UserPlus,
   LogOut,
@@ -66,13 +66,13 @@ const aiFeatures = [
   { title: "Document Automation", url: "/ai/automation", icon: FileCheck },
 ];
 
-const historyItems = [
-  "Legal practice analysis",
-  "Legal breakdown summary", 
-  "Court case review",
-  "Contract analysis",
-  "Legal research notes"
-];
+// const historyItems = [
+//   "Legal practice analysis",
+//   "Legal breakdown summary",
+//   "Court case review",
+//   "Contract analysis",
+//   "Legal research notes"
+// ];
 
 export function AppSidebar() {
   const { state, toggleSidebar } = useSidebar();
@@ -276,7 +276,7 @@ export function AppSidebar() {
           )}
         </SidebarGroup>
 
-        {/* History */}
+        {/* History — hidden for now
         {!isCollapsed && (
           <SidebarGroup>
             <SidebarGroupLabel className="flex items-center gap-2 text-xs font-medium text-sidebar-foreground/70">
@@ -299,6 +299,7 @@ export function AppSidebar() {
             </SidebarGroupContent>
           </SidebarGroup>
         )}
+        */}
       </SidebarContent>
 
       {/* Bottom Section */}

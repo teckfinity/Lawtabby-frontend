@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { Check, Database, FileUp, Plus, Search, X } from "lucide-react";
+import { Check, Database, FileUp, FolderOpen, Plus, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   RESEARCH_MODES,
@@ -19,6 +19,7 @@ type ChatToolsMenuProps = {
   researchMode: ResearchMode;
   onResearchModeChange: (mode: ResearchMode) => void;
   onUploadClick: () => void;
+  onPickFromLibraryClick?: () => void;
   disabled?: boolean;
   showModePill?: boolean;
   onClearMode?: () => void;
@@ -28,6 +29,7 @@ export function ChatToolsMenu({
   researchMode,
   onResearchModeChange,
   onUploadClick,
+  onPickFromLibraryClick,
   disabled,
   showModePill = true,
   onClearMode,
@@ -81,6 +83,23 @@ export function ChatToolsMenu({
               <p className="text-[11px] text-muted-foreground mt-1">PDF, DOCX, or TXT</p>
             </div>
           </DropdownMenuItem>
+
+          {onPickFromLibraryClick && (
+            <DropdownMenuItem
+              className="rounded-lg gap-2.5 py-2.5 cursor-pointer"
+              onSelect={(e) => {
+                e.preventDefault();
+                setOpen(false);
+                onPickFromLibraryClick();
+              }}
+            >
+              <FolderOpen className="h-4 w-4 text-muted-foreground" />
+              <div>
+                <p className="text-sm leading-none">Pick from Library</p>
+                <p className="text-[11px] text-muted-foreground mt-1">Reuse a saved upload</p>
+              </div>
+            </DropdownMenuItem>
+          )}
 
           <DropdownMenuSeparator className="my-1" />
 
