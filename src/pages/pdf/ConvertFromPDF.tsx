@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -16,12 +16,34 @@ import {
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
-import axios from "axios";
-import { convertPDFToImage } from "@/api";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  convertPdfToFormat,
+  fetchConvertedFileBlob,
+  type ConversionPipelineMeta,
+} from "@/api/pdf/convert";
+import { fetchOcrLanguages, type OcrLanguage, type OcrLanguageOption } from "@/api/pdf/ocr";
+import {
+  buildPdfToFormatDownloadName,
+  triggerBlobDownload,
+} from "@/utils/lexorbitFilename";
+import { PdfLibraryPickButton } from "@/components/library/LibraryFileSourceButtons";
 
 type ProcessStep = "upload" | "processing" | "download";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+function formatUploadSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
 
 const ConvertFromPDF = () => {
   const navigate = useNavigate();
@@ -30,33 +52,32 @@ const ConvertFromPDF = () => {
   const [selectedFormat, setSelectedFormat] = useState<string>("");
   const [currentStep, setCurrentStep] = useState<ProcessStep>("upload");
   const [progress, setProgress] = useState(0);
-  const [convertedZip, setConvertedZip] = useState<string | null>(null);
+  const [convertedFileUrl, setConvertedFileUrl] = useState<string | null>(null);
+  const [downloadFilename, setDownloadFilename] = useState<string>("");
+  const [conversionMessage, setConversionMessage] = useState<string>("");
+  const [wordPipeline, setWordPipeline] = useState<ConversionPipelineMeta | null>(null);
+  const [pptPipeline, setPptPipeline] = useState<ConversionPipelineMeta | null>(null);
+  const [ocrLanguage, setOcrLanguage] = useState<OcrLanguage>("eng");
+  const [forceOcr, setForceOcr] = useState(false);
+  const [languageOptions, setLanguageOptions] = useState<OcrLanguageOption[]>([
+    { code: "eng", label: "English", installed: true },
+  ]);
+
+  useEffect(() => {
+    fetchOcrLanguages()
+      .then((res) => {
+        if (res.data?.languages?.length) setLanguageOptions(res.data.languages);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const needsOcrOptions = selectedFormat === "docx" || selectedFormat === "pptx";
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
     if (selectedFile) {
       setFile(selectedFile);
       toast.success("PDF file uploaded successfully");
-    }
-  };
-
-  // ✅ Direct ZIP download (no extraction)
-  const downloadZipFile = async (zipFileUrl: string) => {
-    try {
-      const response = await axios.get(zipFileUrl, { responseType: "blob" });
-      const blob = new Blob([response.data], { type: "application/zip" });
-      const downloadUrl = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = downloadUrl;
-      link.download = "converted_files.zip";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(downloadUrl);
-      toast.success("ZIP file downloaded successfully!");
-    } catch (error) {
-      console.error("Error downloading ZIP file:", error);
-      toast.error("Failed to download ZIP file.");
     }
   };
 
@@ -73,64 +94,83 @@ const ConvertFromPDF = () => {
     setCurrentStep("processing");
     setProgress(0);
 
-    // ✅ Handle JPG or PNG conversion via backend
-    if (selectedFormat === "jpg" || selectedFormat === "png") {
-      try {
-        setProgress(0);
-
-        // Use the shared API function
-        const response = await convertPDFToImage(file, selectedFormat.toUpperCase());
-        console.log("PDF to Image response:", response.data);
-
-        if (
-          response.data &&
-          response.data.conversion_data &&
-          response.data.conversion_data.zip_file
-        ) {
-          toast.success("Conversion successful!");
-          setConvertedZip(response.data.conversion_data.zip_file);
-          setProgress(100);
-          setTimeout(() => setCurrentStep("download"), 700);
-        } else {
-          toast.error("Invalid response from server.");
-          setCurrentStep("upload");
+    try {
+      // Simulate fake progress bar
+      let progressValue = 0;
+      const progressInterval = setInterval(() => {
+        progressValue += Math.random() * 10;
+        if (progressValue >= 95) {
+          progressValue = 95;
+          clearInterval(progressInterval);
         }
-      } catch (error) {
-        console.error("Error converting PDF:", error);
-        toast.error("PDF to image conversion failed.");
-        setCurrentStep("upload");
-      }
-      return;
-    }
+        setProgress(progressValue);
+      }, 300);
 
-    // ✅ Simulated progress for non-image formats
-    let currentProgress = 0;
-    const interval = setInterval(() => {
-      currentProgress += Math.random() * 12;
-      if (currentProgress >= 100) {
-        currentProgress = 100;
-        setProgress(100);
-        clearInterval(interval);
-        setTimeout(() => {
-          setCurrentStep("download");
-        }, 500);
-      }
-      setProgress(currentProgress);
-    }, 180);
-  };
+      const result = await convertPdfToFormat(file, mapFormat(selectedFormat), {
+        ocrLanguage: needsOcrOptions ? ocrLanguage : undefined,
+        forceOcr: needsOcrOptions ? forceOcr : undefined,
+      });
 
-  // ✅ Now downloads the ZIP directly (no extraction)
-  const downloadFile = async () => {
-    if (convertedZip) {
-      const fullUrl =
-        convertedZip.startsWith("http") || convertedZip.startsWith("/")
-          ? convertedZip
-          : `${API_BASE_URL}/media/pdf_images/${convertedZip}`;
-      await downloadZipFile(fullUrl);
-    } else {
-      toast.info("No converted file available for download.");
+      clearInterval(progressInterval);
+      setProgress(100);
+
+      setConvertedFileUrl(result.downloadUrl);
+      setDownloadFilename(
+        result.downloadFilename ||
+          buildPdfToFormatDownloadName(file.name, selectedFormat),
+      );
+      setConversionMessage(result.message || "Conversion completed!");
+      setWordPipeline(result.wordPipeline ?? null);
+      setPptPipeline(result.pptPipeline ?? null);
+      toast.success(result.message || "Conversion completed!");
+      setTimeout(() => setCurrentStep("download"), 700);
+    } catch (error) {
+      console.error("Error converting PDF:", error);
+      const message =
+        error instanceof Error ? error.message : "Conversion failed. Please try again.";
+      toast.error(message, { duration: 10000 });
+      setCurrentStep("upload");
     }
   };
+
+  const mapFormat = (format: string) => {
+    switch (format) {
+      case "docx":
+        return "word";
+      case "xlsx":
+        return "excel";
+      case "pptx":
+        return "powerpoint";
+      case "jpg":
+        return "jpeg";
+      case "png":
+        return "png";
+      case "txt":
+        return "text";
+      default:
+        return format;
+    }
+  };
+
+const downloadFile = async () => {
+  if (!convertedFileUrl || !file) {
+    toast.info("No converted file available for download.");
+    return;
+  }
+
+  try {
+    const blob = await fetchConvertedFileBlob(convertedFileUrl);
+    const name =
+      downloadFilename || buildPdfToFormatDownloadName(file.name, selectedFormat);
+    triggerBlobDownload(blob, name);
+    toast.success("File downloaded successfully!");
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Download failed. Please try again.";
+    toast.error(message);
+  }
+};
+
 
   const printFile = () => {
     toast.success("Opening print dialog...");
@@ -142,7 +182,11 @@ const ConvertFromPDF = () => {
   const resetProcess = () => {
     setFile(null);
     setSelectedFormat("");
-    setConvertedZip(null);
+    setConvertedFileUrl(null);
+    setDownloadFilename("");
+    setConversionMessage("");
+    setWordPipeline(null);
+    setPptPipeline(null);
     setCurrentStep("upload");
     setProgress(0);
   };
@@ -153,42 +197,42 @@ const ConvertFromPDF = () => {
       name: "Word Document",
       icon: FileText,
       description: "Editable Word document with preserved formatting",
-      color: "bg-blue-100 text-blue-600",
+      color: "bg-navy/10 text-navy",
     },
     {
       format: "xlsx",
       name: "Excel Spreadsheet",
       icon: FileSpreadsheet,
       description: "Convert tables and data to Excel format",
-      color: "bg-green-100 text-green-600",
+      color: "bg-success/15 text-success",
     },
     {
       format: "pptx",
       name: "PowerPoint",
       icon: Presentation,
       description: "Convert to PowerPoint presentation",
-      color: "bg-orange-100 text-orange-600",
+      color: "bg-gold/15 text-gold-dark",
     },
     {
       format: "jpg",
       name: "JPG Images",
       icon: Image,
       description: "Convert each page to JPG image",
-      color: "bg-purple-100 text-purple-600",
+      color: "bg-legal-info/15 text-legal-info",
     },
     {
       format: "png",
       name: "PNG Images",
       icon: Image,
       description: "Convert each page to PNG image",
-      color: "bg-indigo-100 text-indigo-600",
+      color: "bg-primary/15 text-primary",
     },
     {
       format: "txt",
       name: "Plain Text",
       icon: FileText,
       description: "Extract text content only",
-      color: "bg-gray-100 text-gray-600",
+      color: "bg-muted text-muted-foreground",
     },
   ];
 
@@ -203,21 +247,26 @@ const ConvertFromPDF = () => {
                 <h3 className="text-lg font-semibold mb-2">Upload PDF to Convert</h3>
                 <p className="text-muted-foreground mb-4">
                   Choose a PDF file from your device
-                </p>
-                <Button
-                  className="bg-primary hover:bg-primary/90"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  Select PDF File
-                </Button>
+                  </p>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <Button onClick={() => fileInputRef.current?.click()}>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Select PDF File
+                  </Button>
+                  <PdfLibraryPickButton
+                    onFileReady={(f) => {
+                      setFile(f);
+                      toast.success("PDF file uploaded successfully");
+                    }}
+                  />
+                </div>
                 <input
-                  ref={fileInputRef}
-                  type="file"
+                 ref={fileInputRef} 
+                 type="file"
                   accept=".pdf"
-                  className="hidden"
+                  className="hidden" 
                   onChange={handleFileUpload}
-                />
+                   />
               </div>
             </div>
           ) : (
@@ -228,7 +277,7 @@ const ConvertFromPDF = () => {
               <div className="flex-1">
                 <h4 className="font-medium">{file.name}</h4>
                 <p className="text-sm text-muted-foreground">
-                  {(file.size / 1024 / 1024).toFixed(2)} MB
+                  {formatUploadSize(file.size)}
                 </p>
               </div>
               <Button variant="outline" size="sm" onClick={() => setFile(null)}>
@@ -247,37 +296,81 @@ const ConvertFromPDF = () => {
               {conversionOptions.map((option) => (
                 <Card
                   key={option.format}
-                  className={`cursor-pointer transition-all hover:shadow-md ${
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={selectedFormat === option.format}
+                  aria-label={`${option.name}. ${option.description}`}
+                  className={`relative cursor-pointer rounded-lg border-2 transition-all outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 ${
                     selectedFormat === option.format
-                      ? "ring-2 ring-primary bg-primary/5"
-                      : "hover:bg-muted/50"
+                      ? "border-primary bg-primary/5 shadow-md ring-2 ring-primary/25"
+                      : "border-transparent bg-card hover:border-primary/40 hover:bg-muted/30"
                   }`}
                   onClick={() => setSelectedFormat(option.format)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedFormat(option.format);
+                    }
+                  }}
                 >
-                  <CardContent className="p-4">
+                  <CardContent className="p-4 pt-10">
+                    {selectedFormat === option.format ? (
+                      <span className="absolute top-3 right-3 inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-primary-foreground shadow">
+                        <Check className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                        Selected
+                      </span>
+                    ) : null}
                     <div className="flex items-start gap-3">
                       <div
-                        className={`w-12 h-12 rounded-lg flex items-center justify-center ${option.color}`}
+                        className={`w-12 h-12 rounded-lg flex items-center justify-center shrink-0 ${option.color}`}
                       >
                         <option.icon className="h-6 w-6" />
                       </div>
-                      <div className="flex-1 min-w-0">
+                      <div className="flex-1 min-w-0 text-left">
                         <h4 className="font-medium">{option.name}</h4>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {option.description}
-                        </p>
+                        <p className="text-sm text-muted-foreground mt-1">{option.description}</p>
                       </div>
                     </div>
                   </CardContent>
                 </Card>
               ))}
             </div>
+            {needsOcrOptions && (
+              <div className="mt-6 space-y-4 rounded-lg border p-4 text-left">
+                <h4 className="font-medium">OCR options (scanned PDFs)</h4>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">OCR language</label>
+                  <Select value={ocrLanguage} onValueChange={(v) => setOcrLanguage(v as OcrLanguage)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {languageOptions.map(({ code, label, installed }) => (
+                        <SelectItem key={code} value={code} disabled={!installed}>
+                          {label}{!installed ? " (not installed)" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="convert-force-ocr"
+                    checked={forceOcr}
+                    onCheckedChange={(v) => setForceOcr(v === true)}
+                  />
+                  <label htmlFor="convert-force-ocr" className="text-sm cursor-pointer">
+                    Force OCR before conversion
+                  </label>
+                </div>
+              </div>
+            )}
             <div className="flex justify-center mt-6">
               <Button
-                onClick={convertFile}
-                disabled={!selectedFormat}
-                className="bg-primary hover:bg-primary/90 px-8"
-              >
+               onClick={convertFile} 
+               disabled={!selectedFormat} 
+               className="bg-primary hover:bg-primary/90 px-8"
+               >
                 <RefreshCw className="h-4 w-4 mr-2" />
                 Convert
               </Button>
@@ -300,10 +393,11 @@ const ConvertFromPDF = () => {
             </div>
             <div>
               <h3 className="text-xl font-semibold mb-2">
-                Converting to {selectedFormat.toUpperCase()}...
+                Converting to{" "}
+                {conversionOptions.find((o) => o.format === selectedFormat)?.name ?? selectedFormat}…
               </h3>
               <p className="text-muted-foreground">
-                {file?.name} ({(file?.size / 1024 / 1024)?.toFixed(2)}mb)
+                {file?.name} ({formatUploadSize(file?.size ?? 0)})
               </p>
             </div>
             <div className="space-y-2">
@@ -322,6 +416,13 @@ const ConvertFromPDF = () => {
       (opt) => opt.format === selectedFormat
     );
 
+    const outName =
+      downloadFilename ||
+      (file && selectedFormat ? buildPdfToFormatDownloadName(file.name, selectedFormat) : "Converted file");
+
+    const pipeline = wordPipeline || pptPipeline;
+    const pipelineEngine = pipeline?.chosen_engine || null;
+
     return (
       <div className="max-w-2xl mx-auto text-center">
         <Card>
@@ -333,39 +434,42 @@ const ConvertFromPDF = () => {
                 </div>
               </div>
               <div>
-                <h3 className="text-xl font-semibold mb-2">
-                  Conversion Complete!
-                </h3>
+                <h3 className="text-xl font-semibold mb-2">Conversion Complete!</h3>
                 <p className="text-muted-foreground">
-                  Your PDF has been converted to {selectedOption?.name}
+                  {conversionMessage || (
+                    <>
+                      Your PDF <span className="font-medium text-foreground">{file?.name}</span> has been
+                      converted to {selectedOption?.name}.
+                    </>
+                  )}
                 </p>
               </div>
-              <div className="bg-muted rounded-lg p-4">
+              <div className="bg-muted rounded-lg p-4 text-left">
                 <div className="flex items-center gap-3">
                   <div
-                    className={`w-12 h-12 rounded-lg flex items-center justify-center ${selectedOption?.color}`}
+                    className={`w-12 h-12 rounded-lg flex items-center justify-center shrink-0 ${selectedOption?.color}`}
                   >
-                    {selectedOption?.icon && (
-                      <selectedOption.icon className="h-6 w-6" />
+                    {selectedOption?.icon && <selectedOption.icon className="h-6 w-6" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className="font-medium truncate">{outName}</h4>
+                    <p className="text-sm text-muted-foreground truncate" title={`${file?.name ?? ""}`}>
+                      Source PDF: {file?.name} · {formatUploadSize(file?.size ?? 0)}
+                    </p>
+                    {pipelineEngine && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Conversion engine: {pipelineEngine.replace(/_/g, " ")}
+                        {pipeline?.ocr_prep_layer_applied ? " · OCR pre-processing applied" : ""}
+                      </p>
                     )}
                   </div>
-                  <div className="flex-1 text-left">
-                    <h4 className="font-medium">
-                      {file?.name?.replace(".pdf", `.${selectedFormat}`)}
-                    </h4>
-                    <p className="text-sm text-muted-foreground">
-                      {(file?.size / 1024 / 1024)?.toFixed(2)} MB
-                    </p>
-                  </div>
-                  <div className="text-green-600 font-medium text-sm">
-                    ✓ Converted
-                  </div>
+                  <div className="text-green-600 font-medium text-sm shrink-0">✓ Done</div>
                 </div>
               </div>
               <div className="flex gap-4 justify-center">
-                <Button
-                  onClick={downloadFile}
-                  className="bg-primary hover:bg-primary/90"
+                <Button 
+                onClick={downloadFile} 
+                className="bg-primary hover:bg-primary/90"
                 >
                   <Download className="h-4 w-4 mr-2" />
                   Download {selectedOption?.name}
@@ -394,8 +498,8 @@ const ConvertFromPDF = () => {
             size="sm"
             onClick={() =>
               currentStep === "upload"
-                ? navigate("/pdf-tools")
-                : setCurrentStep("upload")
+               ? navigate("/pdf-tools") 
+               : setCurrentStep("upload")
             }
             className="flex items-center gap-2"
           >
@@ -405,10 +509,10 @@ const ConvertFromPDF = () => {
           <div>
             <h1 className="text-3xl font-bold text-foreground">
               PDF to other Formats
-            </h1>
+              </h1>
             <p className="text-muted-foreground">
               Easily convert your PDF files into DOC, PPT, EXCEL, JPG, PNG and
-              DOCX documents.
+               DOCX documents.
             </p>
           </div>
         </div>

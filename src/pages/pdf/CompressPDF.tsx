@@ -1,14 +1,43 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowLeft, Upload, Download, Check, Zap, Printer, Trash2 } from "lucide-react";
+import { ArrowLeft, Upload, Download, Zap } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
-import PDFToolRecommendations from "@/components/PDFToolRecommendations";
-import { compressPDF as compressPDFApi } from "@/api"; // import your API function
+import { PDFToolDownloadResult } from "@/components/pdf/PDFToolDownloadResult";
+import { compressPDF as compressPDFApi } from "@/api";
+import {
+  buildLexorbitProcessedFilename,
+  triggerBlobDownload,
+} from "@/utils/lexorbitFilename";
+import { PdfLibraryPickButton } from "@/components/library/LibraryFileSourceButtons";
 
 type ProcessStep = "upload" | "processing" | "download";
+
+type CompressionStatsApi = {
+  original_bytes: number;
+  compressed_bytes: number;
+  applied_reduction: boolean;
+  tier: string;
+  strategy: string;
+  /** Server-reported savings; backend uses one decimal place. */
+  savings_percent: number;
+  compression_ratio?: number;
+};
+
+function formatFileSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "—";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+const TIER_LABEL: Record<string, string> = {
+  extreme: "High compression (up to ~75% smaller on scans)",
+  recommended: "Medium compression (target ~40–50% smaller)",
+  less: "Low compression (target ~25–35% smaller, best fidelity)",
+};
 
 const CompressPDF = () => {
   const navigate = useNavigate();
@@ -17,11 +46,13 @@ const CompressPDF = () => {
   const [progress, setProgress] = useState(0);
   const [compressionLevel, setCompressionLevel] = useState("medium");
   const [compressedFileUrl, setCompressedFileUrl] = useState<string | null>(null);
+  const [compressionStats, setCompressionStats] = useState<CompressionStatsApi | null>(null);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
     if (selectedFile) {
       setFile(selectedFile);
+      setCompressionStats(null);
       toast.success("PDF file uploaded successfully");
     }
     event.target.value = '';
@@ -48,16 +79,29 @@ const CompressPDF = () => {
     }, 150);
 
     try {
-      // Map compressionLevel to quality number (example: low=80, medium=60, high=40)
-      const qualityMap: Record<string, number> = { low: 80, medium: 60, high: 40 };
-      const response = await compressPDFApi(file, qualityMap[compressionLevel]);
+      const tierMap: Record<string, "extreme" | "recommended" | "less"> = {
+        low: "less",
+        medium: "recommended",
+        high: "extreme",
+      };
+      const tier = tierMap[compressionLevel] ?? "recommended";
+      const response = await compressPDFApi(file, tier);
 
       // Use split_pdf.compressed_file instead of file_url
       if (response.data && response.data.split_pdf?.compressed_file) {
         setCompressedFileUrl(response.data.split_pdf.compressed_file);
+        const stats =
+          response.data.split_pdf.compression_stats as CompressionStatsApi | undefined;
+        setCompressionStats(stats ?? null);
         setProgress(100);
         setTimeout(() => setCurrentStep("download"), 500);
-        toast.success("PDF compressed successfully!");
+        toast.success("PDF processed successfully!");
+        if (stats && !stats.applied_reduction) {
+          toast.info(
+            "File size unchanged — your PDF was already small or well optimized at this tier (server kept the original bytes).",
+            { duration: 6000 },
+          );
+        }
       } else {
         throw new Error("No file URL returned from server");
       }
@@ -66,6 +110,8 @@ const CompressPDF = () => {
       toast.error(error.message || "Failed to compress PDF");
       setCurrentStep("upload");
       setProgress(0);
+    } finally {
+      clearInterval(interval);
     }
   };
 
@@ -75,19 +121,19 @@ const CompressPDF = () => {
     toast.success("Download started!");
 
     try {
+      // 🧩 Fix Mixed Content issue: force HTTPS if frontend is served over HTTPS
+      let downloadUrl = compressedFileUrl;
+      if (window.location.protocol === "https:" && downloadUrl.startsWith("http://")) {
+        downloadUrl = downloadUrl.replace("http://", "https://");
+      }
+
       // fetch the file as blob
-      const res = await fetch(compressedFileUrl);
+      const res = await fetch(downloadUrl);
       const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `compressed_${file?.name}`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-
-      window.URL.revokeObjectURL(url);
+      const downloadName = file
+        ? buildLexorbitProcessedFilename(file.name, "compressed")
+        : "document_lexorbit_compressed.pdf";
+      triggerBlobDownload(blob, downloadName);
 
       toast.success("Compressed file downloaded successfully!");
     } catch (err) {
@@ -96,20 +142,53 @@ const CompressPDF = () => {
     }
   };
 
+
   const resetProcess = () => {
     setFile(null);
     setCurrentStep("upload");
     setProgress(0);
     setCompressedFileUrl(null);
-    };
+    setCompressionStats(null);
+  };
 
   const getCompressionInfo = () => {
-    const originalSize = file ? file.size / 1024 / 1024 : 0;
-    const compressionRates = { low: 0.8, medium: 0.6, high: 0.4 };
-    const compressedSize = originalSize * compressionRates[compressionLevel as keyof typeof compressionRates];
-    const savings = Math.round((1 - compressionRates[compressionLevel as keyof typeof compressionRates]) * 100);
-    
-    return { originalSize, compressedSize, savings };
+    if (!file) {
+      return {
+        originalLabel: "—",
+        compressedLabel: "—",
+        savings: 0,
+        tierLabel: "",
+        note: "",
+      };
+    }
+
+    if (compressionStats) {
+      const ratio =
+        compressionStats.original_bytes > 0
+          ? compressionStats.compressed_bytes / compressionStats.original_bytes
+          : 1;
+      // Derive % from returned byte sizes so UI always matches the tier you just ran.
+      const savingsPct =
+        compressionStats.applied_reduction ? Math.max(0, (1 - ratio) * 100) : 0;
+
+      return {
+        originalLabel: formatFileSize(compressionStats.original_bytes),
+        compressedLabel: formatFileSize(compressionStats.compressed_bytes),
+        savings: savingsPct,
+        tierLabel: TIER_LABEL[compressionStats.tier] ?? compressionStats.tier,
+        note: compressionStats.applied_reduction
+          ? ""
+          : "Your PDF stayed the same size. That often happens when the file is already minimal or Ghostscript cannot beat it at this tier.",
+      };
+    }
+
+    return {
+      originalLabel: formatFileSize(file.size),
+      compressedLabel: "—",
+      savings: 0,
+      tierLabel: "",
+      note: "",
+    };
   };
 
   const renderUploadStep = () => (
@@ -122,13 +201,22 @@ const CompressPDF = () => {
                 <Upload className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <h3 className="text-lg font-semibold mb-2">Upload PDF to Compress</h3>
                 <p className="text-muted-foreground mb-4">Choose a PDF file from your device</p>
-                <Button 
-                  onClick={() => document.getElementById('pdf-upload')?.click()}
-                  className="bg-primary hover:bg-primary/90"
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  Select PDF File
-                </Button>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <Button 
+                    onClick={() => document.getElementById('pdf-upload')?.click()}
+                    className="bg-primary hover:bg-primary/90"
+                  >
+                    <Upload className="h-4 w-4 mr-2" />
+                    Select PDF File
+                  </Button>
+                  <PdfLibraryPickButton
+                    onFileReady={(f) => {
+                      setFile(f);
+                      setCompressionStats(null);
+                      toast.success("PDF file uploaded successfully");
+                    }}
+                  />
+                </div>
               </div>
             </div>
           ) : (
@@ -139,10 +227,13 @@ const CompressPDF = () => {
               <div className="flex-1">
                 <h4 className="font-medium">{file.name}</h4>
                 <p className="text-sm text-muted-foreground">
-                  {(file.size / 1024 / 1024).toFixed(2)} MB
+                  {formatFileSize(file.size)}
                 </p>
               </div>
-              <Button variant="outline" size="sm" onClick={() => setFile(null)}>
+              <Button variant="outline" size="sm" onClick={() => {
+                setFile(null);
+                setCompressionStats(null);
+              }}>
                 Remove
               </Button>
             </div>
@@ -163,7 +254,10 @@ const CompressPDF = () => {
                       name="compression"
                       value="low"
                       checked={compressionLevel === "low"}
-                      onChange={(e) => setCompressionLevel(e.target.value)}
+                      onChange={(e) => {
+              setCompressionLevel(e.target.value);
+              setCompressionStats(null);
+            }}
                       className="w-4 h-4"
                     />
                     <div>
@@ -171,7 +265,7 @@ const CompressPDF = () => {
                       <p className="text-sm text-muted-foreground">Better quality, larger file size</p>
                     </div>
                   </div>
-                  <span className="text-sm text-muted-foreground">~20% savings</span>
+                  <span className="text-sm font-medium text-muted-foreground">Preserve size / quality</span>
                 </label>
                 
                 <label className="flex items-center justify-between p-3 border rounded cursor-pointer hover:bg-muted/50">
@@ -181,7 +275,10 @@ const CompressPDF = () => {
                       name="compression"
                       value="medium"
                       checked={compressionLevel === "medium"}
-                      onChange={(e) => setCompressionLevel(e.target.value)}
+                      onChange={(e) => {
+              setCompressionLevel(e.target.value);
+              setCompressionStats(null);
+            }}
                       className="w-4 h-4"
                     />
                     <div>
@@ -189,7 +286,7 @@ const CompressPDF = () => {
                       <p className="text-sm text-muted-foreground">Balanced quality and size</p>
                     </div>
                   </div>
-                  <span className="text-sm text-muted-foreground">~40% savings</span>
+                  <span className="text-sm font-medium text-muted-foreground">Recommended</span>
                 </label>
                 
                 <label className="flex items-center justify-between p-3 border rounded cursor-pointer hover:bg-muted/50">
@@ -199,15 +296,18 @@ const CompressPDF = () => {
                       name="compression"
                       value="high"
                       checked={compressionLevel === "high"}
-                      onChange={(e) => setCompressionLevel(e.target.value)}
+                      onChange={(e) => {
+              setCompressionLevel(e.target.value);
+              setCompressionStats(null);
+            }}
                       className="w-4 h-4"
                     />
                     <div>
                       <span className="font-medium">High Compression</span>
-                      <p className="text-sm text-muted-foreground">Smaller file size, reduced quality</p>
+                      <p className="text-sm text-muted-foreground">Smaller file — more aggressive presets</p>
                     </div>
                   </div>
-                  <span className="text-sm text-muted-foreground">~60% savings</span>
+                  <span className="text-sm font-medium text-muted-foreground">Max shrink attempt</span>
                 </label>
               </div>
               
@@ -235,7 +335,7 @@ const CompressPDF = () => {
             
             <div>
               <h3 className="text-xl font-semibold mb-2">Compressing PDF...</h3>
-              <p className="text-muted-foreground">{file?.name} ({(file?.size / 1024 / 1024)?.toFixed(2)}mb)</p>
+              <p className="text-muted-foreground">{file?.name} ({formatFileSize(file?.size ?? 0)})</p>
             </div>
 
             <div className="space-y-2">
@@ -250,66 +350,45 @@ const CompressPDF = () => {
   );
 
   const renderDownloadStep = () => {
-    const { originalSize, compressedSize, savings } = getCompressionInfo();
-    
+    const { originalLabel, compressedLabel, savings, note, tierLabel } = getCompressionInfo();
+
+    const statusBanner = (
+      <>
+        {note ? (
+          <p className="text-sm text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950 rounded-md px-4 py-2 mb-3">
+            {note}
+          </p>
+        ) : null}
+        <div
+          className={`text-center p-2 rounded font-medium ${
+            savings > 0
+              ? "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300"
+              : "bg-muted text-muted-foreground"
+          }`}
+        >
+          {savings > 0
+            ? `${savings.toFixed(1)}% smaller vs upload (${tierLabel})`
+            : "No reduction — exact original kept (searchable)"}
+        </div>
+      </>
+    );
+
     return (
-      <div className="max-w-2xl mx-auto">
-        <Card className="border-2 border-primary">
-          <CardContent className="p-8 text-center">
-            <h3 className="text-xl font-semibold mb-2">Compression Complete!</h3>
-            <p className="text-sm text-muted-foreground mb-6">
-              Your PDF has been compressed successfully. Download or continue with other tools.
-            </p>
-
-            <div className="bg-muted rounded-lg p-4 mb-6">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-12 h-12 bg-red-100 rounded flex items-center justify-center">
-                  <span className="text-red-600 font-bold text-xs">PDF</span>
-                </div>
-                <div className="flex-1 text-left">
-                  <h4 className="font-medium">compressed_{file?.name}</h4>
-                  <p className="text-sm text-muted-foreground">
-                    {compressedSize.toFixed(2)} MB (was {originalSize.toFixed(2)} MB)
-                  </p>
-                </div>
-              </div>
-              <div className="text-center p-2 bg-green-50 rounded text-green-700 font-medium">
-                {savings}% file size reduction
-              </div>
-            </div>
-
-            <div className="flex items-center justify-center gap-4 mb-6">
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={resetProcess}
-                className="h-12 w-12"
-              >
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
-
-              <Button
-                onClick={downloadFile}
-                className="bg-primary hover:bg-primary/90 h-12 px-8"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Download Compressed PDF
-              </Button>
-
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={resetProcess}
-                className="h-12 w-12 text-destructive hover:text-destructive"
-              >
-                <Trash2 className="h-5 w-5" />
-              </Button>
-            </div>
-
-            <PDFToolRecommendations currentTool="compress" />
-          </CardContent>
-        </Card>
-      </div>
+      <PDFToolDownloadResult
+        title="Compression complete!"
+        description="We only swap in a smaller PDF when it beats your upload byte-for-byte (text-first pipeline)."
+        outputFilename={
+          file
+            ? buildLexorbitProcessedFilename(file.name, "compressed")
+            : "document_lexorbit_compressed.pdf"
+        }
+        sourceSummary={`${compressedLabel} (was ${originalLabel}) · ${tierLabel || "tier —"}`}
+        statusBanner={statusBanner}
+        onDownload={downloadFile}
+        onReset={resetProcess}
+        downloadButtonLabel="Download compressed PDF"
+        currentTool="compress"
+      />
     );
   };
 
@@ -320,7 +399,15 @@ const CompressPDF = () => {
           <Button 
             variant="ghost" 
             size="sm" 
-            onClick={() => currentStep === "upload" ? navigate("/pdf-tools") : setCurrentStep("upload")}
+            onClick={() => {
+              if (currentStep === "upload") {
+                navigate("/pdf-tools");
+                return;
+              }
+              setCurrentStep("upload");
+              setCompressedFileUrl(null);
+              setCompressionStats(null);
+            }}
             className="flex items-center gap-2"
           >
             <ArrowLeft className="h-4 w-4" />

@@ -5,15 +5,15 @@ import { ArrowLeft, Upload, Download, Trash2, RotateCcw, GripVertical } from "lu
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { organizePDF } from "@/api";
+import {
+  buildLexorbitProcessedFilename,
+  triggerBlobDownload,
+} from "@/utils/lexorbitFilename";
+import { PdfLibraryPickButton } from "@/components/library/LibraryFileSourceButtons";
 
 // Drag and drop
 import { DragDropContext, Droppable, Draggable } from "react-beautiful-dnd";
-// ✅ Correct imports for modern React + Vite/CRA setup
-import * as pdfjsLib from "pdfjs-dist";
-import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-
-// ✅ Register the worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+import { pdfjs as pdfjsLib } from "@/lib/pdfjsWorker";
 
 interface PDFPage {
   id: string;
@@ -22,73 +22,74 @@ interface PDFPage {
   selected: boolean;
 }
 
-
 const OrganizePDF = () => {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [pages, setPages] = useState<PDFPage[]>([]);
+  const [deletedPages, setDeletedPages] = useState<number[]>([]);
+  const [isDownloading, setIsDownloading] = useState(false); // NEW: Loading state
 
- const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-  const selectedFile = event.target.files?.[0];
-  if (!selectedFile) return;
+  const loadPdfFromFile = async (selectedFile: File) => {
+    if (!selectedFile) return;
 
-  setFile(selectedFile);
+    setFile(selectedFile);
 
-  try {
-    const fileReader = new FileReader();
-    fileReader.onload = async function () {
-      const typedarray = new Uint8Array(this.result as ArrayBuffer);
+    try {
+      const fileReader = new FileReader();
+      fileReader.onload = async function () {
+        const typedarray = new Uint8Array(this.result as ArrayBuffer);
 
-      // ✅ Load PDF
-      const loadingTask = pdfjsLib.getDocument({ data: typedarray });
-      const pdf = await loadingTask.promise;
-      const pagesArray: PDFPage[] = [];
+        const loadingTask = pdfjsLib.getDocument({ data: typedarray });
+        const pdf = await loadingTask.promise;
+        const pagesArray: PDFPage[] = [];
 
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const viewport = page.getViewport({ scale: 0.25 }); // thumbnail scale
-        const canvas = document.createElement("canvas");
-        const context = canvas.getContext("2d");
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const viewport = page.getViewport({ scale: 0.25 });
+          const canvas = document.createElement("canvas");
+          const context = canvas.getContext("2d");
 
-        if (!context) {
-          console.warn(`Skipping page ${i}: no canvas context`);
-          continue;
+          if (!context) {
+            console.warn(`Skipping page ${i}: no canvas context`);
+            continue;
+          }
+
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+
+          const renderContext = {
+            canvasContext: context,
+            viewport: viewport,
+          } as any;
+
+          await page.render(renderContext).promise;
+
+          const thumbnail = canvas.toDataURL("image/png");
+
+          pagesArray.push({
+            id: `page-${i}`,
+            pageNumber: i,
+            thumbnail,
+            selected: false,
+          });
         }
 
-        canvas.width = viewport.width;
-        canvas.height = viewport.height;
+        setPages(pagesArray);
+        toast.success(`Loaded ${pdf.numPages} pages successfully!`);
+      };
 
-        // ✅ FIX: Explicitly cast the parameters for TypeScript
-        const renderContext = {
-          canvasContext: context,
-          viewport: viewport,
-        } as unknown as pdfjsLib.PDFRenderParams;
+      fileReader.readAsArrayBuffer(selectedFile);
+    } catch (error) {
+      console.error("PDF load error:", error);
+      toast.error("Failed to load PDF");
+    }
+  };
 
-        await page.render(renderContext).promise;
-
-        const thumbnail = canvas.toDataURL("image/png");
-
-        pagesArray.push({
-          id: `page-${i}`,
-          pageNumber: i,
-          thumbnail,
-          selected: false,
-        });
-      }
-
-      setPages(pagesArray);
-      toast.success(`Loaded ${pdf.numPages} pages successfully!`);
-    };
-
-    fileReader.readAsArrayBuffer(selectedFile);
-  } catch (error) {
-    console.error("❌ PDF load error:", error);
-    toast.error("Failed to load PDF");
-  }
-};
-
-
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0];
+    if (selectedFile) await loadPdfFromFile(selectedFile);
+  };
 
   const togglePageSelection = (pageId: string) => {
     setPages(pages.map(page => 
@@ -99,17 +100,22 @@ const OrganizePDF = () => {
   };
 
   const deleteSelectedPages = () => {
-    const selectedCount = pages.filter(p => p.selected).length;
+    const selectedPages = pages.filter(p => p.selected);
+    const selectedCount = selectedPages.length;
+
     if (selectedCount === 0) {
       toast.error("Please select pages to delete");
       return;
     }
-    
+
+    // Track deleted page numbers
+    const deleted = selectedPages.map(p => p.pageNumber);
+    setDeletedPages(prev => [...prev, ...deleted]);
+
+    // Remove selected pages, keep original page numbers
     const remainingPages = pages.filter(p => !p.selected);
-    setPages(remainingPages.map((page, index) => ({
-      ...page,
-      pageNumber: index + 1
-    })));
+    setPages(remainingPages);
+
     toast.success(`Deleted ${selectedCount} page(s)`);
   };
 
@@ -141,44 +147,50 @@ const OrganizePDF = () => {
     toast.success("Page rotated 90° clockwise");
   };
 
-const saveOrganizedPDF = async () => {
-  if (!file) {
-    toast.error("No PDF file selected");
-    return;
-  }
-  if (pages.length === 0) {
-    toast.error("No pages to save");
-    return;
-  }
+  // FIXED: Proper download implementation
+  const saveOrganizedPDF = async () => {
+    if (!file) {
+      toast.error("No PDF file selected");
+      return;
+    }
+    if (pages.length === 0) {
+      toast.error("No pages to save");
+      return;
+    }
 
-  try {
-    const userOrder = pages.map(page => page.pageNumber);
-    const response = await organizePDF(file, userOrder);
+    setIsDownloading(true);
 
-    // Get file URL from backend
-    const organizedPDFUrl = response.data.organized_data.organize_pdf;
+    try {
+      const userOrder = pages.map(page => page.pageNumber);
+      const response = await organizePDF(file, userOrder, deletedPages);
 
-    toast.success("PDF organized successfully!");
+      const organizedPDFUrl = response.data.organized_data.organize_pdf;
 
-    // Fetch file as Blob and trigger local download
-    const fileResponse = await fetch(organizedPDFUrl);
-    const blob = await fileResponse.blob();
-    const blobUrl = window.URL.createObjectURL(blob);
+      // NEW: Fetch the PDF as a blob to force download
+      const pdfResponse = await fetch(organizedPDFUrl, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/pdf',
+        },
+      });
 
-    const link = document.createElement("a");
-    link.href = blobUrl;
-    link.download = `organized_${file.name}`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(blobUrl);
+      if (!pdfResponse.ok) {
+        throw new Error(`HTTP error! status: ${pdfResponse.status}`);
+      }
 
-  } catch (error: any) {
-    console.error(error);
-    toast.error(error.response?.data?.error || "Failed to organize PDF");
-  }
-};
+      const blob = await pdfResponse.blob();
 
+      triggerBlobDownload(blob, buildLexorbitProcessedFilename(file.name, "organized"));
+
+      toast.success("PDF downloaded successfully!");
+
+    } catch (error: any) {
+      console.error(error);
+      toast.error(error.response?.data?.error || "Failed to organize PDF");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
 
   const selectAll = () => setPages(pages.map(page => ({ ...page, selected: true })));
   const deselectAll = () => setPages(pages.map(page => ({ ...page, selected: false })));
@@ -189,12 +201,62 @@ const saveOrganizedPDF = async () => {
     const reorderedPages = Array.from(pages);
     const [removed] = reorderedPages.splice(result.source.index, 1);
     reorderedPages.splice(result.destination.index, 0, removed);
-    setPages(reorderedPages.map((page, index) => ({ ...page, pageNumber: index + 1 })));
+    setPages(reorderedPages);
   };
+
+  /* ──────────────────────────────────────── */
+  /*  UPLOAD STEP – EXACTLY LIKE StampPDF     */
+  /* ──────────────────────────────────────── */
+  const renderUploadStep = () => (
+    <div className="space-y-6">
+      <Card>
+        <CardContent className="p-8">
+          {!file ? (
+            <div className="text-center">
+              <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8">
+                <Upload className="h-12 w-8 mx-auto text-muted-foreground mb-4" />
+                <h3 className="text-lg font-semibold mb-2">Upload PDF to Organize</h3>
+                <p className="text-muted-foreground mb-4">Choose a PDF file from your device</p>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <Button onClick={() => fileInputRef.current?.click()}>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Select PDF File
+                  </Button>
+                  <PdfLibraryPickButton onFileReady={loadPdfFromFile} />
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
+              <div className="w-12 h-12 bg-red-100 rounded flex items-center justify-center">
+                <span className="text-red-600 font-bold text-xs">PDF</span>
+              </div>
+              <div className="flex-1">
+                <h4 className="font-medium">{file.name}</h4>
+                <p className="text-sm text-muted-foreground">
+                  {(file.size / 1024 / 1024).toFixed(2)} MB
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => setFile(null)}>
+                Remove
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf"
+        className="hidden"
+        onChange={handleFileUpload}
+      />
+    </div>
+  );
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
           <Button 
@@ -213,29 +275,7 @@ const saveOrganizedPDF = async () => {
         </div>
 
         {!file ? (
-          <Card className="h-96">
-            <CardContent className="p-8 h-full flex items-center justify-center">
-              <div className="text-center">
-                <Upload className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
-                <h3 className="text-xl font-semibold mb-2">Upload PDF to Organize</h3>
-                <p className="text-muted-foreground mb-4">Choose a PDF file from your device</p>
-                <Button 
-                  className="bg-primary hover:bg-primary/90"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  Select PDF File
-                </Button>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".pdf"
-                  className="hidden"
-                  onChange={handleFileUpload}
-                />
-              </div>
-            </CardContent>
-          </Card>
+          renderUploadStep()
         ) : (
           <div className="space-y-6">
             {/* Controls */}
@@ -251,9 +291,23 @@ const saveOrganizedPDF = async () => {
                       <p className="text-sm text-muted-foreground">{pages.length} pages loaded</p>
                     </div>
                   </div>
-                  <Button onClick={saveOrganizedPDF} className="bg-primary hover:bg-primary/90">
-                    <Download className="h-4 w-4 mr-2" />
-                    Download Organized PDF
+                  {/* UPDATED: Button with loading state */}
+                  <Button 
+                    onClick={saveOrganizedPDF} 
+                    disabled={isDownloading}
+                    className="bg-primary hover:bg-primary/90"
+                  >
+                    {isDownloading ? (
+                      <>
+                        <Download className="h-4 w-4 mr-2 animate-pulse" />
+                        Downloading...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="h-4 w-4 mr-2" />
+                        Download Organized PDF
+                      </>
+                    )}
                   </Button>
                 </div>
 
@@ -297,14 +351,13 @@ const saveOrganizedPDF = async () => {
                           >
                             <CardContent className="p-3">
                               <div className="relative">
-                             <div className="aspect-[8.5/11] bg-white border rounded overflow-hidden mb-2">
-                            <img
-                              src={page.thumbnail}
-                              alt={`Page ${page.pageNumber}`}
-                              className="w-full h-full object-contain"
-                            />
-                          </div>
-
+                                <div className="aspect-[8.5/11] bg-white border rounded overflow-hidden mb-2">
+                                  <img
+                                    src={page.thumbnail}
+                                    alt={`Page ${page.pageNumber}`}
+                                    className="w-full h-full object-contain"
+                                  />
+                                </div>
 
                                 {page.selected && (
                                   <div className="absolute top-1 right-1 w-5 h-5 bg-primary rounded-full flex items-center justify-center">

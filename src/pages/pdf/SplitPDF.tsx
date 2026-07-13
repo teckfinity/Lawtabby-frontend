@@ -8,7 +8,12 @@ import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
-import { splitPDF as splitPDFApi } from "@/api";   // ✅ import API
+import { splitPDF as splitPDFApi } from "@/api";
+import {
+  buildLexorbitProcessedFilename,
+  triggerBlobDownload,
+} from "@/utils/lexorbitFilename";
+import { PdfLibraryPickButton } from "@/components/library/LibraryFileSourceButtons";
 
 type ProcessStep = "upload" | "processing" | "download";
 type SplitMode = "range" | "pages" | "size";
@@ -37,14 +42,17 @@ const SplitPDF = () => {
   const [pagesToExtract, setPageToExtract] = useState("");
   const [mergeExtracted, setMergeExtracted] = useState(false);
 
-  // store API response (download URLs)
-  const [splitFiles, setSplitFiles] = useState<string[]>([]);
+  // Store final downloadable URL + metadata
+  const [downloadUrl, setDownloadUrl] = useState<string>("");
+  const [fileName, setFileName] = useState<string>("");
+  const [isZip, setIsZip] = useState(false);
+  const [fileCount, setFileCount] = useState(0);
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = event.target.files?.[0];
     if (selectedFile) {
       setFile(selectedFile);
-      toast.success("PDF file uploaded successfully");
+      toast.success("PDF uploaded successfully");
     }
     event.target.value = "";
   };
@@ -64,90 +72,105 @@ const SplitPDF = () => {
     setRanges(ranges.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
   };
 
-  // ✅ Fixed API call to use backend's response format
   const splitPDF = async () => {
     if (!file) {
-      toast.error("Please upload a PDF file first");
+      toast.error("Please upload a PDF first");
       return;
     }
 
     setCurrentStep("processing");
-    setProgress(20);
+    setProgress(15);
 
     try {
-      const response = await splitPDFApi(file);
-      const fileUrl: string | undefined = response.data?.split_pdf?.split_pdf;
-      if (fileUrl) {
-        setSplitFiles([fileUrl]);
-      }
+      const response = await splitPDFApi({
+        file,
+        split_mode: splitMode,
+        range_mode: rangeMode,
+        ranges: splitMode === "range" ? JSON.stringify(ranges.map(r => ({ from: r.from, to: r.to }))) : undefined,
+        merge_ranges: mergeRanges,
+        extract_mode: extractMode,
+        pages_to_extract: extractMode === "select" ? pagesToExtract : undefined,
+        merge_extracted: mergeExtracted,
+        max_file_size: splitMode === "size" ? String(maxFileSize) : undefined,
+        size_unit: sizeUnit,
+        allow_compression: allowCompression,
+      });
 
-      let currentProgress = 20;
+      const data = response.data;
+      const url = data?.split_pdf?.split_pdf;
+
+      if (!url) throw new Error("No download URL received");
+
+      // Extract metadata
+      const isZipFile = data?.is_zip === true;
+      const count = data?.total_files_created || 1;
+
+      const cleanName =
+        data?.download_filename ??
+        buildLexorbitProcessedFilename(
+          file.name,
+          "split",
+          isZipFile ? "zip" : "pdf",
+        );
+
+      setDownloadUrl(url);
+      setFileName(cleanName);
+      setIsZip(isZipFile);
+      setFileCount(count);
+
+      // Fake progress
+      let prog = 15;
       const interval = setInterval(() => {
-        currentProgress += Math.random() * 20;
-        if (currentProgress >= 100) {
-          currentProgress = 100;
-          setProgress(100);
+        prog += Math.random() * 18;
+        if (prog >= 100) {
+          prog = 100;
           clearInterval(interval);
-
-          // ✅ after API success → go to download step
-          setTimeout(() => {
-            setCurrentStep("download");
-          }, 500);
+          setProgress(100);
+          setTimeout(() => setCurrentStep("download"), 600);
         }
-        setProgress(currentProgress);
-      }, 200);
+        setProgress(prog);
+      }, 180);
 
-      console.log("Split PDF response:", response.data);
-      toast.success("PDF split successfully!");
+      toast.success(data?.message || "PDF split successfully!");
     } catch (error: any) {
       console.error(error);
-      toast.error("Failed to split PDF");
+      toast.error("Split failed. Try again.");
       setCurrentStep("upload");
       setProgress(0);
     }
   };
 
-  // ✅ Proper file download
-  const downloadFiles = async () => {
-    if (!splitFiles.length) {
-      toast.error("No split files available for download.");
+  const downloadFile = async () => {
+    if (!downloadUrl) {
+      toast.error("No file to download");
       return;
     }
 
     try {
-      for (let i = 0; i < splitFiles.length; i++) {
-        const fileUrl = splitFiles[i];
-        const response = await fetch(fileUrl, { method: "GET" });
-        if (!response.ok) throw new Error("Failed to fetch split PDF");
+      const res = await fetch(downloadUrl);
+      if (!res.ok) throw new Error("Download failed");
 
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
+      const blob = await res.blob();
+      triggerBlobDownload(blob, fileName);
 
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = `split_part_${i + 1}.pdf`;
-        document.body.appendChild(link);
-        link.click();
-
-        document.body.removeChild(link);
-        window.URL.revokeObjectURL(url);
-      }
-
-      toast.success("Download started!");
-    } catch (error) {
-      console.error("Download failed:", error);
-      toast.error("Failed to download split files. Please try again.");
+      toast.success(`${isZip ? "ZIP" : "PDF"} downloaded!`);
+    } catch (err) {
+      toast.error("Download error");
     }
   };
 
-  const resetProcess = () => {
+  const resetAll = () => {
     setFile(null);
     setCurrentStep("upload");
     setProgress(0);
+    setDownloadUrl("");
+    setFileName("");
+    setIsZip(false);
+    setFileCount(0);
     setRanges([{ id: "1", from: 1, to: 5 }]);
-    setSplitFiles([]);
   };
 
+  // === RENDER STEPS ===
   const renderUploadStep = () => (
     <div className="space-y-6">
       <Card>
@@ -157,32 +180,35 @@ const SplitPDF = () => {
               <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8">
                 <Upload className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <h3 className="text-lg font-semibold mb-2">Upload PDF to Split</h3>
-                <p className="text-muted-foreground mb-4">Choose a PDF file from your device</p>
-                <Button 
-                  onClick={() => document.getElementById('pdf-upload')?.click()}
-                  className="bg-primary hover:bg-primary/90"
-                >
-                  <Upload className="h-4 w-4 mr-2" />
-                  Select PDF File
-                </Button>
+                <p className="text-muted-foreground mb-4">Choose a PDF file</p>
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                  <Button onClick={() => document.getElementById("pdf-upload")?.click()}>
+                    <Upload className="h-4 w-4 mr-2" />
+                    Select PDF
+                  </Button>
+                  <PdfLibraryPickButton
+                    onFileReady={(f) => {
+                      setFile(f);
+                      toast.success("PDF uploaded successfully");
+                    }}
+                  />
+                </div>
               </div>
             </div>
           ) : (
-            <div className="space-y-4">
-              <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
-                <div className="w-12 h-12 bg-red-100 rounded flex items-center justify-center">
-                  <span className="text-red-600 font-bold text-xs">PDF</span>
-                </div>
-                <div className="flex-1">
-                  <h4 className="font-medium">{file.name}</h4>
-                  <p className="text-sm text-muted-foreground">
-                    {(file.size / 1024 / 1024).toFixed(2)} MB
-                  </p>
-                </div>
-                <Button variant="outline" size="sm" onClick={() => setFile(null)}>
-                  Remove
-                </Button>
+            <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
+              <div className="w-12 h-12 bg-red-100 rounded flex items-center justify-center">
+                <span className="text-red-600 font-bold text-xs">PDF</span>
               </div>
+              <div className="flex-1">
+                <h4 className="font-medium">{file.name}</h4>
+                <p className="text-sm text-muted-foreground">
+                  {(file.size / 1024 / 1024).toFixed(2)} MB
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => setFile(null)}>
+                Remove
+              </Button>
             </div>
           )}
         </CardContent>
@@ -191,309 +217,182 @@ const SplitPDF = () => {
       {file && (
         <Card>
           <CardContent className="p-6">
-            <h3 className="text-xl font-semibold text-center mb-6">Split</h3>
-            
+            <h3 className="text-xl font-semibold text-center mb-6">Split Options</h3>
+
             {/* Mode Tabs */}
-            <div className="grid grid-cols-3 gap-2 mb-6">
-              <button
-                onClick={() => setSplitMode("range")}
-                className={`p-4 rounded-lg border-2 transition-all ${
-                  splitMode === "range"
-                    ? "border-primary bg-primary/5"
-                    : "border-border hover:border-primary/50"
-                }`}
-              >
-                <div className="flex flex-col items-center gap-2">
-                  <div className="text-2xl">📄</div>
-                  <span className="text-sm font-medium">Range</span>
-                </div>
-              </button>
-
-              <button
-                onClick={() => setSplitMode("pages")}
-                className={`p-4 rounded-lg border-2 transition-all ${
-                  splitMode === "pages"
-                    ? "border-primary bg-primary/5"
-                    : "border-border hover:border-primary/50"
-                }`}
-              >
-                <div className="flex flex-col items-center gap-2">
-                  <div className="text-2xl">📑</div>
-                  <span className="text-sm font-medium">Pages</span>
-                </div>
-              </button>
-
-              <button
-                onClick={() => setSplitMode("size")}
-                className={`p-4 rounded-lg border-2 transition-all ${
-                  splitMode === "size"
-                    ? "border-primary bg-primary/5"
-                    : "border-border hover:border-primary/50"
-                }`}
-              >
-                <div className="flex flex-col items-center gap-2">
-                  <div className="text-2xl">📊</div>
-                  <span className="text-sm font-medium">Size</span>
-                </div>
-              </button>
+            <div className="grid grid-cols-3 gap-3 mb-6">
+              {(["range", "pages", "size"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setSplitMode(mode)}
+                  className={`p-4 rounded-lg border-2 transition-all capitalize ${
+                    splitMode === mode
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:border-primary/50"
+                  }`}
+                >
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="text-2xl">
+                      {mode === "range" ? "📄" : mode === "pages" ? "📑" : "📊"}
+                    </div>
+                    <span className="text-sm font-medium">{mode}</span>
+                  </div>
+                </button>
+              ))}
             </div>
 
-            {/* Range Mode */}
+            {/* === RANGE MODE === */}
             {splitMode === "range" && (
-              <div className="space-y-4">
+              <div className="space-y-5">
                 <div>
-                  <h4 className="font-semibold mb-3">Range mode:</h4>
+                  <h4 className="font-medium mb-2">Range type:</h4>
                   <div className="grid grid-cols-2 gap-3">
-                    <button
-                      onClick={() => setRangeMode("custom")}
-                      className={`p-3 rounded-lg border-2 transition-all ${
-                        rangeMode === "custom"
-                          ? "border-red-500 text-red-600"
-                          : "border-border"
-                      }`}
-                    >
-                      Custom ranges
-                    </button>
-                    <button
-                      onClick={() => setRangeMode("fixed")}
-                      className={`p-3 rounded-lg border-2 transition-all ${
-                        rangeMode === "fixed"
-                          ? "border-red-500 text-red-600"
-                          : "border-border"
-                      }`}
-                    >
-                      Fixed ranges
-                    </button>
+                    {(["custom", "fixed"] as const).map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => setRangeMode(m)}
+                        className={`p-3 rounded border-2 capitalize ${
+                          rangeMode === m ? "border-red-500 text-red-600" : "border-border"
+                        }`}
+                      >
+                        {m === "custom" ? "Custom ranges" : "Fixed size"}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
                 {rangeMode === "custom" && (
-                  <div className="space-y-3">
-                    {ranges.map((range, index) => (
-                      <div key={range.id} className="space-y-2">
-                        <div className="flex items-center gap-2 text-sm font-medium">
-                          <span>Range {index + 1}</span>
-                          {ranges.length > 1 && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeRange(range.id)}
-                              className="h-6 w-6 p-0"
-                            >
-                              <Trash2 className="h-3 w-3" />
-                            </Button>
-                          )}
+                  <>
+                    {ranges.map((r, i) => (
+                      <div key={r.id} className="flex items-end gap-3">
+                        <div className="flex-1">
+                          <label className="text-xs text-muted-foreground">From</label>
+                          <Input
+                            type="number"
+                            value={r.from}
+                            onChange={(e) => updateRange(r.id, "from", parseInt(e.target.value) || 1)}
+                            min={1}
+                          />
                         </div>
-                        <div className="flex items-center gap-3">
-                          <div className="flex-1">
-                            <label className="text-xs text-muted-foreground mb-1 block">
-                              from page
-                            </label>
-                            <Input
-                              type="number"
-                              value={range.from}
-                              onChange={(e) => updateRange(range.id, "from", parseInt(e.target.value) || 1)}
-                              min={1}
-                              className="text-center"
-                            />
-                          </div>
-                          <span className="mt-5 text-muted-foreground">to</span>
-                          <div className="flex-1">
-                            <Input
-                              type="number"
-                              value={range.to}
-                              onChange={(e) => updateRange(range.id, "to", parseInt(e.target.value) || 5)}
-                              min={range.from}
-                              className="text-center mt-5"
-                            />
-                          </div>
+                        <div className="flex-1">
+                          <label className="text-xs text-muted-foreground">To</label>
+                          <Input
+                            type="number"
+                            value={r.to}
+                            onChange={(e) => updateRange(r.id, "to", parseInt(e.target.value) || 1)}
+                            min={r.from}
+                          />
                         </div>
+                        {ranges.length > 1 && (
+                          <Button variant="ghost" size="icon" onClick={() => removeRange(r.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     ))}
-
-                    <Button
-                      onClick={addRange}
-                      variant="outline"
-                      className="w-full border-red-500 text-red-600 hover:bg-red-50"
-                    >
-                      <Plus className="h-4 w-4 mr-2" />
-                      Add Range
+                    <Button onClick={addRange} variant="outline" className="w-full">
+                      <Plus className="h-4 w-4 mr-2" /> Add Range
                     </Button>
-
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center gap-2">
                       <Checkbox
                         id="merge"
                         checked={mergeRanges}
-                        onCheckedChange={(checked) => setMergeRanges(checked as boolean)}
+                        onCheckedChange={(v) => setMergeRanges(!!v)}
                       />
-                      <label htmlFor="merge" className="text-sm cursor-pointer">
-                        Merge all ranges in one PDF file.
+                      <label htmlFor="merge" className="text-sm">
+                        Merge all into one PDF
                       </label>
                     </div>
-                  </div>
+                  </>
                 )}
 
                 {rangeMode === "fixed" && (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="font-semibold mb-3 block">
-                        Split into page ranges of:
-                      </label>
-                      <Input
-                        type="number"
-                        value={ranges[0].to}
-                        onChange={(e) => updateRange(ranges[0].id, "to", parseInt(e.target.value) || 1)}
-                        min={1}
-                        className="w-full"
-                      />
-                    </div>
-
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm">
-                      <p className="text-blue-900">
-                        This PDF will be split into files of {ranges[0].to} pages.{" "}
-                        <span className="font-semibold">5 PDFs</span> will be created.
-                      </p>
-                    </div>
+                  <div>
+                    <label className="font-medium">Pages per file:</label>
+                    <Input
+                      type="number"
+                      value={ranges[0].to}
+                      onChange={(e) => updateRange(ranges[0].id, "to", parseInt(e.target.value) || 1)}
+                      min={1}
+                    />
                   </div>
                 )}
               </div>
             )}
 
-            {/* Pages Mode */}
+            {/* === PAGES MODE === */}
             {splitMode === "pages" && (
               <div className="space-y-4">
                 <div>
-                  <h4 className="font-semibold mb-3">Extract mode:</h4>
+                  <h4 className="font-medium mb-2">Extract:</h4>
                   <div className="grid grid-cols-2 gap-3">
-                    <button
-                      onClick={() => setExtractMode("all")}
-                      className={`p-3 rounded-lg border-2 transition-all ${
-                        extractMode === "all"
-                          ? "border-red-500 text-red-600"
-                          : "border-border"
-                      }`}
-                    >
-                      Extract all pages
-                    </button>
-                    <button
-                      onClick={() => setExtractMode("select")}
-                      className={`p-3 rounded-lg border-2 transition-all ${
-                        extractMode === "select"
-                          ? "border-red-500 text-red-600"
-                          : "border-border"
-                      }`}
-                    >
-                      Select pages
-                    </button>
+                    {(["all", "select"] as const).map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => setExtractMode(m)}
+                        className={`p-3 rounded border-2 capitalize ${
+                          extractMode === m ? "border-red-500 text-red-600" : "border-border"
+                        }`}
+                      >
+                        {m === "all" ? "All pages" : "Select pages"}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
-                {extractMode === "all" && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm">
-                    <p className="text-blue-900">
-                      Selected pages will be converted into separate PDF files.{" "}
-                      <span className="font-semibold">5 PDF</span> will be created.
-                    </p>
-                  </div>
-                )}
-
                 {extractMode === "select" && (
-                  <div className="space-y-4">
-                    <div>
-                      <label className="font-semibold mb-3 block">
-                        Pages to extract:
-                      </label>
-                      <Input
-                        type="text"
-                        placeholder="example: 1,5-8"
-                        value={pagesToExtract}
-                        onChange={(e) => setPageToExtract(e.target.value)}
-                        className="w-full"
-                      />
-                    </div>
-
-                    <div className="flex items-center space-x-2">
+                  <>
+                    <Input
+                      placeholder="e.g. 1, 3-5, 8"
+                      value={pagesToExtract}
+                      onChange={(e) => setPageToExtract(e.target.value)}
+                    />
+                    <div className="flex items-center gap-2">
                       <Checkbox
-                        id="merge-extracted"
+                        id="merge-ex"
                         checked={mergeExtracted}
-                        onCheckedChange={(checked) => setMergeExtracted(checked as boolean)}
+                        onCheckedChange={(v) => setMergeExtracted(!!v)}
                       />
-                      <label htmlFor="merge-extracted" className="text-sm cursor-pointer">
-                        Merge extracted pages into one PDF file.
+                      <label htmlFor="merge-ex" className="text-sm">
+                        Merge into one PDF
                       </label>
                     </div>
-
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm">
-                      <p className="text-blue-900">
-                        Selected pages will be converted into separate PDF files.{" "}
-                        <span className="font-semibold">1 PDF</span> will be created.
-                      </p>
-                    </div>
-                  </div>
+                  </>
                 )}
               </div>
             )}
 
-            {/* Size Mode */}
+            {/* === SIZE MODE === */}
             {splitMode === "size" && (
               <div className="space-y-4">
-                <div className="text-sm space-y-1">
-                  <p>
-                    <span className="font-medium">Original file size:</span>{" "}
-                    {(file.size / 1024).toFixed(2)} KB
-                  </p>
-                  <p>
-                    <span className="font-medium">Total pages:</span> 5
-                  </p>
-                </div>
-
                 <div>
-                  <h4 className="font-semibold mb-3">Maximum size per file:</h4>
-                  <div className="flex gap-3">
+                  <label className="font-medium">Max size per file:</label>
+                  <div className="flex gap-2">
                     <Input
                       type="number"
                       value={maxFileSize}
                       onChange={(e) => setMaxFileSize(parseInt(e.target.value) || 0)}
-                      className="flex-1 text-center"
                     />
-                    <div className="flex border rounded-lg overflow-hidden">
-                      <button
-                        onClick={() => setSizeUnit("KB")}
-                        className={`px-4 py-2 transition-colors ${
-                          sizeUnit === "KB"
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted"
-                        }`}
-                      >
-                        KB
-                      </button>
-                      <button
-                        onClick={() => setSizeUnit("MB")}
-                        className={`px-4 py-2 transition-colors ${
-                          sizeUnit === "MB"
-                            ? "bg-primary text-primary-foreground"
-                            : "bg-muted"
-                        }`}
-                      >
-                        MB
-                      </button>
+                    <div className="flex">
+                      {(["KB", "MB"] as const).map((u) => (
+                        <button
+                          key={u}
+                          onClick={() => setSizeUnit(u)}
+                          className={`px-3 py-2 ${sizeUnit === u ? "bg-primary text-white" : "bg-muted"}`}
+                        >
+                          {u}
+                        </button>
+                      ))}
                     </div>
                   </div>
                 </div>
-
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm">
-                  <p className="text-blue-900">
-                    This PDF will be split into files no larger than {maxFileSize} {sizeUnit} each.
-                  </p>
-                </div>
-
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center gap-2">
                   <Checkbox
-                    id="compression"
+                    id="compress"
                     checked={allowCompression}
-                    onCheckedChange={(checked) => setAllowCompression(checked as boolean)}
+                    onCheckedChange={(v) => setAllowCompression(!!v)}
                   />
-                  <label htmlFor="compression" className="text-sm cursor-pointer">
+                  <label htmlFor="compress" className="text-sm">
                     Allow compression
                   </label>
                 </div>
@@ -502,7 +401,7 @@ const SplitPDF = () => {
 
             <Button
               onClick={splitPDF}
-              className="w-full bg-red-600 hover:bg-red-700 text-white mt-6 h-12 text-base"
+              className="w-full mt-6 h-12 text-lg bg-red-600 hover:bg-red-700"
             >
               Split PDF →
             </Button>
@@ -513,25 +412,18 @@ const SplitPDF = () => {
   );
 
   const renderProcessingStep = () => (
-    <div className="max-w-2xl mx-auto text-center">
+    <div className="max-w-2xl mx-auto text-center py-12">
       <Card>
         <CardContent className="p-12">
-          <div className="space-y-6">
-            <div className="flex justify-center">
-              <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center">
-                <Scissors className="h-10 w-10 text-primary animate-pulse" />
-              </div>
-            </div>
-            
+          <div className="space-y-8">
+            <Scissors className="h-16 w-16 mx-auto text-primary animate-pulse" />
             <div>
-              <h3 className="text-xl font-semibold mb-2">Splitting PDF...</h3>
-              <p className="text-muted-foreground">{file?.name} ({(file?.size / 1024 / 1024)?.toFixed(2)}mb)</p>
+              <h3 className="text-2xl font-bold">Splitting your PDF...</h3>
+              <p className="text-muted-foreground mt-2">{file?.name}</p>
             </div>
-
-            <div className="space-y-2">
-              <Progress value={progress} className="h-3" />
-              <div className="text-2xl font-bold">{Math.round(progress)}%</div>
-              <div className="text-sm text-muted-foreground">PROCESSING</div>
+            <div className="space-y-3">
+              <Progress value={progress} className="h-4" />
+              <p className="text-3xl font-bold">{Math.round(progress)}%</p>
             </div>
           </div>
         </CardContent>
@@ -542,64 +434,48 @@ const SplitPDF = () => {
   const renderDownloadStep = () => (
     <div className="max-w-2xl mx-auto">
       <Card className="border-2 border-primary">
-        <CardContent className="p-8 text-center">
-          <h3 className="text-xl font-semibold mb-2">PDF split successfully!</h3>
-          <p className="text-sm text-muted-foreground mb-6">
-            Your PDF has been split. Download it below or continue with other tools.
+        <CardContent className="p-10 text-center">
+          <h2 className="text-2xl font-bold mb-3">PDF split successfully!</h2>
+          <p className="text-muted-foreground mb-8">
+            {isZip
+              ? `${fileCount} files created & zipped`
+              : "Your PDF has been split"}
           </p>
 
-          <div className="space-y-3 mb-6">
-            {splitFiles.map((url, index) => (
-              <div key={index} className="bg-muted rounded-lg p-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-red-100 rounded flex items-center justify-center">
-                    <span className="text-red-600 font-bold text-xs">PDF</span>
-                  </div>
-                  <div className="flex-1 text-left">
-                    <h4 className="font-medium text-sm">split_part_{index + 1}.pdf</h4>
-                    <a
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs text-blue-600 hover:underline"
-                    >
-                      {url}
-                    </a>
-                  </div>
-                </div>
+          <div className="bg-muted rounded-lg p-6 mb-8">
+            <div className="flex items-center justify-center gap-4">
+              <div className="w-14 h-14 bg-red-100 rounded flex items-center justify-center">
+                <span className="text-red-600 font-bold text-sm">
+                  {isZip ? "ZIP" : "PDF"}
+                </span>
               </div>
-            ))}
+              <div className="text-left">
+                <p className="font-semibold">{fileName}</p>
+                <p className="text-xs text-muted-foreground">
+                  {isZip ? "Contains all split PDFs" : "Ready to download"}
+                </p>
+              </div>
+            </div>
           </div>
 
-          <div className="flex items-center justify-center gap-4 mb-6">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={resetProcess}
-              className="h-12 w-12"
-            >
+          <div className="flex justify-center gap-4">
+            <Button variant="outline" size="icon" onClick={resetAll}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
 
-            <Button
-              onClick={downloadFiles}
-              className="bg-primary hover:bg-primary/90 h-12 px-8"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Download All
+            <Button onClick={downloadFile} className="px-10">
+              <Download className="h-5 w-5 mr-2" />
+              Download {isZip ? "ZIP" : "PDF"}
             </Button>
 
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={resetProcess}
-              className="h-12 w-12 text-destructive hover:text-destructive"
-            >
+            <Button variant="outline" size="icon" onClick={resetAll}>
               <Trash2 className="h-5 w-5" />
             </Button>
           </div>
 
-          <PDFToolRecommendations currentTool="split" />
+          <div className="mt-10">
+            <PDFToolRecommendations currentTool="split" />
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -607,16 +483,12 @@ const SplitPDF = () => {
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-4xl mx-auto">
         <div className="flex items-center gap-4 mb-8">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() =>
-              currentStep === "upload"
-                ? navigate("/pdf-tools")
-                : setCurrentStep("upload")
-            }
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={() => currentStep === "upload" ? navigate("/pdf-tools") : setCurrentStep("upload")}
             className="flex items-center gap-2"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -624,9 +496,7 @@ const SplitPDF = () => {
           </Button>
           <div>
             <h1 className="text-3xl font-bold text-foreground">Split PDF</h1>
-            <p className="text-muted-foreground">
-              Extract or split pages from a PDF document.
-            </p>
+            <p className="text-muted-foreground">Extract or split pages from a PDF document.</p>
           </div>
         </div>
 

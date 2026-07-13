@@ -5,8 +5,20 @@ import { ArrowLeft, Plus, RotateCcw, Trash2, Download, FileText } from "lucide-r
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
-import PDFToolRecommendations from "@/components/PDFToolRecommendations";
-import { mergePDFs } from "@/api"; // Import the mergePDFs API
+import { PDFToolDownloadResult } from "@/components/pdf/PDFToolDownloadResult";
+import { mergePDFs } from "@/api";
+import {
+  buildLexorbitFilenameFromUploads,
+  triggerBlobDownload,
+} from "@/utils/lexorbitFilename";
+import { PdfLibraryPickButton } from "@/components/library/LibraryFileSourceButtons";
+
+
+function summarizeSourceFiles(names: string[], maxChars = 120): string {
+  const joined = names.join(" · ");
+  if (joined.length <= maxChars) return joined;
+  return `${joined.slice(0, Math.max(0, maxChars - 3))}…`;
+}
 
 interface PDFFile {
   id: string;
@@ -47,7 +59,7 @@ const MergePDF = () => {
       const trailerBuffer = await file.slice(-1024).arrayBuffer();
       const trailer = new TextDecoder().decode(trailerBuffer);
       if (!trailer.includes("%%EOF")) {
-        console.warn(`⚠️ PDF ${file.name} missing EOF marker, accepting anyway.`);
+        console.warn(`Warning: PDF ${file.name} missing EOF marker, accepting anyway.`);
       }
       return true;
     } catch (error) {
@@ -56,8 +68,7 @@ const MergePDF = () => {
     }
   };
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFiles = Array.from(event.target.files || []);
+  const appendPdfFiles = async (selectedFiles: File[]) => {
     const validFiles: File[] = [];
     for (const file of selectedFiles) {
       if (await isValidPDF(file)) validFiles.push(file);
@@ -74,8 +85,13 @@ const MergePDF = () => {
       preview: `Sample PDF content for ${file.name}`,
       file,
     }));
-    setFiles([...files, ...newFiles]);
+    setFiles((prev) => [...prev, ...newFiles]);
     toast.success(`Added ${validFiles.length} valid PDF file(s)`);
+  };
+
+  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFiles = Array.from(event.target.files || []);
+    await appendPdfFiles(selectedFiles);
     event.target.value = "";
   };
 
@@ -128,7 +144,12 @@ const MergePDF = () => {
       return;
     }
     setCurrentStep("processing");
-    setProcessedFileName(`merged_${files.length}_files.pdf`);
+    setProcessedFileName(
+      buildLexorbitFilenameFromUploads(
+        files.map((f) => f.file.name),
+        "merged",
+      ),
+    );
     let progressInterval: any = undefined;
     try {
       let currentProgress = 0;
@@ -144,7 +165,7 @@ const MergePDF = () => {
       if (progressInterval) clearInterval(progressInterval);
       setProgress(100);
 
-      const mergedFileUrl = response.data?.split_pdf?.merged_file;
+      const mergedFileUrl = response.data?.merged_data?.merged_file;
       if (!mergedFileUrl) throw new Error("No merged file URL received from server");
 
       setFiles(prevFiles =>
@@ -167,44 +188,36 @@ const MergePDF = () => {
     }
   };
 
-const downloadFile = async () => {
-  const mergedFileUrl = files.find(f => f.mergedFileUrl)?.mergedFileUrl;
-  if (!mergedFileUrl) {
-    toast.error("No merged file available for download.");
-    return;
-  }
-
-  try {
-    // Fetch the PDF file from the mergedFileUrl
-    const response = await fetch(mergedFileUrl, {
-      method: "GET",
-    });
-
-    if (!response.ok) {
-      throw new Error("Failed to fetch merged PDF");
+  const downloadFile = async () => {
+    const mergedFileUrl = files.find(f => f.mergedFileUrl)?.mergedFileUrl;
+    if (!mergedFileUrl) {
+      toast.error("No merged file available for download.");
+      return;
     }
 
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
+    try {
+      // Fetch the PDF file from the mergedFileUrl
+      const response = await fetch(mergedFileUrl, {
+        method: "GET",
+      });
 
-    // Force download
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = processedFileName || `merged_${files.length}_files.pdf`;
-    document.body.appendChild(link);
-    link.click();
+      if (!response.ok) {
+        throw new Error("Failed to fetch merged PDF");
+      }
 
-    // Cleanup
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
+      const blob = await response.blob();
 
-    toast.success("Download started!");
-  } catch (error) {
-    console.error("Download failed:", error);
-    toast.error("Failed to download file. Please try again.");
-  }
-};
+      triggerBlobDownload(blob, processedFileName || buildLexorbitFilenameFromUploads(
+        files.map((f) => f.file.name),
+        "merged",
+      ));
 
+      toast.success("Download started!");
+    } catch (error) {
+      console.error("Download failed:", error);
+      toast.error("Failed to download file. Please try again.");
+    }
+  };
 
   const printFile = () => {
     const mergedFileUrl = files.find(f => f.mergedFileUrl)?.mergedFileUrl;
@@ -263,7 +276,7 @@ const downloadFile = async () => {
               onDrop={handleDrop}
             >
               <div className="flex flex-col items-center gap-4">
-                <div className="text-4xl text-muted-foreground">📄</div>
+                <div className="text-4xl text-muted-foreground">PDF</div>
                 <h3 className="text-xl font-semibold">Drag and drop PDF here</h3>
                 <p className="text-muted-foreground">or</p>
                 <Button
@@ -272,6 +285,7 @@ const downloadFile = async () => {
                 >
                   Select PDF file
                 </Button>
+                <PdfLibraryPickButton onFileReady={(f) => appendPdfFiles([f])} />
               </div>
             </CardContent>
           </Card>
@@ -399,42 +413,22 @@ const downloadFile = async () => {
   );
 
   const renderDownloadStep = () => (
-    <div className="max-w-2xl mx-auto">
-      <Card className="border-2 border-primary">
-        <CardContent className="p-8 text-center">
-          <h3 className="text-xl font-semibold mb-2">PDFs have been merged!</h3>
-          <p className="text-sm text-muted-foreground mb-6">
-            Click download to save merged PDF or continue working with more tools below.
-          </p>
-          <div className="flex items-center justify-center gap-4 mb-6">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={resetProcess}
-              className="h-12 w-12"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </Button>
-            <Button
-              onClick={downloadFile}
-              className="bg-primary hover:bg-primary/90 h-12 px-8"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Download to device
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={resetProcess}
-              className="h-12 w-12 text-destructive hover:text-destructive"
-            >
-              <Trash2 className="h-5 w-5" />
-            </Button>
-          </div>
-          <PDFToolRecommendations currentTool="merge" />
-        </CardContent>
-      </Card>
-    </div>
+    <PDFToolDownloadResult
+      title="PDFs merged successfully"
+      description="Download your merged PDF, or reset to choose different files."
+      outputFilename={
+        processedFileName ||
+        buildLexorbitFilenameFromUploads(
+          files.map((f) => f.file.name),
+          "merged",
+        )
+      }
+      sourceSummary={`Original files: ${summarizeSourceFiles(files.map((f) => f.name))}`}
+      onDownload={downloadFile}
+      onReset={resetProcess}
+      downloadButtonLabel="Download merged PDF"
+      currentTool="merge"
+    />
   );
 
   return (

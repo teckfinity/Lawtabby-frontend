@@ -5,6 +5,7 @@ import SubscriptionPopup from '@/components/SubscriptionPopup';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { getProfileEmoji, hasUserAvatar, withAvatarCacheBust, dispatchUserProfileUpdated } from '@/utils/userAvatar';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { useToast } from '@/hooks/use-toast';
@@ -34,7 +35,7 @@ const Profile = () => {
     id: 0,
     name: '',
     email: '',
-    plan: 'Free Plan',
+    plan: 'Starter',
     avatar: ''
   });
 
@@ -62,8 +63,8 @@ const Profile = () => {
           id: data.id || 0,
           name: data.name || '',
           email: data.email || '',
-          plan: data.plan || 'Free Plan',
-          avatar: data.avatar || 'https://via.placeholder.com/150'
+          plan: data.subscription?.plan?.name || data.plan || 'Starter',
+          avatar: data.avatar || ''
         });
         setTempName(data.name || '');
         setTempEmail(data.email || '');
@@ -102,6 +103,12 @@ const Profile = () => {
         title: 'Name updated',
         description: 'Your name has been successfully updated.'
       });
+
+      dispatchUserProfileUpdated({
+        name: updatedData.name,
+        email: profile.email,
+        avatar: profile.avatar,
+      });
 } catch (error: any) {
   console.error("Update name error:", error?.response?.data || error);
   toast({
@@ -114,36 +121,58 @@ const Profile = () => {
   };
 
   // ------------------- Update avatar -------------------
-const handleAvatarUpload = () => {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/*";
-  input.onchange = async (e) => {
-    const file = (e.target as HTMLInputElement).files?.[0];
-    if (!file) return;
+  const handleAvatarUpload = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
 
-    try {
-      const payload = { id: profile.id, avatar: file };
-      const updatedData = await updateUserProfile(payload);
+      const previousAvatar = profile.avatar;
+      const previewUrl = URL.createObjectURL(file);
+      setProfile((prev) => ({ ...prev, avatar: previewUrl }));
 
-      setProfile((prev) => ({ ...prev, avatar: updatedData.avatar }));
-      toast({
-        title: "Avatar updated",
-        description: "Your profile picture has been updated.",
-      });
-    } catch (error: any) {
-      console.error("Upload error:", error?.response?.data || error);
-      toast({
-        title: "Upload failed",
-        description:
-          error?.response?.data?.detail ||
-          "Could not update avatar. Please try again.",
-        variant: "destructive",
-      });
-    }
+      try {
+        const payload = { id: profile.id, avatar: file };
+        await updateUserProfile(payload);
+        const fresh = await getUserProfile();
+        const avatarUrl = fresh.avatar
+          ? withAvatarCacheBust(fresh.avatar)
+          : "";
+
+        setProfile((prev) => ({
+          ...prev,
+          avatar: avatarUrl,
+          name: fresh.name || prev.name,
+        }));
+
+        dispatchUserProfileUpdated({
+          name: fresh.name,
+          email: fresh.email,
+          avatar: avatarUrl,
+        });
+
+        toast({
+          title: "Avatar updated",
+          description: "Your profile picture has been updated.",
+        });
+      } catch (error: any) {
+        console.error("Upload error:", error?.response?.data || error);
+        setProfile((prev) => ({ ...prev, avatar: previousAvatar }));
+        toast({
+          title: "Upload failed",
+          description:
+            error?.response?.data?.detail ||
+            "Could not update avatar. Please try again.",
+          variant: "destructive",
+        });
+      } finally {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+    input.click();
   };
-  input.click();
-};
 
 
   // ------------------- Update email (local only) -------------------
@@ -247,10 +276,12 @@ const handleAvatarUpload = () => {
                 </p>
               </div>
               <div className="relative">
-                <Avatar className="h-16 w-16">
-                  <AvatarImage src={profile.avatar} alt="Profile" />
-                  <AvatarFallback>
-                    {profile.name.charAt(0).toUpperCase()}
+                <Avatar className="h-16 w-16" key={profile.avatar || "no-avatar"}>
+                  {hasUserAvatar(profile.avatar) && (
+                    <AvatarImage src={profile.avatar} alt="Profile" />
+                  )}
+                  <AvatarFallback className="text-3xl bg-muted">
+                    {getProfileEmoji(profile.name || profile.email)}
                   </AvatarFallback>
                 </Avatar>
                 <Button
@@ -310,52 +341,19 @@ const handleAvatarUpload = () => {
               </div>
             </div>
 
-            {/* Email */}
+            {/* Email (read-only) */}
             <div className="flex items-center justify-between">
-              <div>
-                <Label className="text-base font-medium">Email</Label>
-                <p className="text-sm text-muted-foreground">
-                  Your email address
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                {isEditingEmail ? (
-                  <div className="flex items-center gap-2">
-                    <Input
-                      type="email"
-                      value={tempEmail}
-                      onChange={(e) => setTempEmail(e.target.value)}
-                      className="w-48"
-                      placeholder="Enter email"
-                    />
-                    <Button size="sm" onClick={handleSaveEmail}>
-                      <Save className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setIsEditingEmail(false);
-                        setTempEmail(profile.email);
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm">{profile.email}</span>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setIsEditingEmail(true)}
-                    >
-                      <Edit2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                )}
-              </div>
+            <div>
+              <Label className="text-base font-medium">Email</Label>
+              <p className="text-sm text-muted-foreground">
+                Your email address (cannot be changed)
+              </p>
             </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm">{profile.email}</span>
+            </div>
+            </div>
+
 
             {/* Plan */}
             <div className="flex items-center justify-between">

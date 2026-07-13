@@ -7,6 +7,11 @@ import { ArrowLeft, Upload, Download, Lock, Unlock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { unlockPDF as unlockPDFApi } from "@/api";
+import {
+  buildLexorbitProcessedFilename,
+  triggerBlobDownload,
+} from "@/utils/lexorbitFilename";
+import { PdfLibraryPickButton } from "@/components/library/LibraryFileSourceButtons";
 
 const UnlockPDF = () => {
   const navigate = useNavigate();
@@ -17,24 +22,20 @@ const UnlockPDF = () => {
   const [unlockedFileUrl, setUnlockedFileUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-  console.log("File selected:", event.target.files);
-  const selectedFile = event.target.files?.[0];
-  if (selectedFile) {
-    console.log("File details:", {
-      name: selectedFile.name,
-      size: selectedFile.size,
-      type: selectedFile.type,
-    });
+  const selectPdfFile = (selectedFile: File) => {
     setFile(selectedFile);
     setIsUnlocked(false);
     setUnlockedFileUrl(null);
     setPassword("");
     toast.success("PDF file uploaded successfully");
-  }
-};
+  };
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const selectedFile = event.target.files?.[0];
+    if (selectedFile) selectPdfFile(selectedFile);
+  };
+
   const handleButtonClick = () => {
-    console.log("Button clicked");
     fileInputRef.current?.click();
   };
 
@@ -54,17 +55,28 @@ const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
 
       if (response.data?.unlocked_pdf?.unlock_pdf) {
         const unlockedFilePath = response.data.unlocked_pdf.unlock_pdf;
-        const fullUrl = `${import.meta.env.VITE_API_BASE_URL}/media/${unlockedFilePath}`;
+        let fullUrl = unlockedFilePath;
+
+        // Automatically use http for local and https for production
+        const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+
+        if (!unlockedFilePath.startsWith("http")) {
+          fullUrl = `${import.meta.env.VITE_API_BASE_URL}/media/${unlockedFilePath}`;
+        } else if (unlockedFilePath.startsWith("http://") && !isLocal) {
+          // Only replace with https in production
+          fullUrl = unlockedFilePath.replace("http://", "https://");
+        }
+
         setUnlockedFileUrl(fullUrl);
         setIsUnlocked(true);
-       toast.success(response.data.message || "PDF unlocked successfully!");
-       } else {
-         toast.error("Failed to unlock PDF. Please try again.");
-       }
+        toast.success(response.data.message || "PDF unlocked successfully!");
+      } else {
+        toast.error("Failed to unlock PDF. Please try again.");
+      }
     } catch (error: any) {
-      toast.error(
-        error.response?.data?.message || "Error unlocking PDF. Please try again."
-      );
+      const backendMessage =
+        error.response?.data?.message || error.response?.data?.error;
+      toast.error(backendMessage || "Error unlocking PDF. Please try again.");
     } finally {
       setIsUnlocking(false);
     }
@@ -86,14 +98,12 @@ const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
       if (!res.ok) throw new Error("Failed to fetch unlocked PDF");
 
       const blob = await res.blob();
-      const blobUrl = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = blobUrl;
-      link.download = "unlocked.pdf";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(blobUrl);
+      triggerBlobDownload(
+        blob,
+        file
+          ? buildLexorbitProcessedFilename(file.name, "unlocked")
+          : "document_lexorbit_unlocked.pdf",
+      );
 
       toast.success("Unlocked PDF downloaded!");
     } catch (error) {
@@ -106,9 +116,9 @@ const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="flex items-center gap-4 mb-8">
-          <Button 
-            variant="ghost" 
-            size="sm" 
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => navigate("/pdf-tools")}
             className="flex items-center gap-2"
           >
@@ -117,7 +127,9 @@ const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
           </Button>
           <div>
             <h1 className="text-3xl font-bold text-foreground">Unlock PDF</h1>
-            <p className="text-muted-foreground">Remove PDF password protection and download it unlocked.</p>
+            <p className="text-muted-foreground">
+              Remove PDF password protection and download it unlocked.
+            </p>
           </div>
         </div>
 
@@ -128,14 +140,19 @@ const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
               <div className="text-center">
                 <div className="border-2 border-dashed border-muted-foreground/20 rounded-lg p-8">
                   <Lock className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">Upload Password-Protected PDF</h3>
-                  <Button 
-                    className="bg-primary hover:bg-primary/90" 
-                    onClick={handleButtonClick}
-                  >
-                    <Upload className="h-4 w-4 mr-2" />
-                    Select PDF File
-                  </Button>
+                  <h3 className="text-lg font-semibold mb-2">
+                    Upload Password-Protected PDF
+                  </h3>
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mt-4">
+                    <Button
+                      className="bg-primary hover:bg-primary/90"
+                      onClick={handleButtonClick}
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      Select PDF File
+                    </Button>
+                    <PdfLibraryPickButton onFileReady={selectPdfFile} />
+                  </div>
                   <input
                     id="pdf-upload"
                     type="file"
@@ -148,9 +165,11 @@ const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
               </div>
             ) : (
               <div className="flex items-center gap-4 p-4 bg-muted rounded-lg">
-                <div className={`w-12 h-12 rounded flex items-center justify-center ${
-                  isUnlocked ? "bg-green-100" : "bg-red-100"
-                }`}>
+                <div
+                  className={`w-12 h-12 rounded flex items-center justify-center ${
+                    isUnlocked ? "bg-green-100" : "bg-red-100"
+                  }`}
+                >
                   {isUnlocked ? (
                     <Unlock className="h-6 w-6 text-green-600" />
                   ) : (
@@ -166,11 +185,7 @@ const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
                     {(file.size / 1024 / 1024).toFixed(2)} MB
                   </p>
                 </div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setFile(null)}
-                >
+                <Button variant="outline" size="sm" onClick={() => setFile(null)}>
                   Remove
                 </Button>
               </div>
@@ -192,7 +207,7 @@ const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Enter PDF password"
-                    onKeyPress={(e) => e.key === 'Enter' && handleUnlockPDF()}
+                    onKeyPress={(e) => e.key === "Enter" && handleUnlockPDF()}
                   />
                 </div>
                 <Button
@@ -217,7 +232,9 @@ const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
                   <Unlock className="h-6 w-6 text-green-600" />
                 </div>
                 <div>
-                  <h3 className="text-lg font-semibold text-green-600">PDF Successfully Unlocked!</h3>
+                  <h3 className="text-lg font-semibold text-green-600">
+                    PDF Successfully Unlocked!
+                  </h3>
                   <p className="text-green-600">Click below to download.</p>
                 </div>
               </div>

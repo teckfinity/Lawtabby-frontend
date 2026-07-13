@@ -1,156 +1,68 @@
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Calendar as DateRangeCalendar } from "@/components/ui/calendar";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { format } from "date-fns";
-import type { DateRange } from "react-day-picker";
-import { useMemo, useState } from "react";
-import { 
-  Gavel, 
-  Search, 
-  TrendingUp, 
-  TrendingDown, 
-  Clock, 
-  Scale, 
-  BarChart3,
-  Users,
-  Calendar,
-  Filter
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Gavel, Search, TrendingUp, TrendingDown, Clock, Scale, BarChart3, Users,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { useDebounce } from "@/hooks/use-debounce";
+import {
+  useJudgesList,
+  useJudgeAnalyticsSummary,
+  useJudgeAnalyticsOverview,
+  useCaseTypeAnalysis,
+} from "@/api/hooks";
+
+const LIMIT = 3;
 
 const JudgeAnalytics = () => {
-  const judges = [
-    {
-      id: 1,
-      name: "Hon. Sarah Mitchell",
-      court: "Superior Court of California",
-      totalCases: 1247,
-      grantRate: 78,
-      avgDecisionTime: "45 days",
-      specialty: "Corporate Law",
-      trend: "up",
-      recentCases: 156,
-      lastActivity: new Date().toISOString(),
-    },
-    {
-      id: 2,
-      name: "Hon. Robert Chen",
-      court: "Federal District Court",
-      totalCases: 892,
-      grantRate: 62,
-      avgDecisionTime: "67 days",
-      specialty: "Criminal Defense",
-      trend: "down", 
-      recentCases: 89,
-      lastActivity: new Date(Date.now() - 1000 * 60 * 60 * 24 * 45).toISOString(), // 45 days ago
-    },
-    {
-      id: 3,
-      name: "Hon. Maria Rodriguez",
-      court: "Court of Appeals",
-      totalCases: 654,
-      grantRate: 85,
-      avgDecisionTime: "32 days",
-      specialty: "Family Law",
-      trend: "up",
-      recentCases: 67,
-      lastActivity: new Date(Date.now() - 1000 * 60 * 60 * 24 * 120).toISOString(), // 120 days ago
-    }
+  const navigate   = useNavigate();
+  const [query, setQuery]   = useState("");
+  const [offset, setOffset] = useState(0);
+
+  // Debounce search — resets to page 1 automatically via key change
+  const debouncedQuery = useDebounce(query, 600);
+
+  // ── React Query – all 4 calls in parallel, no manual loading states ───────
+  const { data: summary, isLoading: summaryLoading } = useJudgeAnalyticsSummary();
+  const { data: overview, isLoading: overviewLoading } = useJudgeAnalyticsOverview();
+  const { data: caseTypeAnalysis, isLoading: caseTypeLoading } = useCaseTypeAnalysis();
+  const {
+    data: judgesData,
+    isLoading: judgesLoading,
+    isFetching: judgesFetching,
+  } = useJudgesList({ limit: LIMIT, offset, search: debouncedQuery || undefined });
+
+  const judges     = judgesData?.results ?? [];
+  const totalCount = judgesData?.pagination?.total ?? 0;
+  const hasNext    = judgesData?.pagination?.has_next ?? false;
+  const hasPrev    = judgesData?.pagination?.has_previous ?? false;
+  const totalPages = Math.ceil(totalCount / LIMIT);
+  const currentPage = Math.floor(offset / LIMIT) + 1;
+
+  // Reset to page 1 when search changes
+  useMemo(() => { setOffset(0); }, [debouncedQuery]); // eslint-disable-line
+
+  const statCards = [
+    { label: "Judges Analyzed", value: summary?.judges_analyzed.toLocaleString() ?? "—", Icon: Users },
+    { label: "Cases Tracked",   value: summary?.cases_tracked.toLocaleString() ?? "—",   Icon: Scale },
+    { label: "Courts Covered",  value: summary?.courts_covered.toString() ?? "—",          Icon: Gavel },
+    { label: "Success Rate",    value: summary ? `${summary.success_rate.toFixed(1)}%` : "—", Icon: TrendingUp },
   ];
 
-  const caseTypes = [
-    { type: "Civil Rights", granted: 76, denied: 24, total: 234 },
-    { type: "Contract Disputes", granted: 82, denied: 18, total: 189 },
-    { type: "Employment", granted: 69, denied: 31, total: 156 },
-    { type: "Personal Injury", granted: 91, denied: 9, total: 145 },
+  const pastelColors = [
+    "bg-primary/75", "bg-success/75", "bg-legal-warning/75", "bg-legal-info/75",
+    "bg-gold-light/80", "bg-navy/55", "bg-burgundy/50", "bg-sage/70",
   ];
-
-  const stats = [
-    { label: "Judges Analyzed", value: "2,847", icon: Users },
-    { label: "Cases Tracked", value: "156K", icon: Scale },
-    { label: "Courts Covered", value: "487", icon: Gavel },
-    { label: "Success Rate", value: "94.2%", icon: TrendingUp }
-  ];
-
-  const allFilters = [
-    "Federal Courts",
-    "State Courts",
-    "Appellate",
-    "District",
-    "Civil",
-    "Criminal",
-  ] as const;
-
-  const [query, setQuery] = useState("");
-  const [selectedFilters, setSelectedFilters] = useState<string[]>([]);
-  const [dateRange, setDateRange] = useState<DateRange | undefined>();
-
-  const toggleFilter = (tag: string) => {
-    setSelectedFilters((prev) =>
-      prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
-    );
-  };
-
-  const judgeHasTag = (j: typeof judges[number], tag: string) => {
-    const court = j.court.toLowerCase();
-    const specialty = j.specialty.toLowerCase();
-    switch (tag) {
-      case "Federal Courts":
-        return court.includes("federal");
-      case "State Courts":
-        return court.includes("superior") || court.includes("state");
-      case "Appellate":
-        return court.includes("appeal");
-      case "District":
-        return court.includes("district");
-      case "Civil":
-        return (
-          specialty.includes("corporate") ||
-          specialty.includes("contract") ||
-          specialty.includes("family") ||
-          specialty.includes("civil")
-        );
-      case "Criminal":
-        return specialty.includes("criminal");
-      default:
-        return false;
-    }
-  };
-
-  const filteredJudges = useMemo(() => {
-    return judges.filter((j) => {
-      const matchesQuery = query.trim().length
-        ? [j.name, j.court, j.specialty].some((f) => f.toLowerCase().includes(query.toLowerCase()))
-        : true;
-
-      const matchesFilters = selectedFilters.length
-        ? selectedFilters.some((tag) => judgeHasTag(j, tag))
-        : true;
-
-      const matchesDate = dateRange?.from && dateRange?.to
-        ? (() => {
-            const d = new Date(j.lastActivity);
-            // Normalize time for inclusive range
-            const from = new Date(dateRange.from!);
-            from.setHours(0, 0, 0, 0);
-            const to = new Date(dateRange.to!);
-            to.setHours(23, 59, 59, 999);
-            return d >= from && d <= to;
-          })()
-        : true;
-
-      return matchesQuery && matchesFilters && matchesDate;
-    });
-  }, [judges, query, selectedFilters, dateRange]);
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
       <div className="max-w-7xl mx-auto">
-        {/* Header */}
+
+        {/* ── Header & Stats ── */}
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-4">
             <div className="p-2 bg-legal-warning rounded-lg">
@@ -164,17 +76,18 @@ const JudgeAnalytics = () => {
             </div>
           </div>
 
-          {/* Stats */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-            {stats.map((stat, index) => (
-              <Card key={index} className="shadow-card">
+            {statCards.map((s) => (
+              <Card key={s.label} className="shadow-card">
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-2xl font-bold text-foreground">{stat.value}</p>
-                      <p className="text-sm text-muted-foreground">{stat.label}</p>
+                      {summaryLoading
+                        ? <Skeleton className="h-7 w-20 mb-1" />
+                        : <p className="text-2xl font-bold text-foreground">{s.value}</p>}
+                      <p className="text-sm text-muted-foreground">{s.label}</p>
                     </div>
-                    <stat.icon className="h-6 w-6 text-legal-warning" />
+                    <s.Icon className="h-6 w-6 text-legal-warning" />
                   </div>
                 </CardContent>
               </Card>
@@ -182,138 +95,178 @@ const JudgeAnalytics = () => {
           </div>
         </div>
 
-        {/* Search and Filters */}
+        {/* ── Search ── */}
         <Card className="shadow-card mb-8">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Search className="h-5 w-5 text-legal-primary" />
               Find Judge Analytics
             </CardTitle>
-            <CardDescription>
-              Search for judges by name, court, or specialty area
-            </CardDescription>
+            <CardDescription>Search for judges by name, court, or specialty area</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="flex gap-4 mb-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search judges, courts, or case types..."
-                  className="pl-9"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-              </div>
-              <Button variant="outline">
-                <Filter className="h-4 w-4 mr-2" />
-                Filters
-              </Button>
-              <Button variant="outline">
-                <Calendar className="h-4 w-4 mr-2" />
-                Date Range
-              </Button>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="secondary">Federal Courts</Badge>
-              <Badge variant="secondary">State Courts</Badge>
-              <Badge variant="secondary">Appellate</Badge>
-              <Badge variant="secondary">District</Badge>
-              <Badge variant="secondary">Civil</Badge>
-              <Badge variant="secondary">Criminal</Badge>
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search judges, courts, or case types..."
+                className="pl-9"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
             </div>
           </CardContent>
         </Card>
 
+        {/* ── Main grid ── */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Judge Profiles */}
+
+          {/* ── Judge list ── */}
           <div className="lg:col-span-2">
-            <Card className="shadow-card">
+            <Card className="shadow-card h-full flex flex-col">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Users className="h-5 w-5 text-legal-primary" />
                   Judge Profiles & Analytics
                 </CardTitle>
-                <CardDescription>
-                  Detailed performance analytics and ruling patterns
-                </CardDescription>
+                <CardDescription>Detailed performance analytics and ruling patterns</CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex-1 flex flex-col">
                 <div className="space-y-6">
-                  {filteredJudges.map((judge) => (
-                    <div key={judge.id} className="border border-border rounded-lg p-6 hover:shadow-legal transition-all duration-300">
-                      <div className="flex items-start justify-between mb-4">
-                        <div>
-                          <h3 className="text-lg font-semibold text-foreground">{judge.name}</h3>
-                          <p className="text-sm text-muted-foreground">{judge.court}</p>
-                          <Badge variant="outline" className="mt-1">
-                            {judge.specialty}
-                          </Badge>
+                  {/* Loading skeleton */}
+                  {(judgesLoading && judges.length === 0) ? (
+                    Array.from({ length: 3 }).map((_, i) => (
+                      <div key={i} className="border border-border rounded-lg p-6 space-y-4">
+                        <div className="flex justify-between">
+                          <div className="space-y-2">
+                            <Skeleton className="h-5 w-48" />
+                            <Skeleton className="h-4 w-32" />
+                          </div>
+                          <Skeleton className="h-5 w-24" />
                         </div>
-                        <div className="flex items-center gap-2">
-                          {judge.trend === "up" ? (
-                            <TrendingUp className="h-5 w-5 text-legal-success" />
-                          ) : (
-                            <TrendingDown className="h-5 w-5 text-destructive" />
-                          )}
-                          <span className="text-sm font-medium">
-                            {judge.grantRate}% Grant Rate
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <div className="text-center">
-                          <p className="text-2xl font-bold text-legal-primary">{judge.totalCases}</p>
-                          <p className="text-xs text-muted-foreground">Total Cases</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-2xl font-bold text-legal-warning">{judge.grantRate}%</p>
-                          <p className="text-xs text-muted-foreground">Grant Rate</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-2xl font-bold text-legal-info">{judge.avgDecisionTime}</p>
-                          <p className="text-xs text-muted-foreground">Avg Decision</p>
-                        </div>
-                        <div className="text-center">
-                          <p className="text-2xl font-bold text-legal-success">{judge.recentCases}</p>
-                          <p className="text-xs text-muted-foreground">Recent Cases</p>
+                        <div className="grid grid-cols-4 gap-4">
+                          {Array.from({ length: 4 }).map((_, j) => (
+                            <div key={j} className="text-center space-y-1">
+                              <Skeleton className="h-7 w-12 mx-auto" />
+                              <Skeleton className="h-3 w-16 mx-auto" />
+                            </div>
+                          ))}
                         </div>
                       </div>
+                    ))
+                  ) : judges.length > 0 ? (
+                    judges.map((j) => (
+                      <div
+                        key={j.id}
+                        className={`border border-border rounded-lg p-6 hover:shadow-legal transition-shadow duration-200 ${judgesFetching ? "opacity-70" : ""}`}
+                      >
+                        <div className="flex items-start justify-between mb-4">
+                          <div>
+                            <h3 className="text-lg font-semibold text-foreground">{j.full_name}</h3>
+                            <p className="text-sm text-muted-foreground">{j.court_name || "N/A"}</p>
+                            {j.specialty && <Badge variant="outline" className="mt-1">{j.specialty}</Badge>}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {j.grant_rate !== null ? (
+                              <>
+                                {j.grant_rate > 50
+                                  ? <TrendingUp className="h-5 w-5 text-legal-success" />
+                                  : <TrendingDown className="h-5 w-5 text-destructive" />}
+                                <span className="text-sm font-medium">{j.grant_rate}% Grant Rate</span>
+                              </>
+                            ) : (
+                              <span className="text-sm font-medium text-muted-foreground">No outcome data</span>
+                            )}
+                          </div>
+                        </div>
 
-                        <div className="mt-4 pt-4 border-t border-border">
-                        <div className="flex gap-2">
-                          <Button 
-                            size="sm" 
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div className="text-center">
+                            <p className="text-2xl font-bold text-legal-primary">{j.total_cases}</p>
+                            <p className="text-xs text-muted-foreground">Total Opinions</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-2xl font-bold text-legal-warning">
+                              {j.grant_rate !== null ? `${j.grant_rate}%` : "N/A"}
+                            </p>
+                            <p className="text-xs text-muted-foreground">Grant Rate</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-2xl font-bold text-legal-info">
+                              {j.avg_decision_time !== null ? `${j.avg_decision_time} days` : "N/A"}
+                            </p>
+                            <p className="text-xs text-muted-foreground">Avg Decision</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-2xl font-bold text-legal-success">{j.recent_cases_count}</p>
+                            <p className="text-xs text-muted-foreground">Cases Handled</p>
+                          </div>
+                        </div>
+
+                        <div className="mt-4 pt-4 border-t border-border flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
                             className="bg-legal-primary hover:bg-legal-primary/90"
-                            onClick={() => window.location.href = `/ai/judge/${judge.id}`}
+                            onClick={() => navigate(`/ai/judge/${j.id}`)}
                           >
                             View Full Profile
                           </Button>
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => window.location.href = `/ai/judge/${judge.id}/case-history`}
-                          >
+                          <Button size="sm" variant="outline" onClick={() => navigate(`/ai/judge/${j.id}/case-history`)}>
                             Case History
                           </Button>
-                          <Button 
-                            size="sm" 
-                            variant="outline"
-                            onClick={() => window.location.href = `/ai/judge/${judge.id}/predictions`}
-                          >
+                          <Button size="sm" variant="outline" onClick={() => navigate(`/ai/judge/${j.id}/predictions`)}>
                             Predictions
                           </Button>
                         </div>
                       </div>
+                    ))
+                  ) : (
+                    <div className="flex items-center justify-center min-h-[200px] py-12">
+                      <p className="text-lg text-muted-foreground">No judges found matching your criteria.</p>
                     </div>
-                  ))}
+                  )}
                 </div>
+
+                {/* Pagination */}
+                {totalCount > 0 && (
+                  <div className="mt-6 pt-4 border-t border-border flex flex-col sm:flex-row items-center justify-between gap-4">
+                    <span className="text-sm text-muted-foreground order-2 sm:order-1">
+                      {totalCount} judge{totalCount !== 1 ? "s" : ""} total
+                    </span>
+                    <div className="flex items-center gap-1 order-1 sm:order-2">
+                      {[
+                        { label: "First", disabled: !hasPrev || judgesFetching, onClick: () => setOffset(0) },
+                        { label: "‹", disabled: !hasPrev || judgesFetching, onClick: () => setOffset(Math.max(offset - LIMIT, 0)) },
+                        { label: `Page ${currentPage} of ${totalPages}`, disabled: true, isInfo: true },
+                        { label: "›", disabled: !hasNext || judgesFetching, onClick: () => setOffset(offset + LIMIT) },
+                        { label: "Last", disabled: !hasNext || judgesFetching, onClick: () => setOffset((totalPages - 1) * LIMIT) },
+                      ].map((btn, i) =>
+                        btn.isInfo ? (
+                          <span key={i} className="min-w-[110px] text-center text-sm font-medium text-foreground px-3 py-2 bg-muted/50 rounded-md">
+                            {btn.label}
+                          </span>
+                        ) : (
+                          <Button
+                            key={i}
+                            variant="outline"
+                            size="sm"
+                            className="h-9 px-3 rounded-md border-legal-primary/30 text-legal-primary hover:bg-legal-primary/10"
+                            disabled={btn.disabled}
+                            onClick={btn.onClick}
+                          >
+                            {btn.label}
+                          </Button>
+                        )
+                      )}
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
 
-          {/* Analytics Panel */}
+          {/* ── Right panel ── */}
           <div className="space-y-6">
+
             {/* Case Type Analysis */}
             <Card className="shadow-card">
               <CardHeader>
@@ -321,30 +274,52 @@ const JudgeAnalytics = () => {
                   <BarChart3 className="h-5 w-5 text-legal-primary" />
                   Case Type Analysis
                 </CardTitle>
-                <CardDescription>
-                  Success rates by case category
-                </CardDescription>
+                <CardDescription>Success rates by case category</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {caseTypes.map((caseType, index) => (
-                    <div key={index} className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm font-medium">{caseType.type}</span>
-                        <span className="text-sm text-muted-foreground">{caseType.total} cases</span>
+                  {caseTypeLoading ? (
+                    Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i} className="space-y-2">
+                        <div className="flex justify-between">
+                          <Skeleton className="h-4 w-28" />
+                          <Skeleton className="h-4 w-16" />
+                        </div>
+                        <Skeleton className="h-3 w-full rounded-full" />
+                        <div className="flex justify-between">
+                          <Skeleton className="h-3 w-20" />
+                          <Skeleton className="h-3 w-20" />
+                        </div>
                       </div>
-                      <div className="w-full bg-muted rounded-full h-2">
-                        <div 
-                          className="bg-legal-success h-2 rounded-full" 
-                          style={{ width: `${caseType.granted}%` }}
-                        />
+                    ))
+                  ) : (caseTypeAnalysis ?? []).map((ct: any, index: number) => {
+                    const noData = ct.no_outcome_data || ct.granted_percentage == null;
+                    const barColor = pastelColors[index % pastelColors.length];
+                    return (
+                      <div key={index} className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm font-medium">{ct.category}</span>
+                          <span className="text-sm text-muted-foreground">{ct.total_cases} cases</span>
+                        </div>
+                        <div className="w-full bg-muted/40 rounded-full h-3 overflow-hidden">
+                          <div
+                            className={`${barColor} h-3 rounded-full transition-all duration-700 ease-out shadow-sm`}
+                            style={{ width: noData ? "0%" : `${ct.granted_percentage}%` }}
+                          />
+                        </div>
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          {noData ? (
+                            <span>No outcome data</span>
+                          ) : (
+                            <>
+                              <span>{ct.granted_percentage}% Granted</span>
+                              <span>{ct.denied_percentage}% Denied</span>
+                            </>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>{caseType.granted}% Granted</span>
-                        <span>{caseType.denied}% Denied</span>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </CardContent>
             </Card>
@@ -358,56 +333,59 @@ const JudgeAnalytics = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="p-3 bg-legal-success/10 rounded-lg border border-legal-success/20">
-                  <div className="flex items-center gap-2 mb-1">
-                    <TrendingUp className="h-4 w-4 text-legal-success" />
-                    <span className="text-sm font-medium">High Success Rate</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Family law cases show 85% average grant rate
-                  </p>
-                </div>
-
-                <div className="p-3 bg-legal-warning/10 rounded-lg border border-legal-warning/20">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Clock className="h-4 w-4 text-legal-warning" />
-                    <span className="text-sm font-medium">Decision Speed</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Appeals court decisions average 32 days
-                  </p>
-                </div>
-
-                <div className="p-3 bg-legal-info/10 rounded-lg border border-legal-info/20">
-                  <div className="flex items-center gap-2 mb-1">
-                    <BarChart3 className="h-4 w-4 text-legal-info" />
-                    <span className="text-sm font-medium">Trending Pattern</span>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Corporate cases show increasing grant rates
-                  </p>
-                </div>
+                {overviewLoading ? (
+                  Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="p-3 rounded-lg border bg-muted/20 space-y-2">
+                      <Skeleton className="h-4 w-36" />
+                      <Skeleton className="h-3 w-48" />
+                    </div>
+                  ))
+                ) : (overview?.quick_insights ?? []).length > 0 ? (
+                  (overview!.quick_insights).map((insight, index) => (
+                    <div
+                      key={index}
+                      className={`p-3 rounded-lg border ${
+                        index === 0 ? "bg-legal-success/10 border-legal-success/20" :
+                        index === 1 ? "bg-legal-warning/10 border-legal-warning/20" :
+                                      "bg-legal-info/10 border-legal-info/20"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        {index === 0 ? <TrendingUp className="h-4 w-4 text-legal-success" /> :
+                         index === 1 ? <Clock className="h-4 w-4 text-legal-warning" /> :
+                                       <BarChart3 className="h-4 w-4 text-legal-info" />}
+                        <span className="text-sm font-medium">{insight.title}</span>
+                      </div>
+                      <p className="text-xs text-muted-foreground">{insight.description}</p>
+                      {insight.metric && <p className="text-xs font-medium mt-1">{insight.metric}</p>}
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">Insights not available yet.</p>
+                )}
               </CardContent>
             </Card>
 
-            {/* AI Predictions */}
+            {/* AI Predictions Teaser */}
             <Card className="shadow-card bg-gradient-primary text-white">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <TrendingUp className="h-5 w-5" />
-                  AI Predictions
+                  {overview?.ai_prediction_teaser?.title || "AI Predictions"}
                 </CardTitle>
                 <CardDescription className="text-white/80">
-                  Outcome likelihood for your case
+                  {overview?.ai_prediction_teaser?.description || "Outcome likelihood for your case"}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="text-center mb-4">
-                  <div className="text-3xl font-bold mb-1">73%</div>
+                  <div className="text-3xl font-bold mb-1">
+                    {((overview?.ai_prediction_teaser?.accuracy_rate) ?? 0).toFixed(1)}%
+                  </div>
                   <p className="text-sm opacity-90">Predicted Success Rate</p>
                 </div>
-                <Button variant="secondary" className="w-full">
-                  Get Detailed Prediction
+                <Button variant="secondary" className="w-full" disabled={overviewLoading}>
+                  {overview?.ai_prediction_teaser?.cta_text || "Get Detailed Prediction"}
                 </Button>
               </CardContent>
             </Card>

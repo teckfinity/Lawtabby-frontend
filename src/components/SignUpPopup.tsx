@@ -7,6 +7,9 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { X } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { registerUser } from '@/api';
+import { useGoogleLogin } from '@react-oauth/google';
+import { GoogleLogin } from '@/api/google_login';
+import { setAuthToken } from '@/api';
 
 interface SignUpPopupProps {
   isOpen: boolean;
@@ -23,6 +26,42 @@ const SignUpPopup = ({ isOpen, onClose, onSwitchToSignIn }: SignUpPopupProps) =>
   });
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
+
+  // Google login
+  const googleLogin = useGoogleLogin({
+    onSuccess: async (tokenResponse) => {
+      console.log("Frontend (SignUpPopup) - Google OAuth Success:", tokenResponse);
+      console.log("Frontend (SignUpPopup) - Access Token:", tokenResponse.access_token);
+      
+      setIsLoading(true);
+      try {
+        const res = await GoogleLogin(tokenResponse.access_token);
+        console.log("Frontend (SignUpPopup) - Backend response:", res.data);
+        
+        const token = res.data.key;
+
+        setAuthToken(token);
+        localStorage.setItem('isAuthenticated', 'true');
+
+        toast({ title: 'Success!', description: 'Account created with Google' });
+        onClose();
+      } catch (err: any) {
+        console.error("Frontend (SignUpPopup) - Google Login Error:", err);
+        console.error("Frontend (SignUpPopup) - Error Response:", err.response?.data);
+        toast({
+          title: 'Sign Up Failed',
+          description: err.response?.data?.non_field_errors?.[0] || 'Google sign up failed',
+          variant: 'destructive'
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    onError: (error) => {
+      console.error("Frontend (SignUpPopup) - Google OAuth Error:", error);
+      toast({ title: 'Error', description: 'Google authentication failed', variant: 'destructive' });
+    },
+  });
 
   const handleSignUp = async () => {
     if (!formData.email || !formData.password || !formData.confirmPassword) {
@@ -51,7 +90,7 @@ const SignUpPopup = ({ isOpen, onClose, onSwitchToSignIn }: SignUpPopupProps) =>
       });
       return;
     }
-    
+
     try {
       setIsLoading(true);
       await registerUser({ email: formData.email, password: formData.password });
@@ -96,41 +135,48 @@ const SignUpPopup = ({ isOpen, onClose, onSwitchToSignIn }: SignUpPopupProps) =>
         <div className="px-6 pb-6 space-y-4">
           {/* Social Login Buttons */}
           <div className="space-y-3">
+            {/* Continue with Google - Using your google-logo.png */}
             <Button
               variant="outline"
               className="w-full h-12 justify-start gap-3"
-              onClick={() => handleSocialSignUp('Google')}
+              onClick={() => googleLogin()}
               disabled={isLoading}
             >
-              <div className="w-5 h-5 bg-red-500 rounded flex items-center justify-center text-white text-xs font-bold">
-                G
-              </div>
-              Continue with Google
+              <img
+                src="/google-logo.png"
+                alt="Google"
+                className="h-5 w-5 rounded-sm object-contain"
+              />
+              {isLoading ? 'Signing up...' : 'Continue with Google'}
             </Button>
 
+            {/* Continue with Microsoft - Using your microsoft-logo.png */}
             <Button
               variant="outline"
               className="w-full h-12 justify-start gap-3"
-              onClick={() => handleSocialSignUp('Apple')}
+              onClick={() => toast({ title: "Microsoft Sign Up", description: "TODO: implement Microsoft login" })}
               disabled={isLoading}
             >
-              <div className="w-5 h-5 bg-black rounded flex items-center justify-center text-white text-xs font-bold">
-                🍎
-              </div>
+              <img
+                src="/microsoft-logo.png"
+                alt="Microsoft"
+                className="h-5 w-5 rounded-sm object-contain"
+              />
+              Continue with Microsoft
+            </Button>
+
+            {/* Apple button commented out */}
+            {/*
+            <Button
+              variant="outline"
+              className="w-full h-12 justify-start gap-3"
+              onClick={() => toast({ title: "Apple Sign Up", description: "TODO: implement Apple login" })}
+              disabled={isLoading}
+            >
+              <div className="w-5 h-5 bg-black rounded flex items-center justify-center text-white text-xs">Apple</div>
               Continue with Apple
             </Button>
-
-            <Button
-              variant="outline"
-              className="w-full h-12 justify-start gap-3"
-              onClick={() => handleSocialSignUp('Microsoft')}
-              disabled={isLoading}
-            >
-              <div className="w-5 h-5 bg-blue-500 rounded flex items-center justify-center text-white text-xs font-bold">
-                M
-              </div>
-              Continue with Microsoft Account
-            </Button>
+            */}
           </div>
 
           {/* Divider */}

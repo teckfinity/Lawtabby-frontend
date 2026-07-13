@@ -2,8 +2,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { SidebarProvider } from "@/components/ui/sidebar";
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { ThemeProvider } from "next-themes";
 import { AppSidebar } from "@/components/AppSidebar";
 import { GoogleOAuthProvider } from "@react-oauth/google";
@@ -41,8 +41,10 @@ import DownloadProtectedPDF from "./pages/pdf/DownloadProtectedPDF";
 import DownloadOCRPDF from "./pages/pdf/DownloadOCRPDF";
 import Profile from "./pages/Profile";
 import Subscription from "./pages/Subscription";
-import History from "./pages/History";
+// import History from "./pages/History";
+import AllActivity from "./pages/AllActivity";
 import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import SignIn from "./pages/SignIn";
 import SignUp from "./pages/SignUp";
 import SignOut from "./pages/SignOut";
@@ -50,6 +52,7 @@ import ContactSupport from "./pages/ContactSupport";
 import TermsOfService from "./pages/TermsOfService";
 import PrivacyPolicy from "./pages/PrivacyPolicy";
 import NotFound from "./pages/NotFound";
+import UpgradeRequiredListener from "./components/UpgradeRequiredListener";
 
 // ---------- Protected Route ----------
 const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
@@ -59,11 +62,18 @@ const ProtectedRoute = ({ children }: { children: JSX.Element }) => {
 
 // ---------- Shared Layout for Protected Pages ----------
 const ProtectedLayout = ({ children }: { children: JSX.Element }) => (
-  <div className="min-h-screen flex w-full bg-background">
+  <div className="flex h-svh w-full overflow-hidden">
     <AppSidebar />
-    <div className="flex-1 flex flex-col">
-      <main className="flex-1 overflow-auto">{children}</main>
-    </div>
+    <SidebarInset className="flex flex-1 flex-col min-h-0 h-svh overflow-y-auto">
+      {children}
+    </SidebarInset>
+  </div>
+);
+
+// ---------- Public Layout → Hamesha Dark Theme ----------
+const PublicLayout = () => (
+  <div className="dark min-h-screen w-full bg-background text-foreground">
+    <Outlet />
   </div>
 );
 
@@ -81,22 +91,35 @@ const App = () => (
         <TooltipProvider>
           <Toaster />
           <Sonner />
-          <BrowserRouter>
-            <SidebarProvider>
+          <BrowserRouter
+            future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+          >
+            <UpgradeRequiredListener />
+            <SidebarProvider
+              style={
+                {
+                  "--sidebar-width": "18rem",
+                  "--sidebar-width-icon": "3.5rem",
+                } as React.CSSProperties
+              }
+            >
               <Routes>
                 {/* Redirect root to SignIn */}
                 <Route path="/" element={<Navigate to="/signin" replace />} />
 
-                {/* Public Routes */}
+                {/* Public Routes → Always Dark Theme */}
+              <Route element={<PublicLayout />}>
                 <Route path="/signin" element={<SignIn />} />
                 <Route path="/signup" element={<SignUp />} />
                 <Route path="/signout" element={<SignOut />} />
                 <Route path="/forgot-password" element={<ForgotPassword />} />
+                <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/contact-support" element={<ContactSupport />} />
                 <Route path="/terms-of-service" element={<TermsOfService />} />
                 <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+              </Route>
 
-                {/* Protected Routes */}
+                {/* Protected Routes → System Theme (or future toggle) */}
                 <Route
                   path="/dashboard"
                   element={
@@ -329,6 +352,10 @@ const App = () => (
                 />
                 <Route
                   path="/pdf/convert-from"
+                  element={<Navigate to="/pdf/pdf-to-other-formats" replace />}
+                />
+                <Route
+                  path="/pdf/pdf-to-other-formats"
                   element={
                     <ProtectedRoute>
                       <ProtectedLayout>
@@ -339,6 +366,10 @@ const App = () => (
                 />
                 <Route
                   path="/pdf/convert-to"
+                  element={<Navigate to="/pdf/convert-to-other-formats" replace />}
+                />
+                <Route
+                  path="/pdf/convert-to-other-formats"
                   element={
                     <ProtectedRoute>
                       <ProtectedLayout>
@@ -427,12 +458,22 @@ const App = () => (
                     </ProtectedRoute>
                   }
                 />
-                <Route
+                {/* <Route
                   path="/history/:id"
                   element={
                     <ProtectedRoute>
                       <ProtectedLayout>
                         <History />
+                      </ProtectedLayout>
+                    </ProtectedRoute>
+                  }
+                /> */}
+                <Route
+                  path="/activity"
+                  element={
+                    <ProtectedRoute>
+                      <ProtectedLayout>
+                        <AllActivity />
                       </ProtectedLayout>
                     </ProtectedRoute>
                   }

@@ -458,6 +458,27 @@ Built with love for the legal community. Special thanks to all the legal profess
 
 ---
 
+
+## Deploy netlify 
+
+- for testing from cli
+
+### commands
+- currently manaully build
+- npm install -g netlify-cli
+- netlify --version
+- netlify login
+- netlify init
+- netlify deploy
+- netlify deploy --prod
+- netlify open        # Open site in browser
+- netlify status      # Show site status
+- netlify logout      # Logout from CLI
+
+### for prod using the github account with Beta branch
+
+
+
 **Ready to transform your legal workflow?**
 
 [Sign Up Today](/signup) and experience the future of legal technology.

@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Download, Trash2, ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
 import PDFToolRecommendations from "@/components/PDFToolRecommendations";
+import { buildLexorbitProcessedFilename } from "@/utils/lexorbitFilename";
 
 const DownloadOCRPDF = () => {
   const location = useLocation();
@@ -18,7 +19,7 @@ const DownloadOCRPDF = () => {
 
     const link = document.createElement("a");
     link.href = pdfUrl;
-    link.download = fileName || "ocr_processed.pdf";
+    link.download = fileName || buildLexorbitProcessedFilename("document.pdf", "ocr");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

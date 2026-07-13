@@ -2,7 +2,7 @@ import {
   Home, 
   FileText, 
   Library, 
-  History, 
+  // History, 
   LogIn, 
   UserPlus,
   LogOut,
@@ -22,6 +22,11 @@ import {
   PanelLeftClose,
   PanelLeft
 } from "lucide-react";
+import { UserAvatar } from "@/components/UserAvatar";
+import {
+  USER_PROFILE_UPDATED_EVENT,
+  type UserProfileUpdateDetail,
+} from "@/utils/userAvatar";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { logoutUser, getUserProfile } from "@/api/user";
@@ -39,6 +44,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 const mainNavItems = [
   { title: "Home", url: "/dashboard", icon: Home },
@@ -60,13 +66,13 @@ const aiFeatures = [
   { title: "Document Automation", url: "/ai/automation", icon: FileCheck },
 ];
 
-const historyItems = [
-  "Legal practice analysis",
-  "Legal breakdown summary", 
-  "Court case review",
-  "Contract analysis",
-  "Legal research notes"
-];
+// const historyItems = [
+//   "Legal practice analysis",
+//   "Legal breakdown summary",
+//   "Court case review",
+//   "Contract analysis",
+//   "Legal research notes"
+// ];
 
 export function AppSidebar() {
   const { state, toggleSidebar } = useSidebar();
@@ -77,7 +83,8 @@ export function AppSidebar() {
   const [libraryOpen, setLibraryOpen] = useState(true);
   const [aiOpen, setAiOpen] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [userProfile, setUserProfile] = useState<{ name?: string; avatar?: string }>({});
+  const [userProfile, setUserProfile] = useState<{ name?: string; email?: string; avatar?: string }>({});
+  const [planSlug, setPlanSlug] = useState('starter');
 
   useEffect(() => {
     // Check if user is authenticated on mount
@@ -92,8 +99,10 @@ export function AppSidebar() {
         const data = await getUserProfile();
         setUserProfile({
           name: data?.name,
+          email: data?.email,
           avatar: data?.avatar,
         });
+        setPlanSlug(data?.subscription?.plan?.slug || 'starter');
       } catch (error) {
         console.error("Failed to fetch user profile:", error);
       }
@@ -103,6 +112,17 @@ export function AppSidebar() {
       fetchUserProfile();
     }
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    const onProfileUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<UserProfileUpdateDetail>).detail;
+      if (!detail) return;
+      setUserProfile((prev) => ({ ...prev, ...detail }));
+    };
+
+    window.addEventListener(USER_PROFILE_UPDATED_EVENT, onProfileUpdated);
+    return () => window.removeEventListener(USER_PROFILE_UPDATED_EVENT, onProfileUpdated);
+  }, []);
 
   // Sign Out handler
   const handleSignOut = async () => {
@@ -129,20 +149,33 @@ export function AppSidebar() {
       : "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground";
 
   return (
-    <Sidebar className={`${isCollapsed ? "w-14" : "w-72"} border-r border-sidebar-border`} collapsible="icon">
-      <div className={`flex items-center border-b border-sidebar-border h-16 ${isCollapsed ? 'justify-center px-2' : 'justify-between px-4'}`}>
+    <Sidebar className="border-r border-sidebar-border !z-30" collapsible="icon">
+      <div
+        className={cn(
+          "flex items-center border-b border-sidebar-border h-16 gap-2 shrink-0",
+          isCollapsed ? "justify-center px-2" : "px-4"
+        )}
+      >
         {!isCollapsed && (
-          <div className="text-sidebar-foreground">
-            <h1 className="text-lg font-semibold">LegalAI Pro</h1>
-            <p className="text-xs text-sidebar-foreground/70">AI-Powered Legal Platform</p>
+          <div className="text-sidebar-foreground flex-1 min-w-0">
+            <h1 className="text-lg font-semibold font-heading tracking-tight truncate">LexOrbit</h1>
+            <p className="text-xs text-sidebar-foreground/70 font-body truncate">
+              Legal intelligence platform
+            </p>
           </div>
         )}
         <Button
+          type="button"
           variant="ghost"
           size="icon"
           onClick={toggleSidebar}
-          className="h-8 w-8 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground rounded-md transition-colors flex-shrink-0"
-          aria-label="Toggle Sidebar"
+          className={cn(
+            "shrink-0 h-8 w-8 rounded-md",
+            "text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
+            isCollapsed && "mx-auto"
+          )}
+          aria-label={isCollapsed ? "Expand menu" : "Collapse menu"}
+          title={isCollapsed ? "Expand menu" : "Collapse menu"}
         >
           {isCollapsed ? (
             <PanelLeft className="h-4 w-4" />
@@ -243,7 +276,7 @@ export function AppSidebar() {
           )}
         </SidebarGroup>
 
-        {/* History */}
+        {/* History — hidden for now
         {!isCollapsed && (
           <SidebarGroup>
             <SidebarGroupLabel className="flex items-center gap-2 text-xs font-medium text-sidebar-foreground/70">
@@ -266,22 +299,23 @@ export function AppSidebar() {
             </SidebarGroupContent>
           </SidebarGroup>
         )}
+        */}
       </SidebarContent>
 
       {/* Bottom Section */}
       <div className={`mt-auto border-t border-sidebar-border ${isCollapsed ? 'p-2 flex flex-col items-center gap-2' : 'p-4'}`}>
-        {!isCollapsed && (
+        {!isCollapsed && isAuthenticated && planSlug === 'starter' && (
           <div className="bg-sidebar-accent rounded-lg p-3 mb-4">
-            <h3 className="text-sm font-semibold text-sidebar-accent-foreground mb-1">Try Pro</h3>
+            <h3 className="text-sm font-semibold text-sidebar-accent-foreground mb-1">Upgrade plan</h3>
             <p className="text-xs text-sidebar-accent-foreground/70 mb-2">
-              Upgrade to upload more files and download PDF edits.
+              Get more AI queries, summaries, OCR, and predictive analytics.
             </p>
-            <Button 
-              size="sm" 
+            <Button
+              size="sm"
               className="w-full bg-sidebar-primary hover:bg-sidebar-primary/90"
               onClick={() => navigate('/subscription')}
             >
-              Upgrade Plan
+              View plans & subscribe
             </Button>
           </div>
         )}
@@ -359,17 +393,13 @@ export function AppSidebar() {
             to="/profile" 
             className="flex items-center gap-2 mt-4 p-2 text-xs text-sidebar-foreground/60 hover:bg-sidebar-accent rounded-md transition-colors"
           >
-            {userProfile?.avatar ? (
-              <img
-                src={userProfile.avatar}
-                alt={userProfile.name || "User Avatar"}
-                className="w-6 h-6 rounded-full object-cover"
-              />
-            ) : (
-              <div className="w-6 h-6 bg-sidebar-primary rounded-full flex items-center justify-center text-sidebar-primary-foreground font-medium">
-                {userProfile?.name ? userProfile.name.charAt(0).toUpperCase() : "P"}
-              </div>
-            )}
+            <UserAvatar
+              src={userProfile?.avatar}
+              name={userProfile?.name}
+              email={userProfile?.email}
+              className="w-6 h-6"
+              emojiClassName="text-sm"
+            />
             <div className="flex-1 truncate">
               <p className="truncate">{userProfile?.name || "Profile"}</p>
             </div>
@@ -382,17 +412,13 @@ export function AppSidebar() {
             to="/profile" 
             className="flex items-center justify-center w-10 h-10 hover:bg-sidebar-accent rounded-md transition-colors"
           >
-            {userProfile?.avatar ? (
-              <img
-                src={userProfile.avatar}
-                alt={userProfile.name || "User Avatar"}
-                className="w-8 h-8 rounded-full object-cover"
-              />
-            ) : (
-              <div className="w-8 h-8 bg-sidebar-primary rounded-full flex items-center justify-center text-sidebar-primary-foreground font-medium text-xs">
-                {userProfile?.name ? userProfile.name.charAt(0).toUpperCase() : "A"}
-              </div>
-            )}
+            <UserAvatar
+              src={userProfile?.avatar}
+              name={userProfile?.name}
+              email={userProfile?.email}
+              className="w-8 h-8"
+              emojiClassName="text-base"
+            />
           </NavLink>
         )}
       </div>

@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Progress } from "@/components/ui/progress";
+import { toast } from "sonner";
+import { useCitationCaseSearch, useSaveCitationMap } from "@/api/hooks/useCitationMaps";
+import { getCitationNetwork, type CitationCaseNode, type CitationNetworkResponse } from "@/api/ai-features/citation-maps";
 import { 
   ArrowLeft, 
   Network, 
@@ -21,74 +23,86 @@ import {
   Printer
 } from "lucide-react";
 
+interface GeneratedMap {
+  title: string;
+  centralCase: CitationCaseNode;
+  connectedCases: number;
+  totalCitations: number;
+  influenceScore: number;
+  generatedAt: string;
+  network: CitationNetworkResponse;
+}
+
 const CreateCitationMap = () => {
   const navigate = useNavigate();
   const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedMap, setGeneratedMap] = useState(null);
-  const [selectedCases, setSelectedCases] = useState([]);
+  const [generatedMap, setGeneratedMap] = useState<GeneratedMap | null>(null);
+  const [selectedCases, setSelectedCases] = useState<CitationCaseNode[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
+  const [debouncedTerm, setDebouncedTerm] = useState("");
+  const [mapTitle, setMapTitle] = useState("");
 
-  const suggestedCases = [
-    {
-      id: 1,
-      title: "Brown v. Board of Education",
-      year: "1954",
-      court: "Supreme Court",
-      citations: 12847,
-      relevance: 98,
-      description: "Landmark case declaring racial segregation unconstitutional"
-    },
-    {
-      id: 2,
-      title: "Miranda v. Arizona",
-      year: "1966", 
-      court: "Supreme Court",
-      citations: 8934,
-      relevance: 85,
-      description: "Established Miranda rights for criminal suspects"
-    },
-    {
-      id: 3,
-      title: "Roe v. Wade",
-      year: "1973",
-      court: "Supreme Court", 
-      citations: 7562,
-      relevance: 92,
-      description: "Constitutional right to abortion established"
-    }
-  ];
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedTerm(searchTerm), 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
-  const handleAddCase = (case_) => {
-    if (!selectedCases.find(c => c.id === case_.id)) {
+  const { data: suggestedCases = [], isLoading: casesLoading } =
+    useCitationCaseSearch(debouncedTerm, 10);
+  const saveMapMutation = useSaveCitationMap();
+
+  const handleAddCase = (case_: CitationCaseNode) => {
+    if (!selectedCases.find(c => c.opinion_id === case_.opinion_id)) {
       setSelectedCases([...selectedCases, case_]);
     }
   };
 
-  const handleRemoveCase = (caseId) => {
-    setSelectedCases(selectedCases.filter(c => c.id !== caseId));
+  const handleRemoveCase = (opinionId: number) => {
+    setSelectedCases(selectedCases.filter(c => c.opinion_id !== opinionId));
   };
 
-  const handleGenerateMap = () => {
+  const handleGenerateMap = async () => {
     if (selectedCases.length === 0) return;
-    
+
     setIsGenerating(true);
-    setTimeout(() => {
-      setGeneratedMap({
-        title: `Citation Network Analysis - ${selectedCases.length} Cases`,
-        centralCase: selectedCases[0],
-        connectedCases: selectedCases.length - 1,
-        totalCitations: selectedCases.reduce((sum, c) => sum + c.citations, 0),
-        influenceScore: Math.floor(selectedCases.reduce((sum, c) => sum + c.relevance, 0) / selectedCases.length),
-        generatedAt: new Date().toLocaleString()
+    try {
+      const res = await getCitationNetwork({
+        opinion_ids: selectedCases.map((c) => c.opinion_id),
+        depth: 2,
       });
+      const network = res.data;
+      const totalCitations = network.nodes.reduce((sum, n) => sum + n.citations, 0);
+      const influenceScore = network.nodes.length
+        ? Math.floor(
+            network.nodes.reduce((sum, n) => sum + n.influence, 0) / network.nodes.length
+          )
+        : 0;
+
+      const map: GeneratedMap = {
+        title: mapTitle.trim() || `Citation Network Analysis - ${selectedCases.length} Cases`,
+        centralCase: selectedCases[0],
+        connectedCases: Math.max(0, network.total_nodes - selectedCases.length),
+        totalCitations,
+        influenceScore,
+        generatedAt: new Date().toLocaleString(),
+        network,
+      };
+      setGeneratedMap(map);
+
+      saveMapMutation.mutate({
+        title: map.title,
+        opinion_ids: selectedCases.map((c) => c.opinion_id),
+        node_count: network.total_nodes,
+        edge_count: network.total_links,
+      });
+    } catch {
+      toast.error("Failed to generate the citation map. Please try again.");
+    } finally {
       setIsGenerating(false);
-    }, 3000);
+    }
   };
 
-  const filteredCases = suggestedCases.filter(case_ =>
-    case_.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    case_.description.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredCases = suggestedCases;
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
@@ -145,32 +159,39 @@ const CreateCitationMap = () => {
 
                   <div className="space-y-3">
                     {filteredCases.map((case_) => (
-                      <div key={case_.id} className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors">
+                      <div key={case_.opinion_id} className="flex items-center justify-between p-4 border border-border rounded-lg hover:bg-muted/50 transition-colors">
                         <div className="flex-1">
                           <div className="flex items-center gap-3 mb-2">
                             <h4 className="font-semibold">{case_.title}</h4>
-                            <Badge variant="outline" className="text-xs">{case_.year}</Badge>
+                            {case_.year && <Badge variant="outline" className="text-xs">{case_.year}</Badge>}
                           </div>
-                          <p className="text-sm text-muted-foreground mb-2">{case_.description}</p>
+                          <p className="text-sm text-muted-foreground mb-2 line-clamp-2">{case_.description}</p>
                           <div className="flex items-center gap-4 text-xs text-muted-foreground">
                             <span>{case_.court}</span>
                             <span>{case_.citations.toLocaleString()} citations</span>
-                            <span>Relevance: {case_.relevance}%</span>
+                            <span>Influence: {case_.influence}%</span>
                           </div>
                         </div>
                         <Button 
                           size="sm"
                           onClick={() => handleAddCase(case_)}
-                          disabled={selectedCases.find(c => c.id === case_.id)}
+                          disabled={!!selectedCases.find(c => c.opinion_id === case_.opinion_id)}
                         >
                           <Plus className="h-4 w-4 mr-1" />
-                          {selectedCases.find(c => c.id === case_.id) ? "Added" : "Add"}
+                          {selectedCases.find(c => c.opinion_id === case_.opinion_id) ? "Added" : "Add"}
                         </Button>
                       </div>
                     ))}
                   </div>
 
-                  {filteredCases.length === 0 && (
+                  {casesLoading && filteredCases.length === 0 && (
+                    <div className="text-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-legal-primary mx-auto mb-3"></div>
+                      <p className="text-muted-foreground">Searching cases…</p>
+                    </div>
+                  )}
+
+                  {!casesLoading && filteredCases.length === 0 && (
                     <div className="text-center py-8">
                       <BookOpen className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                       <h3 className="text-lg font-semibold mb-2">No Cases Found</h3>
@@ -199,7 +220,11 @@ const CreateCitationMap = () => {
                   <div className="space-y-4">
                     <div>
                       <label className="text-sm font-medium mb-2 block">Map Title</label>
-                      <Input placeholder="Enter a name for your citation map" />
+                      <Input 
+                        placeholder="Enter a name for your citation map" 
+                        value={mapTitle}
+                        onChange={(e) => setMapTitle(e.target.value)}
+                      />
                     </div>
                     
                     <div>
@@ -260,7 +285,7 @@ const CreateCitationMap = () => {
                         <h3 className="text-xl font-bold mb-2">{generatedMap.title}</h3>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
                           <div>
-                            <div className="text-2xl font-bold">{selectedCases.length}</div>
+                            <div className="text-2xl font-bold">{generatedMap.network.total_nodes}</div>
                             <p className="text-sm opacity-90">Cases</p>
                           </div>
                           <div>
@@ -272,7 +297,7 @@ const CreateCitationMap = () => {
                             <p className="text-sm opacity-90">Influence Score</p>
                           </div>
                           <div>
-                            <div className="text-2xl font-bold">{generatedMap.connectedCases}</div>
+                            <div className="text-2xl font-bold">{generatedMap.network.total_links}</div>
                             <p className="text-sm opacity-90">Connections</p>
                           </div>
                         </div>
@@ -283,13 +308,16 @@ const CreateCitationMap = () => {
                         <div className="absolute inset-0 bg-gradient-to-br from-legal-primary/5 to-legal-info/5">
                           {/* Network nodes representing the selected cases */}
                           <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-                            <div className="w-20 h-20 bg-legal-primary rounded-full flex items-center justify-center text-white font-bold shadow-legal">
-                              {selectedCases[0]?.title.split(' ')[0]}
+                            <div className="w-20 h-20 bg-legal-primary rounded-full flex items-center justify-center text-white font-bold shadow-legal text-xs text-center px-1">
+                              {generatedMap.centralCase?.title.split(' ')[0]}
                             </div>
                           </div>
                           
-                          {selectedCases.slice(1).map((case_, index) => {
-                            const angle = (index * 2 * Math.PI) / (selectedCases.length - 1);
+                          {generatedMap.network.nodes
+                            .filter((n) => n.id !== String(generatedMap.centralCase?.opinion_id))
+                            .slice(0, 8)
+                            .map((case_, index, arr) => {
+                            const angle = (index * 2 * Math.PI) / Math.max(arr.length, 1);
                             const radius = 120;
                             const x = Math.cos(angle) * radius;
                             const y = Math.sin(angle) * radius;
@@ -302,6 +330,7 @@ const CreateCitationMap = () => {
                                   left: `calc(50% + ${x}px - 24px)`, 
                                   top: `calc(50% + ${y}px - 24px)` 
                                 }}
+                                title={case_.title}
                               >
                                 {case_.title.split(' ')[0].substring(0, 3)}
                               </div>
@@ -313,13 +342,13 @@ const CreateCitationMap = () => {
                           <Network className="h-12 w-12 text-legal-primary mx-auto mb-3" />
                           <h3 className="text-lg font-semibold mb-2">Interactive Citation Network</h3>
                           <p className="text-sm text-muted-foreground">
-                            Network visualization with {selectedCases.length} connected cases
+                            Network visualization with {generatedMap.network.total_nodes} connected cases
                           </p>
                         </div>
                       </div>
 
                       <div className="flex gap-3">
-                        <Button className="flex-1">
+                        <Button className="flex-1" onClick={() => window.print()}>
                           <Download className="h-4 w-4 mr-2" />
                           Download Map
                         </Button>
@@ -327,11 +356,20 @@ const CreateCitationMap = () => {
                           <Printer className="h-4 w-4 mr-2" />
                           Print Map
                         </Button>
-                        <Button variant="outline">
+                        <Button 
+                          variant="outline"
+                          onClick={() => {
+                            navigator.clipboard.writeText(window.location.href);
+                            toast("Map link copied to clipboard!");
+                          }}
+                        >
                           <Share2 className="h-4 w-4 mr-2" />
                           Share Map
                         </Button>
-                        <Button variant="outline">
+                        <Button 
+                          variant="outline"
+                          onClick={() => navigate("/ai/citation-maps")}
+                        >
                           <Target className="h-4 w-4 mr-2" />
                           Explore Network
                         </Button>
@@ -367,7 +405,7 @@ const CreateCitationMap = () => {
                 ) : (
                   <div className="space-y-3">
                     {selectedCases.map((case_, index) => (
-                      <div key={case_.id} className="flex items-center justify-between p-3 border border-border rounded-lg">
+                      <div key={case_.opinion_id} className="flex items-center justify-between p-3 border border-border rounded-lg">
                         <div className="flex-1">
                           <div className="flex items-center gap-2 mb-1">
                             <span className="text-sm font-medium">{case_.title}</span>
@@ -384,7 +422,7 @@ const CreateCitationMap = () => {
                         <Button 
                           size="sm" 
                           variant="ghost"
-                          onClick={() => handleRemoveCase(case_.id)}
+                          onClick={() => handleRemoveCase(case_.opinion_id)}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -424,10 +462,10 @@ const CreateCitationMap = () => {
                       </span>
                     </div>
                     <div className="flex justify-between text-sm">
-                      <span>Avg Relevance</span>
+                      <span>Avg Influence</span>
                       <span className="font-medium">
                         {selectedCases.length > 0 ? 
-                          Math.floor(selectedCases.reduce((sum, c) => sum + c.relevance, 0) / selectedCases.length) 
+                          Math.floor(selectedCases.reduce((sum, c) => sum + c.influence, 0) / selectedCases.length) 
                           : 0}%
                       </span>
                     </div>

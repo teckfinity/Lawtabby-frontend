@@ -5,186 +5,196 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { 
-  ArrowLeft, 
-  Gavel, 
-  TrendingUp, 
-  TrendingDown, 
-  Clock, 
-  Scale, 
+import {
+  ArrowLeft,
+  Gavel,
+  TrendingUp,
+  TrendingDown,
+  Clock,
+  Scale,
   BarChart3,
   Calendar,
   Award,
-  FileText,
   Users,
-  AlertCircle
+  AlertCircle,
+  FileText,
+  Briefcase,
+  Handshake,
+  Info,
 } from "lucide-react";
+import { useJudgeProfile } from "@/api/hooks";
 import {
-  BarChart as RBarChart,
+  ResponsiveContainer,
+  BarChart,
   Bar,
-  LineChart as RLineChart,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip as RTooltip,
-  Legend as RLegend,
+  Tooltip,
+  Legend,
+  LineChart,
+  Line,
   PieChart,
   Pie,
-  Cell,
-  ResponsiveContainer
+  Cell
 } from "recharts";
 
 const JudgeProfile = () => {
   const navigate = useNavigate();
-  const { judgeId } = useParams();
+  const { judgeId } = useParams<{ judgeId: string }>();
   const { toast } = useToast();
 
-  const judgeData = {
-    id: judgeId || "1",
-    name: "Hon. Sarah Mitchell",
-    court: "Superior Court of California",
-    appointedYear: "2018",
-    totalCases: 1247,
-    grantRate: 78,
-    avgDecisionTime: "45 days",
-    specialty: "Corporate Law",
-    trend: "up",
-    recentCases: 156,
-    education: "Harvard Law School, J.D. 1995",
-    experience: "25 years",
-    bio: "Judge Sarah Mitchell has served on the Superior Court of California since 2018. She previously practiced corporate law for 15 years and served as a legal advisor for tech startups. Known for her fair and efficient case management.",
-    photo: "/api/placeholder/400/400"
-  };
+  const [selectedMotion, setSelectedMotion]     = useState<string>("Preliminary Injunction");
+  const [enabledInsights, setEnabledInsights]   = useState<Record<string, boolean>>({});
 
-  const caseCategories = [
-    { category: "Corporate Law", cases: 456, percentage: 37, color: "bg-legal-primary" },
-    { category: "Civil Rights", cases: 298, percentage: 24, color: "bg-legal-info" },
-    { category: "Employment", cases: 234, percentage: 19, color: "bg-legal-success" },
-    { category: "Contract Disputes", cases: 186, percentage: 15, color: "bg-legal-warning" },
-    { category: "Other", cases: 73, percentage: 5, color: "bg-muted" }
-  ];
+  const judgeIdNum = judgeId && !isNaN(Number(judgeId)) ? Number(judgeId) : undefined;
 
-  const monthlyStats = [
-    { month: "Jan", granted: 85, denied: 15, avgDays: 42 },
-    { month: "Feb", granted: 78, denied: 22, avgDays: 47 },
-    { month: "Mar", granted: 82, denied: 18, avgDays: 44 },
-    { month: "Apr", granted: 76, denied: 24, avgDays: 48 },
-    { month: "May", granted: 80, denied: 20, avgDays: 46 },
-    { month: "Jun", granted: 84, denied: 16, avgDays: 45 }
-  ];
+  // ── React Query: single call replaces useEffect + useState loading ─────────
+  const { data: profileData, isLoading: loading, isError } = useJudgeProfile(judgeIdNum);
 
-  const casesByMotion = [
-    { name: "Summary Judgment", granted: 64, denied: 36 },
-    { name: "Motion to Dismiss", granted: 58, denied: 42 },
-    { name: "Preliminary Injunction", granted: 41, denied: 59 },
-  ];
+  // Invalid ID: redirect immediately
+  if (!judgeIdNum) {
+    toast({ variant: "destructive", title: "Invalid Judge", description: "The judge ID is missing or invalid." });
+    navigate("/ai/judge-analytics");
+    return null;
+  }
 
-  const rulingPatternsByMotion: Record<string, { factor: string; lift: number; sample: string }[]> = {
-    "Summary Judgment": [
-      { factor: "Corporate disputes", lift: 1.3, sample: "Companies with strong contracts favored" },
-      { factor: "Well-documented evidence", lift: 1.5, sample: "Clear affidavits increase grants" },
-      { factor: "Prior settlement attempts", lift: 1.2, sample: "Good-faith negotiation helps" },
-    ],
-    "Motion to Dismiss": [
-      { factor: "Pleading deficiencies", lift: 1.6, sample: "Rule 12(b)(6) deficiencies penalized" },
-      { factor: "Jurisdiction issues", lift: 1.4, sample: "Venue and standing closely scrutinized" },
-      { factor: "Pro se litigants", lift: 0.8, sample: "Tends to allow amendments" },
-    ],
-    "Preliminary Injunction": [
-      { factor: "Likelihood of success", lift: 1.7, sample: "Strong merits needed" },
-      { factor: "Irreparable harm", lift: 1.5, sample: "Harm must be concrete" },
-      { factor: "Public interest", lift: 1.2, sample: "Balances equities carefully" },
-    ],
-  };
+  if (loading) {
+    return (
+      <div className="w-full min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-legal-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading judge profile...</p>
+        </div>
+      </div>
+    );
+  }
 
-  const timeHeatmap = [
-    { day: "Mon", morning: 0.7, afternoon: 0.6, late: 0.5 },
-    { day: "Tue", morning: 0.6, afternoon: 0.65, late: 0.55 },
-    { day: "Wed", morning: 0.75, afternoon: 0.6, late: 0.5 },
-    { day: "Thu", morning: 0.7, afternoon: 0.7, late: 0.6 },
-    { day: "Fri", morning: 0.6, afternoon: 0.55, late: 0.45 },
-  ];
+  if (isError || !profileData) {
+    return (
+      <div className="w-full min-h-screen flex items-center justify-center flex-col gap-6">
+        <AlertCircle className="h-16 w-16 text-destructive" />
+        <div className="text-center">
+          <h2 className="text-2xl font-semibold">Judge Profile Not Available</h2>
+          <p className="text-muted-foreground mt-2">We couldn't load this judge's information.</p>
+        </div>
+        <Button onClick={() => navigate("/ai/judge-analytics")}>
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back to Judge Analytics
+        </Button>
+      </div>
+    );
+  }
 
-  const motionOptions = ["Summary Judgment", "Motion to Dismiss", "Preliminary Injunction"] as const;
-  const [selectedMotion, setSelectedMotion] = useState<typeof motionOptions[number]>("Summary Judgment");
-  const [selectedTime, setSelectedTime] = useState<{ day: string; slot: "morning" | "afternoon" | "late" } | null>(null);
-  const [appliedInsight, setAppliedInsight] = useState<Record<string, boolean>>({});
-  const keyInsights = [
-    {
-      title: "High Grant Rate",
-      description: "78% grant rate in motion hearings, above average for jurisdiction",
-      type: "positive",
-      icon: TrendingUp
-    },
-    {
-      title: "Fast Decisions", 
-      description: "Decisions typically made within 45 days, faster than court average",
-      type: "positive",
-      icon: Clock
-    },
-    {
-      title: "Corporate Focus",
-      description: "Expertise in corporate law matters, favorable to business interests",
-      type: "neutral",
-      icon: Scale
-    },
-    {
-      title: "Settlement Preference",
-      description: "Encourages settlement in 65% of cases before trial",
-      type: "neutral",
-      icon: Users
-    }
-  ];
+  // Extract data from unified endpoint (dark theme API structure)
+  const overview = profileData.overview || {};
+  const education = profileData.education || [];
+  const analytics = profileData.analytics || {};
+  const patterns = profileData.patterns || {}; // { ruling_patterns: { [motion]: { factors: [] } }, time_patterns: [] }
+  const rulingPatterns = patterns.ruling_patterns || {};
+  const timePatterns = patterns.time_patterns || profileData.best_filing_windows || [];
+  const insights = profileData.insights || [];
+  const bestFilingWindows = timePatterns;
+  const distribution = profileData.distribution || [];
+  const rulingMotionKeys = Object.keys(rulingPatterns);
+  const effectiveMotion = rulingMotionKeys.includes(selectedMotion) ? selectedMotion : (rulingMotionKeys[0] || "Preliminary Injunction");
+
+  const grantRate = analytics.grant_rate || 0;
+  const trend = grantRate >= 50 ? "up" : "down";
+
+  // Education entries for dark-theme style: one line per degree (e.g. "Harvard Law School, J.D. 1995")
+  const educationLines = education.length > 0
+    ? education
+        .map((edu: any) => {
+          const school = (edu.school || "").trim();
+          const degree = (edu.degree_level || "").trim();
+          const year = edu.degree_year != null ? String(edu.degree_year) : "";
+          if (!school && !degree && !year) return null;
+          if (school && degree && year) return `${school}, ${degree} ${year}`;
+          if (school && year) return `${school}, ${year}`;
+          if (school && degree) return `${school}, ${degree}`;
+          if (degree && year) return `${degree} ${year}`;
+          return school || degree || year;
+        })
+        .filter(Boolean) as string[]
+    : [];
+
+  // Case distribution data
+  const caseCategories = distribution.map((item: any) => ({
+    category: item.category,
+    cases: item.cases,
+    percentage: parseFloat(item.percentage.replace("%", "")) || 0,
+  }));
+
+  // Analytics tab: monthly_stats from API (Grant vs Denied by Month, Avg Decision Time)
+  const monthlyStatsFromApi = analytics.monthly_stats || [];
+  const monthlyStats = monthlyStatsFromApi.length > 0
+    ? monthlyStatsFromApi
+    : [
+        { month: "Jan", granted: Math.round(5 * (grantRate / 100)), denied: Math.round(5 * (1 - grantRate / 100)), avgDays: analytics.avg_decision_time || 45 },
+        { month: "Feb", granted: Math.round(6 * (grantRate / 100)), denied: Math.round(6 * (1 - grantRate / 100)), avgDays: analytics.avg_decision_time || 45 },
+        { month: "Mar", granted: Math.round(4 * (grantRate / 100)), denied: Math.round(4 * (1 - grantRate / 100)), avgDays: analytics.avg_decision_time || 45 },
+        { month: "Apr", granted: Math.round(7 * (grantRate / 100)), denied: Math.round(7 * (1 - grantRate / 100)), avgDays: analytics.avg_decision_time || 45 },
+        { month: "May", granted: Math.round(5 * (grantRate / 100)), denied: Math.round(5 * (1 - grantRate / 100)), avgDays: analytics.avg_decision_time || 45 },
+        { month: "Jun", granted: Math.round(6 * (grantRate / 100)), denied: Math.round(6 * (1 - grantRate / 100)), avgDays: analytics.avg_decision_time || 45 },
+      ];
+
+  // Motion breakdown from API for Top Motions by Grant Rate pie chart
+  const motionData = (analytics.motion_breakdown || []).length > 0
+    ? analytics.motion_breakdown
+    : caseCategories.map((cat: any) => ({
+        name: cat.category,
+        granted: Math.round(cat.cases * (grantRate / 100)),
+        denied: cat.cases - Math.round(cat.cases * (grantRate / 100)),
+        percentage: grantRate,
+      }));
+
+  const pieColors = ["hsl(var(--primary))", "hsl(var(--destructive))", "hsl(var(--secondary))", "hsl(var(--accent))"];
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
       <div className="max-w-7xl mx-auto">
-        {/* Header with Back Button */}
-        <div className="mb-8">
-          <Button 
-            variant="ghost" 
-            onClick={() => navigate(-1)}
-            className="mb-4"
-          >
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Judge Analytics
-          </Button>
+        <Button variant="ghost" onClick={() => navigate("/ai/judge-analytics")} className="mb-6">
+          <ArrowLeft className="h-4 w-4 mr-2" />
+          Back to Judge Analytics
+        </Button>
 
-          <div className="flex items-start gap-6">
-            <div className="w-24 h-24 bg-gradient-primary rounded-lg flex items-center justify-center">
-              <Gavel className="h-12 w-12 text-white" />
-            </div>
-            
-            <div className="flex-1">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h1 className="text-3xl font-bold text-foreground mb-2">{judgeData.name}</h1>
-                  <p className="text-lg text-muted-foreground mb-1">{judgeData.court}</p>
-                  <p className="text-sm text-muted-foreground">
-                    Appointed: {judgeData.appointedYear} • {judgeData.experience} Experience
-                  </p>
-                  <div className="flex gap-2 mt-3">
-                    <Badge variant="outline">{judgeData.specialty}</Badge>
-                    <Badge variant={judgeData.trend === "up" ? "default" : "secondary"}>
-                      {judgeData.trend === "up" ? (
-                        <><TrendingUp className="h-3 w-3 mr-1" /> Trending Up</>
-                      ) : (
-                        <><TrendingDown className="h-3 w-3 mr-1" /> Trending Down</>
-                      )}
-                    </Badge>
-                  </div>
-                </div>
+        {/* Header */}
+        <div className="flex gap-6 mb-8">
+          <div className="w-24 h-24 bg-gradient-primary rounded-lg flex items-center justify-center flex-shrink-0">
+            <Gavel className="h-12 w-12 text-white" />
+          </div>
 
-                <div className="text-right">
-                  <div className="text-3xl font-bold text-legal-primary">{judgeData.grantRate}%</div>
-                  <p className="text-sm text-muted-foreground">Grant Rate</p>
-                </div>
+          <div className="flex-1 flex justify-between items-start">
+            <div>
+              <h1 className="text-3xl font-bold">{overview.full_name || "Unknown Judge"}</h1>
+              <p className="text-muted-foreground">{overview.court || "N/A"}</p>
+              <p className="text-sm text-muted-foreground">
+                Appointed: {overview.appointed || "N/A"} • Experience: {overview.experience || "N/A"}
+              </p>
+              <div className="flex gap-2 mt-2">
+                <Badge variant="outline">{overview.specialty || "General"}</Badge>
+                <Badge variant={trend === "up" ? "default" : "secondary"}>
+                  {trend === "up" ? <TrendingUp className="h-3 w-3 mr-1" /> : <TrendingDown className="h-3 w-3 mr-1" />}
+                  {trend === "up" ? "Trending Up" : "Trending Down"}
+                </Badge>
               </div>
+            </div>
+
+            <div className="text-right">
+              <div className="text-3xl font-bold text-legal-primary">
+                {grantRate.toFixed(1)}%
+              </div>
+              <p className="text-sm text-muted-foreground">Grant Rate</p>
             </div>
           </div>
         </div>
@@ -193,31 +203,32 @@ const JudgeProfile = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <Card className="shadow-card">
             <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-foreground">{judgeData.totalCases}</div>
-              <p className="text-sm text-muted-foreground">Total Cases</p>
+              <div className="text-2xl font-bold text-foreground">{analytics.total_opinions ?? analytics.total_cases ?? 0}</div>
+              <p className="text-sm text-muted-foreground">Total Opinions</p>
             </CardContent>
           </Card>
           <Card className="shadow-card">
             <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-legal-warning">{judgeData.grantRate}%</div>
+              <div className="text-2xl font-bold text-legal-warning">{grantRate.toFixed(1)}%</div>
               <p className="text-sm text-muted-foreground">Grant Rate</p>
             </CardContent>
           </Card>
           <Card className="shadow-card">
             <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-legal-info">{judgeData.avgDecisionTime}</div>
+              <div className="text-2xl font-bold text-legal-info">
+                {analytics.avg_decision_time ? `${analytics.avg_decision_time} days` : "N/A"}
+              </div>
               <p className="text-sm text-muted-foreground">Avg Decision Time</p>
             </CardContent>
           </Card>
           <Card className="shadow-card">
             <CardContent className="p-4 text-center">
-              <div className="text-2xl font-bold text-legal-success">{judgeData.recentCases}</div>
-              <p className="text-sm text-muted-foreground">Recent Cases</p>
+              <div className="text-2xl font-bold text-legal-success">{analytics.cases_handled ?? analytics.recent_cases ?? 0}</div>
+              <p className="text-sm text-muted-foreground">Cases Handled</p>
             </CardContent>
           </Card>
         </div>
 
-        {/* Main Content Tabs */}
         <Tabs defaultValue="overview" className="w-full">
           <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="overview">Overview</TabsTrigger>
@@ -229,7 +240,7 @@ const JudgeProfile = () => {
           <TabsContent value="overview" className="mt-6">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="lg:col-span-2 space-y-6">
-                {/* Biography */}
+                {/* Background & Education */}
                 <Card className="shadow-card">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -238,25 +249,34 @@ const JudgeProfile = () => {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <p className="text-muted-foreground mb-4">{judgeData.bio}</p>
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <Award className="h-4 w-4 text-legal-warning" />
-                        <span className="text-sm"><strong>Education:</strong> {judgeData.education}</span>
+                    <p className="text-muted-foreground mb-4">{overview.biography || "No biography available"}</p>
+                    <div className="space-y-3 text-sm">
+                      {educationLines.length > 0 ? (
+                        educationLines.map((line: string, i: number) => (
+                          <div key={i} className="flex items-center gap-3">
+                            <Award className="h-4 w-4 text-legal-warning flex-shrink-0" />
+                            <span>{line}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="flex items-center gap-3">
+                          <Award className="h-4 w-4 text-legal-warning flex-shrink-0" />
+                          <span className="text-muted-foreground">Education not available</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-3">
+                        <Calendar className="h-4 w-4 text-legal-info flex-shrink-0" />
+                        <span><strong>Appointed:</strong> {overview.appointed || "N/A"}</span>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Calendar className="h-4 w-4 text-legal-info" />
-                        <span className="text-sm"><strong>Appointed:</strong> {judgeData.appointedYear}</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Scale className="h-4 w-4 text-legal-success" />
-                        <span className="text-sm"><strong>Specialization:</strong> {judgeData.specialty}</span>
+                      <div className="flex items-center gap-3">
+                        <Scale className="h-4 w-4 text-legal-success flex-shrink-0" />
+                        <span><strong>Specialization:</strong> {overview.specialty || "General"}</span>
                       </div>
                     </div>
                   </CardContent>
                 </Card>
 
-                {/* Case Distribution */}
+                {/* Case Distribution by Category – data from GET /api/judges/:id/profile/ (same profile API) */}
                 <Card className="shadow-card">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -266,25 +286,30 @@ const JudgeProfile = () => {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
-                      {caseCategories.map((category, index) => (
-                        <div key={index} className="space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm font-medium">{category.category}</span>
-                            <div className="text-right">
-                              <span className="text-sm font-medium">{category.cases} cases</span>
-                              <span className="text-xs text-muted-foreground ml-2">({category.percentage}%)</span>
+                      {caseCategories.length > 0 ? (
+                        caseCategories.map((cat: any, index: number) => (
+                          <div key={index} className="space-y-2">
+                            <div className="flex justify-between text-sm">
+                              <span className="font-medium">{cat.category}</span>
+                              <span className="text-muted-foreground">
+                                {cat.cases} cases ({cat.percentage}%)
+                              </span>
                             </div>
+                            <Progress value={cat.percentage} className="h-2" />
                           </div>
-                          <Progress value={category.percentage} className="h-2" />
-                        </div>
-                      ))}
+                        ))
+                      ) : (
+                        <p className="text-center text-muted-foreground text-sm py-6">
+                          Case distribution data not available yet.
+                        </p>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
               </div>
 
+              {/* Right Sidebar - Key Insights for this judge (from profile API) */}
               <div className="space-y-6">
-                {/* Key Insights */}
                 <Card className="shadow-card">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -293,56 +318,33 @@ const JudgeProfile = () => {
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
-                    {keyInsights.map((insight, index) => (
-                      <div key={index} className={`p-3 rounded-lg border ${
-                        insight.type === 'positive' ? 'border-legal-success/20 bg-legal-success/5' :
-                        insight.type === 'negative' ? 'border-destructive/20 bg-destructive/5' :
-                        'border-border bg-muted/30'
-                      }`}>
-                        <div className="flex items-start gap-3">
-                          <insight.icon className={`h-5 w-5 mt-0.5 ${
-                            insight.type === 'positive' ? 'text-legal-success' :
-                            insight.type === 'negative' ? 'text-destructive' :
-                            'text-muted-foreground'
-                          }`} />
-                          <div>
-                            <h4 className="font-medium text-sm mb-1">{insight.title}</h4>
-                            <p className="text-xs text-muted-foreground">{insight.description}</p>
-                          </div>
+                    {insights.length > 0 ? (
+                      insights.map((item: any, idx: number) => (
+                        <div key={item.id ?? idx} className="p-4 rounded-lg border bg-card">
+                          <p className="font-medium text-foreground">{item.title}</p>
+                          <p className="text-sm text-muted-foreground mt-1">{item.description}</p>
                         </div>
-                      </div>
-                    ))}
+                      ))
+                    ) : (
+                      <p className="text-center text-muted-foreground py-8">
+                        No insights available yet.
+                      </p>
+                    )}
                   </CardContent>
                 </Card>
 
-                {/* Quick Actions */}
                 <Card className="shadow-card">
                   <CardHeader>
                     <CardTitle>Actions</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <Button 
-                      className="w-full justify-start"
-                      onClick={() => navigate(`/ai/judge/${judgeId}/case-history`)}
-                    >
+                    <Button className="w-full justify-start" onClick={() => navigate(`/ai/judge/${judgeId}/case-history`)}>
                       <FileText className="h-4 w-4 mr-2" />
                       View Case History
                     </Button>
-                    <Button 
-                      variant="outline" 
-                      className="w-full justify-start"
-                      onClick={() => navigate(`/ai/judge/${judgeId}/predictions`)}
-                    >
+                    <Button variant="outline" className="w-full justify-start" onClick={() => navigate(`/ai/judge/${judgeId}/predictions`)}>
                       <TrendingUp className="h-4 w-4 mr-2" />
                       Get Predictions
-                    </Button>
-                    <Button 
-                      variant="outline" 
-                      className="w-full justify-start"
-                      onClick={() => navigate('/ai/judges/compare')}
-                    >
-                      <BarChart3 className="h-4 w-4 mr-2" />
-                      Compare Judges
                     </Button>
                   </CardContent>
                 </Card>
@@ -350,6 +352,7 @@ const JudgeProfile = () => {
             </div>
           </TabsContent>
 
+          {/* Analytics Tab */}
           <TabsContent value="analytics" className="mt-6">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <Card className="shadow-card">
@@ -360,15 +363,15 @@ const JudgeProfile = () => {
                 <CardContent>
                   <div className="h-72">
                     <ResponsiveContainer width="100%" height="100%">
-                      <RBarChart data={monthlyStats}>
+                      <BarChart data={monthlyStats}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="month" />
                         <YAxis />
-                        <RTooltip />
-                        <RLegend />
+                        <Tooltip />
+                        <Legend />
                         <Bar dataKey="granted" stackId="a" fill="hsl(var(--primary))" />
                         <Bar dataKey="denied" stackId="a" fill="hsl(var(--destructive))" />
-                      </RBarChart>
+                      </BarChart>
                     </ResponsiveContainer>
                   </div>
                 </CardContent>
@@ -380,16 +383,16 @@ const JudgeProfile = () => {
                   <CardDescription>Average time to decision per month</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="h-72 text-foreground">
+                  <div className="h-72">
                     <ResponsiveContainer width="100%" height="100%">
-                      <RLineChart data={monthlyStats}>
+                      <LineChart data={monthlyStats}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="month" />
                         <YAxis />
-                        <RTooltip />
-                        <RLegend />
+                        <Tooltip />
+                        <Legend />
                         <Line type="monotone" dataKey="avgDays" stroke="hsl(var(--secondary))" strokeWidth={2} dot={false} />
-                      </RLineChart>
+                      </LineChart>
                     </ResponsiveContainer>
                   </div>
                 </CardContent>
@@ -405,24 +408,26 @@ const JudgeProfile = () => {
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
-                          <Pie data={casesByMotion} dataKey="granted" nameKey="name" outerRadius={90} label>
-                            {casesByMotion.map((_, i) => (
-                              <Cell key={i} fill={["hsl(var(--primary))","hsl(var(--secondary))","hsl(var(--accent))"][i % 3]} />
+                          <Pie data={motionData} dataKey={motionData[0]?.percentage != null ? "percentage" : "granted"} nameKey="name" outerRadius={90} label>
+                            {motionData.map((_: any, i: number) => (
+                              <Cell key={i} fill={pieColors[i % pieColors.length]} />
                             ))}
                           </Pie>
-                          <RTooltip />
-                          <RLegend />
+                          <Tooltip />
+                          <Legend />
                         </PieChart>
                       </ResponsiveContainer>
                     </div>
                     <div className="space-y-3">
-                      {casesByMotion.map((m) => (
+                      {motionData.map((m: any) => (
                         <div key={m.name} className="flex items-center justify-between p-3 rounded-lg border border-border">
                           <div>
                             <p className="font-medium text-sm">{m.name}</p>
-                            <p className="text-xs text-muted-foreground">{m.granted}% granted • {m.denied}% denied</p>
+                            <p className="text-xs text-muted-foreground">{m.granted} granted • {m.denied} denied</p>
                           </div>
-                          <Badge variant="outline">{m.granted}%</Badge>
+                          <Badge variant="outline">
+                            {m.granted + m.denied > 0 ? Math.round((m.granted / (m.granted + m.denied)) * 100) : 0}%
+                          </Badge>
                         </div>
                       ))}
                     </div>
@@ -432,105 +437,121 @@ const JudgeProfile = () => {
             </div>
           </TabsContent>
 
+          {/* Patterns Tab – Ruling Patterns (by motion type) + Time Patterns (Best Filing Windows) */}
           <TabsContent value="patterns" className="mt-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <Card className="shadow-card">
                 <CardHeader>
-                  <CardTitle>Ruling Patterns</CardTitle>
-                  <CardDescription>Factors that influence outcomes</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="w-full max-w-xs">
-                    <Select value={selectedMotion} onValueChange={(v) => setSelectedMotion(v as typeof motionOptions[number])}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select motion type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {motionOptions.map((m) => (
-                          <SelectItem key={m} value={m}>{m}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Factor</TableHead>
-                        <TableHead className="w-28">Lift</TableHead>
-                        <TableHead>Example</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {rulingPatternsByMotion[selectedMotion].map((row, i) => (
-                        <TableRow key={i}>
-                          <TableCell className="font-medium">{row.factor}</TableCell>
-                          <TableCell>{row.lift.toFixed(2)}x</TableCell>
-                          <TableCell className="text-muted-foreground">{row.sample}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
-
-              <Card className="shadow-card">
-                <CardHeader>
-                  <CardTitle>Time Patterns</CardTitle>
-                  <CardDescription>Best windows for favorable outcomes</CardDescription>
+                  <CardTitle className="flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5 text-legal-primary" />
+                    Ruling Patterns – Factors that influence outcomes
+                  </CardTitle>
+                  <CardDescription>Select motion type to view factors</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="flex flex-wrap gap-2 mb-4">
-                    {timeHeatmap.flatMap((d) => ([
-                      { label: `${d.day} morning`, day: d.day, slot: "morning" as const, score: d.morning },
-                      { label: `${d.day} afternoon`, day: d.day, slot: "afternoon" as const, score: d.afternoon },
-                      { label: `${d.day} late`, day: d.day, slot: "late" as const, score: d.late },
-                    ])).sort((a,b)=> b.score - a.score).slice(0,6).map((t) => (
-                      <Button key={`${t.day}-${t.slot}`} variant="outline" size="sm" onClick={() => setSelectedTime({ day: t.day, slot: t.slot })}>
-                        {t.label} ({Math.round(t.score*100)}%)
-                      </Button>
-                    ))}
-                  </div>
-                  {selectedTime ? (
-                    <div className="p-3 rounded-lg border border-border">
-                      <p className="text-sm"><strong>Selected:</strong> {selectedTime.day} {selectedTime.slot}</p>
-                      <p className="text-xs text-muted-foreground">Historically higher grant rates during this window for {selectedMotion.toLowerCase()}.</p>
+                  <Select value={effectiveMotion} onValueChange={setSelectedMotion}>
+                    <SelectTrigger className="mb-4">
+                      <SelectValue placeholder="Select motion type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {rulingMotionKeys.map((motion) => (
+                        <SelectItem key={motion} value={motion}>{motion}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {rulingPatterns[effectiveMotion]?.factors?.length > 0 ? (
+                    <div className="space-y-4">
+                      {rulingPatterns[effectiveMotion].factors.map((factor: any, idx: number) => (
+                        <div key={idx} className="p-5 rounded-xl border bg-card hover:shadow-lg transition-shadow">
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="font-semibold text-foreground">{factor.factor}</h4>
+                            <Badge variant="default" className="text-sm">{factor.lift}</Badge>
+                          </div>
+                          <p className="text-sm text-muted-foreground">{factor.example}</p>
+                        </div>
+                      ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground">Select a time window to view details.</p>
+                    <p className="text-center text-muted-foreground py-8">No factors for this motion type.</p>
+                  )}
+                </CardContent>
+              </Card>
+              <Card className="shadow-card">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Calendar className="h-5 w-5 text-legal-primary" />
+                    Time Patterns – Best windows for favorable outcomes
+                  </CardTitle>
+                  <CardDescription>Select a time window to view details</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {timePatterns.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {timePatterns.map((item: any, i: number) => (
+                        <Badge key={i} variant="secondary" className="px-3 py-1.5 text-sm">
+                          {item.window} ({item.percentage}%)
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-center text-muted-foreground py-8">No time pattern data available.</p>
                   )}
                 </CardContent>
               </Card>
             </div>
           </TabsContent>
 
+          {/* Insights Tab – AI-Powered Insights with toggles, Apply Selected, Reset */}
           <TabsContent value="insights" className="mt-6">
             <Card className="shadow-card">
               <CardHeader>
                 <CardTitle>AI-Powered Insights</CardTitle>
-                <CardDescription>Toggle insights and apply to your report</CardDescription>
+                <CardDescription>Toggle insights and apply to your report.</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {keyInsights.map((insight) => (
-                  <div key={insight.title} className="flex items-start justify-between p-3 rounded-lg border border-border">
-                    <div className="pr-4">
-                      <div className="flex items-center gap-2 mb-1">
-                        <insight.icon className="h-4 w-4 text-legal-info" />
-                        <span className="text-sm font-medium">{insight.title}</span>
-                      </div>
-                      <p className="text-xs text-muted-foreground">{insight.description}</p>
+              <CardContent>
+                {insights.length > 0 ? (
+                  <>
+                    <div className="space-y-4">
+                      {insights.map((item: any, i: number) => {
+                        const iconName = (item.icon || "").toLowerCase();
+                        const IconComponent =
+                          iconName === "trending_up" ? TrendingUp
+                          : iconName === "trending_down" ? TrendingDown
+                          : iconName === "clock" ? Clock
+                          : iconName === "briefcase" ? Briefcase
+                          : iconName === "handshake" ? Handshake
+                          : Info;
+                        return (
+                          <div key={item.id ?? i} className="flex items-center justify-between p-4 rounded-lg border bg-card">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-full bg-legal-primary/10 flex items-center justify-center flex-shrink-0">
+                                <IconComponent className="h-5 w-5 text-legal-primary" />
+                              </div>
+                              <div>
+                                <p className="font-medium">{item.title}</p>
+                                <p className="text-sm text-muted-foreground mt-0.5">{item.description}</p>
+                              </div>
+                            </div>
+                            <Switch
+                              checked={enabledInsights[item.id] ?? false}
+                              onCheckedChange={() => setEnabledInsights((prev) => ({ ...prev, [item.id]: !prev[item.id] }))}
+                            />
+                          </div>
+                        );
+                      })}
                     </div>
-                    <Switch checked={!!appliedInsight[insight.title]} onCheckedChange={(v) => setAppliedInsight((prev) => ({ ...prev, [insight.title]: !!v }))} />
-                  </div>
-                ))}
-                <div className="flex gap-2">
-                  <Button onClick={() => {
-                    const count = Object.values(appliedInsight).filter(Boolean).length;
-                    toast({ title: "Insights applied", description: `${count} insight(s) added to your report.` });
-                  }}>
-                    Apply Selected
-                  </Button>
-                  <Button variant="outline" onClick={() => setAppliedInsight({})}>Reset</Button>
-                </div>
+                    <div className="flex gap-2 mt-6">
+                      <Button onClick={() => toast({ title: "Applied", description: `Selected ${Object.values(enabledInsights).filter(Boolean).length} insight(s) for report.` })}>
+                        Apply Selected
+                      </Button>
+                      <Button variant="outline" onClick={() => setEnabledInsights({})}>
+                        Reset
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-center text-muted-foreground py-12">No insights available yet.</p>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

@@ -12,137 +12,84 @@ import {
   FileText,
   Scale,
   Clock,
-  TrendingUp,
-  TrendingDown,
   CheckCircle,
   XCircle,
   Eye,
   Download,
   Printer
 } from "lucide-react";
+import { useJudgeCaseHistory } from "@/api/hooks";
+import { useDebounce } from "@/hooks/use-debounce";
 
 const CaseHistory = () => {
   const navigate = useNavigate();
-  const { judgeId } = useParams();
+  const { judgeId } = useParams<{ judgeId: string }>();
   const [searchTerm, setSearchTerm] = useState("");
-  const [selectedCase, setSelectedCase] = useState(null);
+  const [selectedCase, setSelectedCase] = useState<any>(null);
 
-  const judgeData = {
-    name: "Hon. Sarah Mitchell",
-    court: "Superior Court of California"
+  // Debounce: React Query only re-runs when debouncedSearch changes → no extra effects needed
+  const debouncedSearch = useDebounce(searchTerm, 600);
+  const judgeIdNum = judgeId ? Number(judgeId) : undefined;
+
+  const {
+    data: caseHistoryData,
+    isLoading: loading,
+    isFetching,
+  } = useJudgeCaseHistory(judgeIdNum, { search: debouncedSearch || undefined });
+
+  const caseHistory = caseHistoryData ?? {
+    total_cases: 0, active_cases: 0, closed_cases: 0, avg_decision_time: 0, cases: [],
   };
 
-  const cases = [
-    {
-      id: 1,
-      caseNumber: "CV-2024-001234",
-      title: "TechCorp Inc. v. StartupXYZ LLC",
-      type: "Contract Dispute",
-      plaintiff: "TechCorp Inc.",
-      defendant: "StartupXYZ LLC",
-      filedDate: "2024-01-15",
-      decisionDate: "2024-03-10",
-      status: "Closed",
-      outcome: "Granted",
-      summary: "Motion for summary judgment regarding breach of software licensing agreement",
-      amount: "$2,500,000",
-      duration: "55 days",
-      precedentValue: "High"
-    },
-    {
-      id: 2,
-      caseNumber: "CV-2024-001189",
-      title: "Employee Rights Coalition v. MegaCorp",
-      type: "Employment Law",
-      plaintiff: "Employee Rights Coalition", 
-      defendant: "MegaCorp",
-      filedDate: "2024-01-08",
-      decisionDate: "2024-02-28",
-      status: "Closed",
-      outcome: "Denied",
-      summary: "Class action regarding overtime compensation and working conditions",
-      amount: "$15,000,000",
-      duration: "51 days",
-      precedentValue: "Medium"
-    },
-    {
-      id: 3,
-      caseNumber: "CV-2024-000987",
-      title: "Johnson v. City Planning Commission",
-      type: "Civil Rights",
-      plaintiff: "Robert Johnson",
-      defendant: "City Planning Commission",
-      filedDate: "2023-11-20",
-      decisionDate: "2024-01-15",
-      status: "Closed", 
-      outcome: "Granted",
-      summary: "Constitutional challenge to zoning restrictions on religious buildings",
-      amount: "$500,000",
-      duration: "56 days",
-      precedentValue: "High"
-    },
-    {
-      id: 4,
-      caseNumber: "CV-2024-001456",
-      title: "DataSecure Inc. v. Former Employee",
-      type: "Intellectual Property",
-      plaintiff: "DataSecure Inc.",
-      defendant: "John Mitchell", 
-      filedDate: "2024-02-01",
-      decisionDate: "Pending",
-      status: "Active",
-      outcome: "Pending",
-      summary: "Injunction request for trade secret misappropriation",
-      amount: "$1,200,000",
-      duration: "22 days",
-      precedentValue: "Medium"
-    },
-    {
-      id: 5,
-      caseNumber: "CV-2023-009876",
-      title: "Green Energy Solutions v. State Regulatory Board",
-      type: "Administrative Law",
-      plaintiff: "Green Energy Solutions",
-      defendant: "State Regulatory Board",
-      filedDate: "2023-09-15",
-      decisionDate: "2023-12-08",
-      status: "Closed",
-      outcome: "Granted",
-      summary: "Challenge to renewable energy permit denial",
-      amount: "$8,750,000", 
-      duration: "84 days",
-      precedentValue: "High"
-    }
-  ];
+  const statistics = {
+    total_cases:       caseHistory.total_cases       || 0,
+    active_cases:      caseHistory.active_cases       || 0,
+    closed_cases:      caseHistory.closed_cases       || 0,
+    avg_decision_time: caseHistory.avg_decision_time  || 0,
+  };
+
+  const cases = caseHistory.cases || [];
 
   const stats = [
-    { label: "Total Cases", value: cases.length.toString(), icon: FileText },
-    { label: "Closed Cases", value: cases.filter(c => c.status === "Closed").length.toString(), icon: CheckCircle },
-    { label: "Active Cases", value: cases.filter(c => c.status === "Active").length.toString(), icon: Clock },
-    { label: "Avg Decision Time", value: "59 days", icon: TrendingUp }
+    { label: "Total Cases", value: statistics.total_cases.toString(), icon: FileText },
+    { label: "Closed Cases", value: statistics.closed_cases.toString(), icon: CheckCircle },
+    { label: "Active Cases", value: statistics.active_cases.toString(), icon: Clock },
+    { label: "Avg Decision Time", value: statistics.avg_decision_time > 0 ? `${statistics.avg_decision_time} days` : "N/A", icon: Scale },
   ];
 
-  const filteredCases = cases.filter(case_ =>
-    case_.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    case_.caseNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    case_.type.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  const getOutcomeIcon = (outcome) => {
-    switch(outcome) {
-      case "Granted": return <CheckCircle className="h-4 w-4 text-legal-success" />;
-      case "Denied": return <XCircle className="h-4 w-4 text-destructive" />;
-      default: return <Clock className="h-4 w-4 text-legal-warning" />;
-    }
+  const getOutcomeIcon = (outcome: string) => {
+    if (outcome?.toLowerCase().includes('grant')) return <CheckCircle className="h-4 w-4 text-legal-success" />;
+    if (outcome?.toLowerCase().includes('deny')) return <XCircle className="h-4 w-4 text-destructive" />;
+    return <Clock className="h-4 w-4 text-legal-warning" />;
   };
 
-  const getOutcomeColor = (outcome) => {
-    switch(outcome) {
-      case "Granted": return "bg-legal-success/10 text-legal-success border-legal-success/20";
-      case "Denied": return "bg-destructive/10 text-destructive border-destructive/20";
-      default: return "bg-legal-warning/10 text-legal-warning border-legal-warning/20";
-    }
+  const getOutcomeColor = (outcome: string) => {
+    if (outcome?.toLowerCase().includes('grant')) return "bg-legal-success/10 text-legal-success border-legal-success/20";
+    if (outcome?.toLowerCase().includes('deny')) return "bg-destructive/10 text-destructive border-destructive/20";
+    return "bg-legal-warning/10 text-legal-warning border-legal-warning/20";
   };
+
+  const formatDate = (dateStr: string) => {
+    if (!dateStr || dateStr === "Active") return "Active";
+    return new Date(dateStr).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric"
+    });
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  // Show full-page loading only on the very first load (no data yet)
+  if (loading && cases.length === 0) {
+    return (
+      <div className="w-full min-h-screen flex items-center justify-center">
+        <p className="text-muted-foreground">Loading case history...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
@@ -165,7 +112,7 @@ const CaseHistory = () => {
             <div>
               <h1 className="text-3xl font-bold text-foreground">Case History</h1>
               <p className="text-muted-foreground">
-                Complete case history for {judgeData.name}
+                Complete case history for this judge
               </p>
             </div>
           </div>
@@ -216,12 +163,12 @@ const CaseHistory = () => {
                 </Button>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Badge variant="secondary">All Cases ({filteredCases.length})</Badge>
-                <Badge variant="outline">Contract Disputes</Badge>
-                <Badge variant="outline">Employment Law</Badge>
-                <Badge variant="outline">Civil Rights</Badge>
+                <Badge variant="secondary">
+                  All Cases ({statistics.total_cases})
+                </Badge>
+                <Badge variant="outline">Civil</Badge>
                 <Badge variant="outline">Active Cases</Badge>
-                <Badge variant="outline">Closed Cases</Badge>
+                <Badge variant="outline">Pending</Badge>
               </div>
             </CardContent>
           </Card>
@@ -229,127 +176,165 @@ const CaseHistory = () => {
 
         {/* Cases List */}
         <div className="space-y-4">
-          {filteredCases.map((case_) => (
-            <Card key={case_.id} className="shadow-card hover:shadow-legal transition-all cursor-pointer">
-              <CardContent className="p-6">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-lg font-semibold text-foreground">{case_.title}</h3>
-                      <Badge variant="outline" className="text-xs">
-                        {case_.caseNumber}
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-muted-foreground mb-2">{case_.summary}</p>
-                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      <span>Filed: {new Date(case_.filedDate).toLocaleDateString()}</span>
-                      {case_.decisionDate !== "Pending" && (
-                        <span>Decided: {new Date(case_.decisionDate).toLocaleDateString()}</span>
-                      )}
-                      <span>Duration: {case_.duration}</span>
-                      <span>Amount: {case_.amount}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className={`px-3 py-1 rounded-full border text-xs font-medium ${getOutcomeColor(case_.outcome)}`}>
-                      <div className="flex items-center gap-1">
-                        {getOutcomeIcon(case_.outcome)}
-                        {case_.outcome}
+          {cases.length > 0 ? (
+            cases.map((caseItem: any, index: number) => (
+              <Card 
+                key={index} 
+                className="shadow-card hover:shadow-legal transition-all cursor-pointer"
+                onClick={() => setSelectedCase(caseItem)}
+              >
+                <CardContent className="p-6">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <h3 className="text-lg font-semibold text-foreground">{caseItem.case_name}</h3>
+                        <Badge variant="outline" className="text-xs">
+                          {caseItem.case_number}
+                        </Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground mb-2">
+                        {caseItem.description}
+                      </p>
+                      <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                        <span>Filed: {formatDate(caseItem.date_filed)}</span>
+                        <span>Status: {caseItem.date_decided === "Active" ? "Active" : formatDate(caseItem.date_decided)}</span>
+                        <span>Duration: {caseItem.duration > 0 ? `${caseItem.duration} days` : "Ongoing"}</span>
                       </div>
                     </div>
-                    <Badge variant="secondary" className="text-xs">
-                      {case_.type}
-                    </Badge>
+                    <div className="flex items-center gap-3">
+                      <div className={`px-3 py-1 rounded-full border text-xs font-medium ${getOutcomeColor(caseItem.outcome)}`}>
+                        <div className="flex items-center gap-1">
+                          {getOutcomeIcon(caseItem.outcome)}
+                          {caseItem.outcome}
+                        </div>
+                      </div>
+                      <Badge variant="secondary" className="text-xs">
+                        {caseItem.case_type}
+                      </Badge>
+                    </div>
                   </div>
-                </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                  <div className="text-sm">
-                    <span className="font-medium text-muted-foreground">Plaintiff:</span>
-                    <p className="text-foreground">{case_.plaintiff}</p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <div className="text-sm">
+                      <span className="font-medium text-muted-foreground">Parties:</span>
+                      <p className="text-foreground">
+                        {caseItem.plaintiff} vs {caseItem.defendant}
+                      </p>
+                    </div>
+                    <div className="text-sm">
+                      <span className="font-medium text-muted-foreground">Amount:</span>
+                      <p className="text-foreground">
+                        {caseItem.amount > 0 ? `$${caseItem.amount.toLocaleString()}` : "0.0"}
+                      </p>
+                    </div>
+                    <div className="text-sm">
+                      <span className="font-medium text-muted-foreground">Precedent Value:</span>
+                      <p className="text-foreground">{caseItem.precedent_value}</p>
+                    </div>
                   </div>
-                  <div className="text-sm">
-                    <span className="font-medium text-muted-foreground">Defendant:</span>
-                    <p className="text-foreground">{case_.defendant}</p>
-                  </div>
-                  <div className="text-sm">
-                    <span className="font-medium text-muted-foreground">Precedent Value:</span>
-                    <p className="text-foreground">{case_.precedentValue}</p>
-                  </div>
-                </div>
 
-                <div className="flex items-center justify-between pt-4 border-t border-border">
-                  <div className="flex items-center gap-2">
-                    <Badge 
-                      variant={case_.status === "Active" ? "default" : "secondary"}
-                      className="text-xs"
-                    >
-                      {case_.status}
-                    </Badge>
-                    <Badge variant="outline" className="text-xs">
-                      Precedent: {case_.precedentValue}
-                    </Badge>
+                  <div className="flex items-center justify-between pt-4 border-t border-border">
+                    <div className="flex items-center gap-2">
+                      <Badge 
+                        variant={caseItem.status === "Active" ? "default" : "secondary"}
+                        className="text-xs"
+                      >
+                        {caseItem.status}
+                      </Badge>
+                      <Badge variant="outline" className="text-xs">
+                        Precedent: {caseItem.precedent_value}
+                      </Badge>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedCase(caseItem);
+                        }}
+                      >
+                        <Eye className="h-4 w-4 mr-1" />
+                        View Details
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={(e) => e.stopPropagation()}>
+                        <Download className="h-4 w-4 mr-1" />
+                        Documents
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); handlePrint(); }}>
+                        <Printer className="h-4 w-4 mr-1" />
+                        Print
+                      </Button>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <Button 
-                      size="sm" 
-                      variant="outline"
-                      onClick={() => setSelectedCase(case_)}
-                    >
-                      <Eye className="h-4 w-4 mr-1" />
-                      View Details
-                    </Button>
-                    <Button size="sm" variant="outline">
-                      <Download className="h-4 w-4 mr-1" />
-                      Documents
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => window.print()}>
-                      <Printer className="h-4 w-4 mr-1" />
-                      Print
-                    </Button>
-                  </div>
-                </div>
+                </CardContent>
+              </Card>
+            ))
+          ) : (
+            <Card className="shadow-card">
+              <CardContent className="p-8 text-center">
+                <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-semibold mb-2">No Cases Found</h3>
+                <p className="text-muted-foreground">
+                  No cases match your search criteria.
+                </p>
               </CardContent>
             </Card>
-          ))}
+          )}
         </div>
 
-        {/* Case Detail Modal (Simple version for now) */}
+        {/* Case Detail Modal */}
         {selectedCase && (
-          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <Card className="w-full max-w-2xl max-h-[80vh] overflow-y-auto">
+          <div 
+            className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => setSelectedCase(null)}
+          >
+            <Card 
+              className="w-full max-w-2xl max-h-[80vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
               <CardHeader>
                 <div className="flex items-center justify-between">
-                  <CardTitle>{selectedCase.title}</CardTitle>
+                  <CardTitle>{selectedCase.case_name}</CardTitle>
                   <Button variant="ghost" size="sm" onClick={() => setSelectedCase(null)}>
                     ×
                   </Button>
                 </div>
-                <CardDescription>{selectedCase.caseNumber}</CardDescription>
+                <CardDescription>{selectedCase.case_number}</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
                   <div>
-                    <h4 className="font-semibold mb-2">Case Summary</h4>
-                    <p className="text-sm text-muted-foreground">{selectedCase.summary}</p>
+                    <h4 className="font-semibold mb-2">Case Description</h4>
+                    <p className="text-sm text-muted-foreground">
+                      {selectedCase.description}
+                    </p>
                   </div>
                   
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <h4 className="font-semibold text-sm mb-1">Case Type</h4>
-                      <p className="text-sm text-muted-foreground">{selectedCase.type}</p>
+                      <p className="text-sm text-muted-foreground">{selectedCase.case_type}</p>
                     </div>
                     <div>
                       <h4 className="font-semibold text-sm mb-1">Status</h4>
                       <p className="text-sm text-muted-foreground">{selectedCase.status}</p>
                     </div>
                     <div>
+                      <h4 className="font-semibold text-sm mb-1">Filed Date</h4>
+                      <p className="text-sm text-muted-foreground">{formatDate(selectedCase.date_filed)}</p>
+                    </div>
+                    <div>
                       <h4 className="font-semibold text-sm mb-1">Outcome</h4>
                       <p className="text-sm text-muted-foreground">{selectedCase.outcome}</p>
                     </div>
                     <div>
-                      <h4 className="font-semibold text-sm mb-1">Amount</h4>
-                      <p className="text-sm text-muted-foreground">{selectedCase.amount}</p>
+                      <h4 className="font-semibold text-sm mb-1">Plaintiff</h4>
+                      <p className="text-sm text-muted-foreground">{selectedCase.plaintiff}</p>
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-sm mb-1">Defendant</h4>
+                      <p className="text-sm text-muted-foreground">{selectedCase.defendant}</p>
                     </div>
                   </div>
                   
@@ -358,7 +343,7 @@ const CaseHistory = () => {
                       <Download className="h-4 w-4 mr-2" />
                       Download Full Case
                     </Button>
-                    <Button variant="outline" onClick={() => window.print()}>
+                    <Button variant="outline" onClick={handlePrint}>
                       <Printer className="h-4 w-4 mr-2" />
                       Print Case
                     </Button>
@@ -371,19 +356,6 @@ const CaseHistory = () => {
               </CardContent>
             </Card>
           </div>
-        )}
-
-        {/* Empty State */}
-        {filteredCases.length === 0 && (
-          <Card className="shadow-card">
-            <CardContent className="p-8 text-center">
-              <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No Cases Found</h3>
-              <p className="text-muted-foreground">
-                No cases match your search criteria. Try adjusting your filters.
-              </p>
-            </CardContent>
-          </Card>
         )}
       </div>
     </div>

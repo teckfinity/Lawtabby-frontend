@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -17,67 +17,99 @@ import {
   Wand2, 
   Clock, 
   CheckCircle,
-  AlertCircle,
   Settings,
   Save,
   Target,
   Zap,
-  Printer
+  Printer,
+  FolderOpen,
 } from "lucide-react";
 import { toast } from "sonner";
+import { sendLegalDocSummary } from "@/api/ai-features/doc-summary";
+import { LibraryPickerDialog } from "@/components/library/LibraryPickerDialog";
+import type { LibraryDocument } from "@/api/ai-features/document-library";
 
 const DocumentSummarizer = () => {
   const [activeTab, setActiveTab] = useState("document");
   const [isProcessing, setIsProcessing] = useState(false);
   const [summary, setSummary] = useState("");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [libraryDocument, setLibraryDocument] = useState<LibraryDocument | null>(null);
+  const [isLibraryPickerOpen, setIsLibraryPickerOpen] = useState(false);
+  const [textInput, setTextInput] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [fullResponse, setFullResponse] = useState<any>(null);
+
   const [settings, setSettings] = useState({
-    outputFormat: "irac",
-    summaryLength: [60], // 0-100 percentage
+    outputFormat: "irac" as "irac" | "executive" | "detailed" | "bullet_points",
+    summaryLength: [60],
     includeKeyFacts: true,
     includeLegalIssues: true,
     includeHoldings: true,
     includeRecommendations: false,
     confidenceThreshold: [75],
     autoSave: true,
-    citationStyle: "bluebook",
-    language: "english"
+    citationStyle: "bluebook" as "bluebook" | "apa" | "mla" | "chicago",
+    language: "english" as "english" | "spanish" | "french" | "german"
   });
 
-  const handleSummarize = () => {
+  const handleSummarize = async () => {
+    if (activeTab === "document" && !file && !libraryDocument) {
+      toast("Please upload a file or pick one from your library.");
+      return;
+    }
+    if (activeTab === "text" && !textInput.trim()) {
+      toast("Please enter text to summarize.");
+      return;
+    }
+
     setIsProcessing(true);
-    // Simulate AI processing
-    setTimeout(() => {
-      setSummary(`
-CASE SUMMARY - Smith v. Johnson (2024)
+    setSummary("");
 
-ISSUE: Whether the defendant's failure to disclose material facts constitutes fraudulent misrepresentation under state contract law.
+    try {
+      const response = await sendLegalDocSummary(
+        activeTab === "document" && file ? file : undefined,
+        activeTab === "text" ? textInput : undefined,
+        {
+          action: "process",
+          library_document_id: activeTab === "document" && libraryDocument ? libraryDocument.id : undefined,
+          output_format:          settings.outputFormat,
+          summary_length:         settings.summaryLength[0],
+          confidence_threshold:   settings.confidenceThreshold[0],
+          citation_style:         settings.citationStyle,
+          language:               settings.language,
+          auto_save:              settings.autoSave,
+          key_facts:              settings.includeKeyFacts,
+          legal_issues:           settings.includeLegalIssues,
+          holdings_and_rulings:   settings.includeHoldings,
+          recommendations:        settings.includeRecommendations,
+        }
+      );
 
-RULE: Under [State] law, fraudulent misrepresentation requires: (1) a false representation of material fact, (2) knowledge of falsity or reckless disregard for truth, (3) intent to induce reliance, and (4) justifiable reliance causing damages.
+      const result = response.data;
 
-APPLICATION: Here, Defendant Johnson failed to disclose the property's foundation issues despite direct questioning. The court found this omission constituted a false representation of material fact. Johnson's contractor had identified the issues three months prior, establishing knowledge. The timing of the sale immediately after discovery suggests intent to induce reliance.
+      if (result.summary) {
+        setSummary(result.summary);
+      } else {
+        setSummary("No summary text found in response!");
+      }
 
-CONCLUSION: The court ruled in favor of Smith, finding fraudulent misrepresentation. Johnson is liable for $150,000 in damages plus attorney fees.
-
-KEY HOLDINGS:
-• Failure to disclose known material defects can constitute fraudulent misrepresentation
-• Timing of disclosure obligations is critical in real estate transactions
-• Good faith purchasers are entitled to material fact disclosure
-      `);
+      setFullResponse(result);
+      toast("Summary generated successfully!");
+    } catch (error: any) {
+      console.error("API Error:", error);
+      toast(error.response?.data?.detail || "Failed to generate summary. Please try again.");
+    } finally {
       setIsProcessing(false);
-    }, 3000);
-  };
-
-  const handleSaveSettings = () => {
-    toast("Settings saved successfully!");
-    setIsSettingsOpen(false);
+    }
   };
 
   const outputFormats = [
-    { value: "irac", label: "IRAC Format", description: "Issue, Rule, Application, Conclusion" },
+    { value: "irac", label: "IRAC Format", description: "Structured legal analysis following IRAC methodology" },
     { value: "executive", label: "Executive Summary", description: "Brief overview with key points" },
     { value: "detailed", label: "Detailed Analysis", description: "Comprehensive case breakdown" },
-    { value: "bullet", label: "Bullet Points", description: "Structured list format" }
+    { value: "bullet_points", label: "Bullet Points", description: "Structured list format" }
   ];
 
   const citationStyles = [
@@ -95,13 +127,42 @@ KEY HOLDINGS:
   ];
 
   const stats = [
-    { label: "Documents Processed", value: "1,247", icon: FileText },
-    { label: "Time Saved", value: "89 hrs", icon: Clock },
-    { label: "Success Rate", value: "98.4%", icon: CheckCircle },
+    // { label: "Documents Processed", value: "1,247", icon: FileText },
+    // { label: "Time Saved", value: "89 hrs", icon: Clock },
+    // { label: "Success Rate", value: "98.4%", icon: CheckCircle },
   ];
 
+  const handleDownload = () => {
+    if (!summary) {
+      toast("No summary to download!");
+      return;
+    }
+
+    const blob = new Blob([summary], { type: "text/plain" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "summary.txt";
+    link.click();
+  };
+
+  const handleCopy = () => {
+    if (summary) {
+      navigator.clipboard.writeText(summary);
+      toast("Summary text copied!");
+    } else {
+      toast.error("No summary available to copy!");
+    }
+  };
+
+  const handleSaveSettings = () => {
+    toast("Settings saved successfully!");
+    setIsSettingsOpen(false);
+  };
+
+  const currentOutputFormat = outputFormats.find(f => f.value === settings.outputFormat);
+
   return (
-    <div className="w-full p-4 md:p-6 lg:p-8 bg-background min-h-screen">
+    <div className="w-full p-4 md:p-6 lg:p-8 lg:pl-12 bg-background min-h-screen">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-8">
@@ -111,7 +172,7 @@ KEY HOLDINGS:
             </div>
             <div>
               <h1 className="text-3xl font-bold text-foreground">Document Summarizer</h1>
-              <p className="text-muted-foreground">AI-powered IRAC format summaries for legal documents</p>
+              <p className="text-muted-foreground">AI-powered summaries for legal documents</p>
             </div>
           </div>
 
@@ -159,9 +220,79 @@ KEY HOLDINGS:
                     <p className="text-muted-foreground mb-4">
                       Drag & drop or click to upload PDF, DOC, or TXT files
                     </p>
-                    <Button className="bg-legal-primary hover:bg-legal-primary/90">
-                      Choose File
-                    </Button>
+
+                    <div className="flex flex-col sm:flex-row items-center justify-center gap-3 mb-4">
+                      <Button
+                        className="bg-legal-primary hover:bg-legal-primary/90"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        Choose File
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => setIsLibraryPickerOpen(true)}
+                      >
+                        <FolderOpen className="h-4 w-4 mr-2" />
+                        Pick from Library
+                      </Button>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground mb-4">
+                      Already uploaded? Use <strong>Pick from Library</strong> — no new upload needed.
+                    </p>
+
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={(e) => {
+                        const selected = e.target.files?.[0];
+                        if (selected) {
+                          if (selected.size > 10 * 1024 * 1024) {
+                            toast("File size exceeds 10MB limit.");
+                            return;
+                          }
+                          setLibraryDocument(null);
+                          setFile(selected);
+                          toast(`Selected: ${selected.name}`);
+                        }
+                      }}
+                      accept=".pdf,.doc,.docx,.txt"
+                      className="hidden"
+                    />
+
+                    {libraryDocument && (
+                      <div className="mt-4 p-3 bg-muted rounded-lg flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <FolderOpen className="h-4 w-4 shrink-0 text-legal-primary" />
+                          <span className="truncate">{libraryDocument.original_filename}</span>
+                          <Badge variant="secondary" className="text-[10px]">Library</Badge>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setLibraryDocument(null)}
+                        >
+                          ✕
+                        </Button>
+                      </div>
+                    )}
+
+                    {file && (
+                      <div className="mt-4 p-3 bg-muted rounded-lg flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <FileText className="h-4 w-4" />
+                          <span className="truncate max-w-[200px]">{file.name}</span>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setFile(null)}
+                        >
+                          ✕
+                        </Button>
+                      </div>
+                    )}
+
                     <p className="text-xs text-muted-foreground mt-2">
                       Max file size: 10MB | Supported: PDF, DOC, DOCX, TXT
                     </p>
@@ -169,10 +300,12 @@ KEY HOLDINGS:
                 </TabsContent>
 
                 <TabsContent value="text" className="mt-6">
-                  <Textarea
-                    placeholder="Paste your legal document text here for AI analysis and IRAC summarization..."
-                    className="min-h-[300px] resize-none"
-                  />
+            <Textarea
+  placeholder="Paste your legal document text here for AI analysis and IRAC summarization..."
+  className="min-h-[300px] resize-none"
+  value={textInput}
+  onChange={(e) => setTextInput(e.target.value)}
+/>
                   <div className="flex items-center justify-between mt-4">
                     <p className="text-xs text-muted-foreground">
                       Character count: 0 / 50,000
@@ -217,14 +350,14 @@ KEY HOLDINGS:
               <CardTitle className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Download className="h-5 w-5 text-legal-primary" />
-                  AI Summary (IRAC Format)
+                  AI Summary ({currentOutputFormat?.label})
                 </div>
                 {summary && (
                   <div className="flex gap-2">
-                    <Button size="sm" variant="outline">
+                    <Button variant="outline" size="icon" onClick={handleCopy}>
                       <Copy className="h-4 w-4" />
                     </Button>
-                    <Button size="sm" variant="outline">
+                    <Button size="sm" variant="outline" onClick={handleDownload}>
                       <Download className="h-4 w-4" />
                     </Button>
                     <Button size="sm" variant="outline" onClick={() => window.print()}>
@@ -234,7 +367,7 @@ KEY HOLDINGS:
                 )}
               </CardTitle>
               <CardDescription>
-                Structured legal analysis following IRAC methodology
+                {currentOutputFormat?.description}
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -245,7 +378,7 @@ KEY HOLDINGS:
                     Ready for Analysis
                   </h3>
                   <p className="text-muted-foreground">
-                    Upload a document or paste text to generate an AI-powered IRAC summary
+                    Upload a document or paste text to generate an AI-powered summary
                   </p>
                 </div>
               )}
@@ -255,7 +388,7 @@ KEY HOLDINGS:
                   <div className="w-16 h-16 border-4 border-legal-primary border-t-transparent rounded-full animate-spin mx-auto mb-4" />
                   <h3 className="text-lg font-semibold mb-2">Analyzing Document</h3>
                   <p className="text-muted-foreground">
-                    Our AI is processing your document and generating a comprehensive IRAC summary...
+                    Our AI is processing your document and generating a summary...
                   </p>
                 </div>
               )}
@@ -268,12 +401,12 @@ KEY HOLDINGS:
                       <span className="font-semibold">Analysis Complete</span>
                     </div>
                     <p className="text-sm opacity-90">
-                      Document successfully analyzed using IRAC methodology
+                      Document successfully analyzed
                     </p>
                   </div>
                   
                   <div className="prose prose-sm max-w-none">
-                    <pre className="whitespace-pre-wrap text-sm text-foreground font-mono bg-muted/50 rounded-lg p-4 leading-relaxed">
+                    <pre className="whitespace-pre-wrap text-sm text-foreground font-mono bg-muted/50 rounded-lg p-4 leading-relaxed max-h-[400px] overflow-y-auto">
                       {summary}
                     </pre>
                   </div>
@@ -283,7 +416,7 @@ KEY HOLDINGS:
                     <span>•</span>
                     <span>Confidence: 94%</span>
                     <span>•</span>
-                    <span>IRAC Compliant</span>
+                    <span>{settings.outputFormat.toUpperCase()} Compliant</span>
                   </div>
                 </div>
               )}
@@ -624,7 +757,8 @@ KEY HOLDINGS:
                 <div className="space-y-3">
                   <Button 
                     onClick={handleSaveSettings}
-                    className="w-full bg-white text-legal-primary hover:bg-white/90"
+                    variant="outline"
+                    className="w-full border-white/70 bg-white/95 text-primary hover:bg-white"
                   >
                     <Save className="h-4 w-4 mr-2" />
                     Save Settings
@@ -652,6 +786,17 @@ KEY HOLDINGS:
             </div>
           </DialogContent>
         </Dialog>
+
+        <LibraryPickerDialog
+          open={isLibraryPickerOpen}
+          onOpenChange={setIsLibraryPickerOpen}
+          compatibleTypes={["pdf", "docx", "txt"]}
+          onSelect={(doc) => {
+            setFile(null);
+            setLibraryDocument(doc);
+            toast(`Using library file: ${doc.original_filename}`);
+          }}
+        />
       </div>
     </div>
   );
