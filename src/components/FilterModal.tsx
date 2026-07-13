@@ -1,12 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
-import { X, Filter } from "lucide-react";
+import { Filter } from "lucide-react";
+import { useCitationFilterOptions } from "@/api/hooks/useCitationMaps";
 
 interface FilterState {
   courts: string[];
@@ -25,40 +25,30 @@ interface FilterModalProps {
 
 export const FilterModal = ({ open, onOpenChange, filters, onFiltersChange }: FilterModalProps) => {
   const [localFilters, setLocalFilters] = useState<FilterState>(filters);
+  const { data: options, isLoading } = useCitationFilterOptions();
 
-  const courts = [
-    "Supreme Court",
-    "Court of Appeals",
-    "District Court",
-    "State Supreme Court",
-    "Federal Circuit"
-  ];
+  const yearMin = options?.year_min ?? 1800;
+  const yearMax = options?.year_max ?? new Date().getFullYear();
+  const courts = options?.courts ?? [];
+  const categories = options?.categories ?? [];
 
-  const categories = [
-    "Constitutional",
-    "Criminal",
-    "Civil Rights",
-    "Education",
-    "Privacy Rights",
-    "Employment",
-    "Contract",
-    "Tort",
-    "Corporate"
-  ];
+  useEffect(() => {
+    if (open) setLocalFilters(filters);
+  }, [open, filters]);
 
-  const handleCourtChange = (court: string, checked: boolean) => {
-    const newCourts = checked 
-      ? [...localFilters.courts, court]
-      : localFilters.courts.filter(c => c !== court);
-    
+  const handleCourtChange = (courtId: string, checked: boolean) => {
+    const newCourts = checked
+      ? [...localFilters.courts, courtId]
+      : localFilters.courts.filter(c => c !== courtId);
+
     setLocalFilters(prev => ({ ...prev, courts: newCourts }));
   };
 
   const handleCategoryChange = (category: string, checked: boolean) => {
-    const newCategories = checked 
+    const newCategories = checked
       ? [...localFilters.categories, category]
       : localFilters.categories.filter(c => c !== category);
-    
+
     setLocalFilters(prev => ({ ...prev, categories: newCategories }));
   };
 
@@ -71,7 +61,7 @@ export const FilterModal = ({ open, onOpenChange, filters, onFiltersChange }: Fi
     const clearedFilters: FilterState = {
       courts: [],
       categories: [],
-      yearRange: [1800, 2024],
+      yearRange: [yearMin, yearMax],
       minCitations: 0,
       minInfluence: 0
     };
@@ -83,7 +73,7 @@ export const FilterModal = ({ open, onOpenChange, filters, onFiltersChange }: Fi
     let count = 0;
     if (localFilters.courts.length > 0) count++;
     if (localFilters.categories.length > 0) count++;
-    if (localFilters.yearRange[0] > 1800 || localFilters.yearRange[1] < 2024) count++;
+    if (localFilters.yearRange[0] > yearMin || localFilters.yearRange[1] < yearMax) count++;
     if (localFilters.minCitations > 0) count++;
     if (localFilters.minInfluence > 0) count++;
     return count;
@@ -107,47 +97,59 @@ export const FilterModal = ({ open, onOpenChange, filters, onFiltersChange }: Fi
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6 py-4">
+        <div className="space-y-6 py-4 max-h-[60vh] overflow-y-auto pr-1">
           {/* Courts */}
           <div className="space-y-3">
             <Label className="text-base font-semibold">Courts</Label>
-            <div className="grid grid-cols-2 gap-2">
-              {courts.map((court) => (
-                <div key={court} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`court-${court}`}
-                    checked={localFilters.courts.includes(court)}
-                    onCheckedChange={(checked) => 
-                      handleCourtChange(court, checked as boolean)
-                    }
-                  />
-                  <Label htmlFor={`court-${court}`} className="text-sm">
-                    {court}
-                  </Label>
-                </div>
-              ))}
-            </div>
+            {isLoading ? (
+              <p className="text-sm text-muted-foreground">Loading courts…</p>
+            ) : courts.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No courts available yet</p>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {courts.map((court) => (
+                  <div key={court.id} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`court-${court.id}`}
+                      checked={localFilters.courts.includes(court.id)}
+                      onCheckedChange={(checked) =>
+                        handleCourtChange(court.id, checked as boolean)
+                      }
+                    />
+                    <Label htmlFor={`court-${court.id}`} className="text-sm">
+                      {court.name}
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Categories */}
           <div className="space-y-3">
             <Label className="text-base font-semibold">Legal Categories</Label>
-            <div className="grid grid-cols-3 gap-2">
-              {categories.map((category) => (
-                <div key={category} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={`category-${category}`}
-                    checked={localFilters.categories.includes(category)}
-                    onCheckedChange={(checked) => 
-                      handleCategoryChange(category, checked as boolean)
-                    }
-                  />
-                  <Label htmlFor={`category-${category}`} className="text-sm">
-                    {category}
-                  </Label>
-                </div>
-              ))}
-            </div>
+            {isLoading ? (
+              <p className="text-sm text-muted-foreground">Loading categories…</p>
+            ) : categories.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No categories available yet</p>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                {categories.map((category) => (
+                  <div key={category} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={`category-${category}`}
+                      checked={localFilters.categories.includes(category)}
+                      onCheckedChange={(checked) =>
+                        handleCategoryChange(category, checked as boolean)
+                      }
+                    />
+                    <Label htmlFor={`category-${category}`} className="text-sm">
+                      {category}
+                    </Label>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Year Range */}
@@ -157,11 +159,11 @@ export const FilterModal = ({ open, onOpenChange, filters, onFiltersChange }: Fi
             </Label>
             <Slider
               value={localFilters.yearRange}
-              onValueChange={(value) => 
+              onValueChange={(value) =>
                 setLocalFilters(prev => ({ ...prev, yearRange: value as [number, number] }))
               }
-              min={1800}
-              max={2024}
+              min={yearMin}
+              max={yearMax}
               step={1}
               className="w-full"
             />
@@ -174,7 +176,7 @@ export const FilterModal = ({ open, onOpenChange, filters, onFiltersChange }: Fi
             </Label>
             <Slider
               value={[localFilters.minCitations]}
-              onValueChange={(value) => 
+              onValueChange={(value) =>
                 setLocalFilters(prev => ({ ...prev, minCitations: value[0] }))
               }
               min={0}
@@ -191,7 +193,7 @@ export const FilterModal = ({ open, onOpenChange, filters, onFiltersChange }: Fi
             </Label>
             <Slider
               value={[localFilters.minInfluence]}
-              onValueChange={(value) => 
+              onValueChange={(value) =>
                 setLocalFilters(prev => ({ ...prev, minInfluence: value[0] }))
               }
               min={0}

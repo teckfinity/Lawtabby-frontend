@@ -7,6 +7,7 @@
 export * from "./keys";
 export * from "./useJudgeAnalytics";
 export * from "./useLegalResearch";
+export * from "./useCitationMaps";
 export * from "./usePredictiveAI";
 export * from "./useDocSummary";
 export * from "./useDashboard";
