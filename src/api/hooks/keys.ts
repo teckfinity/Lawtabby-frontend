@@ -30,6 +30,18 @@ export const queryKeys = {
     all:  () => ["legal-research"] as const,
   },
 
+  // ── Citation Maps ─────────────────────────────────────────────────────────
+  citationMaps: {
+    all:         ()                 => ["citation-maps"] as const,
+    stats:       ()                 => ["citation-maps", "stats"] as const,
+    filters:     ()                 => ["citation-maps", "filters"] as const,
+    suggestions: (q: string)        => ["citation-maps", "suggestions", q] as const,
+    cases:       (q: string)        => ["citation-maps", "cases", q] as const,
+    influential: (limit: number)    => ["citation-maps", "influential", limit] as const,
+    network:     (params: object)   => ["citation-maps", "network", params] as const,
+    savedMaps:   ()                 => ["citation-maps", "saved"] as const,
+  },
+
   // ── Predictive AI ─────────────────────────────────────────────────────────
   predictiveAI: {
     all:       ()                => ["predictive-ai"] as const,
