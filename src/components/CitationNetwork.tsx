@@ -3,8 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { BookOpen, Link2, TrendingUp, Eye, Calendar, Scale, Users, FileText, ArrowRight, AlertCircle } from "lucide-react";
+import { BookOpen, Link2, TrendingUp, Calendar, Scale, Users, ArrowRight, AlertCircle } from "lucide-react";
 import { useCitationNetwork } from "@/api/hooks/useCitationMaps";
 import type {
   CitationCaseNode,
@@ -12,208 +11,335 @@ import type {
   CitationNetworkFilters,
 } from "@/api/ai-features/citation-maps";
 
+export interface NetworkTarget {
+  q?: string;
+  opinion_id?: number;
+  opinion_ids?: number[];
+  /** Human-readable label shown in loading / empty states. */
+  label: string;
+}
+
 export interface PositionedCaseNode extends CitationCaseNode {
   x: number;
   y: number;
+  role: "primary" | "cited" | "citing" | "related";
 }
 
 interface CitationNetworkProps {
-  searchQuery: string;
-  viewMode: 'network' | 'timeline';
+  target: NetworkTarget | null;
+  viewMode: "network" | "timeline";
   filters?: CitationNetworkFilters;
-  onNodeSelect: (node: CitationCaseNode) => void;
+  zoom: number;
+  onNodeSelect?: (node: CitationCaseNode) => void;
   onExpandNode?: (node: CitationCaseNode) => void;
   onNetworkDataChange?: (network: CitationNetworkResponse | null) => void;
+  svgRef?: React.RefObject<SVGSVGElement>;
 }
 
-/** Compute an ellipse layout: center case in the middle, related cases around it. */
+const CANVAS_W = 800;
+const CANVAS_H = 520;
+const CX = CANVAS_W / 2;
+const CY = CANVAS_H / 2;
+
+// Ring capacities/radii tuned so ~30 nodes fit without circles or labels colliding.
+const RINGS = [
+  { count: 6, rx: 165, ry: 95 },
+  { count: 10, rx: 265, ry: 160 },
+  { count: 14, rx: 355, ry: 220 },
+];
+
+/**
+ * Resolve theme CSS variables to literal hsl() strings so the SVG renders
+ * correctly on screen AND survives serialization for PNG export
+ * (var(--…) does not resolve inside a standalone SVG image).
+ */
+const useResolvedColors = () =>
+  useMemo(() => {
+    const fallback = {
+      primary: "hsl(43, 74%, 49%)",
+      cited: "hsl(215, 22%, 42%)",
+      citing: "hsl(140, 25%, 45%)",
+      related: "hsl(32, 48%, 48%)",
+      border: "hsl(30, 20%, 85%)",
+      foreground: "hsl(220, 15%, 20%)",
+      muted: "hsl(220, 10%, 46%)",
+      background: "hsl(40, 33%, 98%)",
+    };
+    if (typeof window === "undefined") return fallback;
+    const styles = getComputedStyle(document.documentElement);
+    const v = (name: string, fb: string) => {
+      const raw = styles.getPropertyValue(name).trim();
+      return raw ? `hsl(${raw})` : fb;
+    };
+    return {
+      primary: v("--primary", fallback.primary),
+      cited: v("--chart-info", fallback.cited),
+      citing: v("--success", fallback.citing),
+      related: v("--chart-warning", fallback.related),
+      border: v("--border", fallback.border),
+      foreground: v("--foreground", fallback.foreground),
+      muted: v("--muted-foreground", fallback.muted),
+      background: v("--background", fallback.background),
+    };
+  }, []);
+
+/** Ellipse ring layout: center case in the middle, neighbours around it. */
 const layoutNodes = (
-  nodes: CitationCaseNode[],
-  centerId: string | null
+  data: CitationNetworkResponse | undefined
 ): PositionedCaseNode[] => {
-  const cx = 400;
-  const cy = 190;
-  const centerIndex = Math.max(
-    0,
-    nodes.findIndex((n) => n.id === centerId)
-  );
-  const others = nodes.filter((_, i) => i !== centerIndex);
+  if (!data || data.nodes.length === 0) return [];
+  const centerId = data.center_id;
+  const centerIndex = Math.max(0, data.nodes.findIndex((n) => n.id === centerId));
+  const center = data.nodes[centerIndex];
+  const others = data.nodes.filter((_, i) => i !== centerIndex);
 
-  const positioned: PositionedCaseNode[] = [];
-  if (nodes.length > 0) {
-    positioned.push({ ...nodes[centerIndex], x: cx, y: cy });
+  // Direction of the link relative to the center decides the node's role:
+  //   center → node  = case the primary case cites (precedent)
+  //   node → center  = case that cites the primary case
+  const citedIds = new Set<string>();
+  const citingIds = new Set<string>();
+  for (const link of data.links) {
+    if (link.source === centerId) citedIds.add(link.target);
+    if (link.target === centerId) citingIds.add(link.source);
   }
+  const roleOf = (id: string): PositionedCaseNode["role"] =>
+    citedIds.has(id) ? "cited" : citingIds.has(id) ? "citing" : "related";
 
-  const ringSize = 8;
-  others.forEach((node, i) => {
-    const ring = Math.floor(i / ringSize);
-    const inRing = Math.min(others.length - ring * ringSize, ringSize);
-    const angle = ((i % ringSize) / inRing) * 2 * Math.PI - Math.PI / 2;
-    const rx = 210 + ring * 70;
-    const ry = 110 + ring * 35;
+  const positioned: PositionedCaseNode[] = [
+    { ...center, x: CX, y: CY, role: "primary" },
+  ];
+
+  let ringIndex = 0;
+  let placedInRing = 0;
+  others.forEach((node) => {
+    const ring = RINGS[Math.min(ringIndex, RINGS.length - 1)];
+    // Past the configured rings, keep growing outward.
+    const extra = Math.max(0, ringIndex - (RINGS.length - 1));
+    const capacity = ring.count + extra * 4;
+    const remaining = others.length - positioned.length + 1;
+    const countInRing = Math.min(capacity, remaining + placedInRing);
+    // Stagger each ring's start angle so nodes don't stack in columns.
+    const startAngle = -Math.PI / 2 + ringIndex * (Math.PI / capacity);
+    const angle = startAngle + (placedInRing / countInRing) * 2 * Math.PI;
     positioned.push({
       ...node,
-      x: Math.round(cx + rx * Math.cos(angle)),
-      y: Math.round(cy + ry * Math.sin(angle)),
+      x: Math.round(CX + (ring.rx + extra * 70) * Math.cos(angle)),
+      y: Math.round(CY + (ring.ry + extra * 50) * Math.sin(angle)),
+      role: roleOf(node.id),
     });
+    placedInRing += 1;
+    if (placedInRing >= capacity) {
+      ringIndex += 1;
+      placedInRing = 0;
+    }
   });
   return positioned;
 };
 
 export const CitationNetwork = ({
-  searchQuery,
+  target,
   viewMode,
   filters,
+  zoom,
   onNodeSelect,
   onExpandNode,
   onNetworkDataChange,
+  svgRef,
 }: CitationNetworkProps) => {
   const [selectedNode, setSelectedNode] = useState<PositionedCaseNode | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const colors = useResolvedColors();
 
-  const hasQuery = searchQuery.trim().length > 0;
+  const hasTarget = !!target;
   const { data, isFetching, isError } = useCitationNetwork(
-    { q: searchQuery.trim(), depth: 2, ...(filters || {}) },
-    hasQuery
+    {
+      q: target?.q,
+      opinion_id: target?.opinion_id,
+      opinion_ids: target?.opinion_ids,
+      depth: 2,
+      ...(filters || {}),
+    },
+    hasTarget
   );
 
-  const nodes = useMemo(
-    () => layoutNodes(data?.nodes ?? [], data?.center_id ?? null),
-    [data]
-  );
+  const nodes = useMemo(() => layoutNodes(data), [data]);
   const links = data?.links ?? [];
-  const isLoading = hasQuery && isFetching && !data;
+  const isLoading = hasTarget && isFetching;
 
   useEffect(() => {
-    onNetworkDataChange?.(hasQuery ? (data ?? null) : null);
-  }, [hasQuery, data, onNetworkDataChange]);
+    onNetworkDataChange?.(hasTarget ? (data ?? null) : null);
+  }, [hasTarget, data, onNetworkDataChange]);
 
   const handleNodeClick = (node: PositionedCaseNode) => {
     setSelectedNode(node);
-    onNodeSelect(node);
+    onNodeSelect?.(node);
   };
 
-  const getNodeSize = (influence: number) => {
-    return Math.max(8, influence * 0.3);
-  };
+  // 6px to 16px: big enough to read influence at a glance, small enough
+  // that a 100-influence node doesn't swallow its neighbours' labels.
+  const getNodeSize = (influence: number) => 6 + Math.max(0, Math.min(100, influence)) * 0.1;
 
-  const getNodeColor = (category: string) => {
-    const palette = [
-      'hsl(var(--legal-primary))',
-      'hsl(var(--legal-info))',
-      'hsl(var(--legal-success))',
-      'hsl(var(--legal-warning))'
-    ];
-    if (!category) return palette[0];
-    let hash = 0;
-    for (let i = 0; i < category.length; i++) {
-      hash = (hash * 31 + category.charCodeAt(i)) >>> 0;
+  // Auto-fit: frame the view around the actual nodes so a 2-node map fills
+  // the canvas instead of floating tiny in empty space.
+  const baseView = useMemo(() => {
+    if (nodes.length === 0) return { cx: CX, cy: CY, w: CANVAS_W, h: CANVAS_H };
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const n of nodes) {
+      const r = getNodeSize(n.influence);
+      minX = Math.min(minX, n.x - r - 85); // side margin for text labels
+      maxX = Math.max(maxX, n.x + r + 85);
+      minY = Math.min(minY, n.y - r - 30);
+      maxY = Math.max(maxY, n.y + r + 34);
     }
-    return palette[hash % palette.length];
-  };
+    let w = maxX - minX;
+    let h = maxY - minY;
+    const aspect = CANVAS_W / CANVAS_H;
+    if (w / h < aspect) w = h * aspect;
+    else h = w / aspect;
+    w = Math.min(Math.max(w, 360), CANVAS_W);
+    h = Math.min(Math.max(h, 360 / aspect), CANVAS_H);
+    return { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, w, h };
+  }, [nodes]);
 
-  if (viewMode === 'timeline') {
-    const years = Array.from(new Set(nodes.map(n => n.year).filter(Boolean))).sort();
+  const roleColor = (role: PositionedCaseNode["role"]) => colors[role === "primary" ? "primary" : role];
+
+  const roleLabel = (role: PositionedCaseNode["role"]) =>
+    role === "primary"
+      ? "Primary case"
+      : role === "cited"
+        ? "Cited by the primary case (precedent)"
+        : role === "citing"
+          ? "Cites the primary case"
+          : "Related case in the network";
+
+  // User zoom applies on top of the auto-fitted frame.
+  const vw = baseView.w / zoom;
+  const vh = baseView.h / zoom;
+  const viewBox = `${baseView.cx - vw / 2} ${baseView.cy - vh / 2} ${vw} ${vh}`;
+
+  const emptyState = (
+    <div className="absolute inset-0 flex items-center justify-center">
+      <div className="text-center max-w-sm px-4">
+        {isError ? (
+          <>
+            <AlertCircle className="h-14 w-14 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-foreground mb-2">Unable to load network</h3>
+            <p className="text-muted-foreground">Something went wrong. Please try searching again.</p>
+          </>
+        ) : (
+          <>
+            <BookOpen className="h-14 w-14 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-foreground mb-2">
+              {hasTarget ? "No cases found" : "Start with a search"}
+            </h3>
+            <p className="text-muted-foreground">
+              {hasTarget
+                ? `No cases matched "${target?.label}" with the current filters. Try a different name or clear filters.`
+                : "Type a case name (e.g. Twombly) in the search bar, or pick one from Most Influential Cases."}
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  // ── Timeline view ──────────────────────────────────────────────────────────
+  if (viewMode === "timeline") {
+    const sorted = [...nodes].sort((a, b) => (a.year || "").localeCompare(b.year || ""));
+    const itemWidth = 120;
+    const laneOffsets = [150, 96, 42];
+
     return (
-      <div className="h-96 p-4">
-        <div className="h-full relative">
-          {/* Timeline axis */}
-          <div className="absolute bottom-8 left-0 right-0 h-0.5 bg-border"></div>
+      <div className="h-[520px] relative border border-border rounded-lg bg-background">
+        {isLoading && (
+          <div className="absolute inset-0 bg-background/80 flex items-center justify-center z-10 rounded-lg">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-legal-primary mx-auto mb-2"></div>
+              <p className="text-sm text-muted-foreground">Loading timeline for “{target?.label}”…</p>
+            </div>
+          </div>
+        )}
 
-          {/* Year markers */}
-          {nodes.length > 0 && (
-            <>
-              {years.map((year, index) => {
-                const position = years.length > 1 ? (index / (years.length - 1)) * 100 : 50;
+        {sorted.length > 0 ? (
+          <div className="h-full overflow-x-auto overflow-y-hidden px-4">
+            <p className="text-xs text-muted-foreground pt-3">
+              Same cases as Network View, arranged oldest → newest. Click a dot for details.
+            </p>
+            <div
+              className="relative h-[460px]"
+              style={{ minWidth: `${Math.max(sorted.length * itemWidth, 600)}px` }}
+            >
+              {/* axis */}
+              <div className="absolute bottom-10 left-0 right-0 h-0.5 bg-border" />
+              {sorted.map((node, index) => {
+                const left = index * itemWidth + itemWidth / 2;
+                const stemHeight = laneOffsets[index % laneOffsets.length];
                 return (
-                  <div key={year} className="absolute bottom-4" style={{ left: `${position}%` }}>
-                    <div className="text-xs text-muted-foreground text-center">
-                      {year}
+                  <div key={node.id} className="absolute bottom-10" style={{ left: `${left}px` }}>
+                    {/* stem */}
+                    <div
+                      className="absolute bottom-0 left-1/2 -translate-x-1/2 w-px bg-border"
+                      style={{ height: `${stemHeight}px` }}
+                    />
+                    {/* dot + label */}
+                    <button
+                      type="button"
+                      className="absolute left-1/2 -translate-x-1/2 flex flex-col items-center w-28 group"
+                      style={{ bottom: `${stemHeight}px` }}
+                      onClick={() => handleNodeClick(node)}
+                      title={`${node.title} (${node.year}): ${node.citations.toLocaleString()} citations`}
+                    >
+                      <span
+                        className="w-4 h-4 rounded-full border-2 border-white shadow group-hover:ring-2 group-hover:ring-legal-primary/40"
+                        style={{ backgroundColor: roleColor(node.role) }}
+                      />
+                      <span className="mt-1 text-xs font-medium text-center leading-tight line-clamp-2">
+                        {node.title}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {node.citations.toLocaleString()} citations
+                      </span>
+                    </button>
+                    {/* year tick */}
+                    <div className="absolute top-1 left-1/2 -translate-x-1/2 text-xs text-muted-foreground">
+                      {node.year || "n/a"}
                     </div>
-                    <div className="w-0.5 h-4 bg-border mx-auto"></div>
                   </div>
                 );
               })}
-
-              {/* Cases on timeline */}
-              {nodes.map((node, index) => {
-                const yearIndex = years.indexOf(node.year);
-                const position = years.length > 1 ? (yearIndex / (years.length - 1)) * 100 : 50;
-                const height = 50 + (index * 30) % 150;
-
-                return (
-                  <TooltipProvider key={node.id}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div
-                          className="absolute cursor-pointer transform -translate-x-1/2 hover:scale-110 transition-all duration-200 animate-fade-in"
-                          style={{ left: `${position}%`, bottom: `${height}px` }}
-                          onClick={() => handleNodeClick(node)}
-                        >
-                          <div
-                            className="w-4 h-4 rounded-full border-2 border-white shadow-lg hover:shadow-xl transition-shadow"
-                            style={{ backgroundColor: getNodeColor(node.category) }}
-                          ></div>
-                          <div className="mt-2 text-xs font-medium text-center max-w-24 leading-tight">
-                            {node.title.split(' v. ')[0]}
-                          </div>
-                          <div className="text-xs text-muted-foreground text-center">
-                            {node.citations.toLocaleString()} citations
-                          </div>
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side="top" className="max-w-xs">
-                        <div className="space-y-2">
-                          <p className="font-semibold">{node.title}</p>
-                          <p className="text-sm">{node.description}</p>
-                          <div className="flex items-center gap-2 text-xs">
-                            <Calendar className="h-3 w-3" />
-                            <span>{node.year}</span>
-                            <Badge variant="secondary" className="text-xs">
-                              {node.category}
-                            </Badge>
-                          </div>
-                        </div>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                );
-              })}
-            </>
-          )}
-
-          {nodes.length === 0 && !isLoading && (
-            <div className="flex items-center justify-center h-full">
-              <div className="text-center">
-                <BookOpen className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
-                <p className="text-muted-foreground">
-                  {hasQuery ? "No cases found for this search" : "Search for cases to view timeline"}
-                </p>
-              </div>
             </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          !isLoading && emptyState
+        )}
+
+        {renderDialog()}
       </div>
     );
   }
 
+  // ── Network view ───────────────────────────────────────────────────────────
   return (
-    <div className="h-96 relative">
+    <div className="h-[520px] relative">
       {isLoading && (
-        <div className="absolute inset-0 bg-background/80 flex items-center justify-center z-10">
+        <div className="absolute inset-0 bg-background/80 flex items-center justify-center z-10 rounded-lg">
           <div className="text-center">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-legal-primary mx-auto mb-2"></div>
-            <p className="text-sm text-muted-foreground">Loading citation network...</p>
+            <p className="text-sm text-muted-foreground">Loading citation network for “{target?.label}”…</p>
           </div>
         </div>
       )}
 
-      <svg viewBox="0 0 800 400" className="w-full h-full border border-border rounded-lg bg-background">
+      <svg
+        ref={svgRef}
+        viewBox={viewBox}
+        className="w-full h-full border border-border rounded-lg bg-background"
+      >
         {/* Links */}
         {links.map((link, index) => {
-          const sourceNode = nodes.find(n => n.id === link.source);
-          const targetNode = nodes.find(n => n.id === link.target);
+          const sourceNode = nodes.find((n) => n.id === link.source);
+          const targetNode = nodes.find((n) => n.id === link.target);
           if (!sourceNode || !targetNode) return null;
-
           return (
             <line
               key={index}
@@ -221,108 +347,88 @@ export const CitationNetwork = ({
               y1={sourceNode.y}
               x2={targetNode.x}
               y2={targetNode.y}
-              stroke="hsl(var(--border))"
-              strokeWidth={link.strength * 3}
-              opacity={0.6}
+              stroke={colors.border}
+              strokeWidth={1 + link.strength * 2}
+              opacity={0.7}
             />
           );
         })}
 
         {/* Nodes */}
-        {nodes.map((node) => (
-          <g key={node.id} className="animate-scale-in">
-            {/* Node glow effect */}
-            <circle
-              cx={node.x}
-              cy={node.y}
-              r={getNodeSize(node.influence) + 3}
-              fill={getNodeColor(node.category)}
-              opacity="0.3"
-              className="animate-pulse"
-            />
-            {/* Main node */}
-            <circle
-              cx={node.x}
-              cy={node.y}
-              r={getNodeSize(node.influence)}
-              fill={getNodeColor(node.category)}
-              stroke="white"
-              strokeWidth="2"
-              className="cursor-pointer hover:opacity-80 transition-all duration-200 hover:scale-110"
-              onClick={() => handleNodeClick(node)}
-            />
-            {/* Citation count indicator */}
-            {node.citations > 1000 && (
+        {nodes.map((node, index) => {
+          const r = getNodeSize(node.influence);
+          const isHovered = hoveredId === node.id;
+          // Alternate labels above/below so neighbouring titles don't collide.
+          const labelBelow = node.role !== "primary" && index % 2 === 1;
+          return (
+            <g key={node.id}>
+              {/* hover ring — highlight without moving the node (no jitter) */}
+              {isHovered && (
+                <circle
+                  cx={node.x}
+                  cy={node.y}
+                  r={r + 4}
+                  fill="none"
+                  stroke={roleColor(node.role)}
+                  strokeWidth="2"
+                  opacity="0.5"
+                />
+              )}
               <circle
-                cx={node.x + getNodeSize(node.influence) - 3}
-                cy={node.y - getNodeSize(node.influence) + 3}
-                r="4"
-                fill="hsl(var(--legal-warning))"
+                cx={node.x}
+                cy={node.y}
+                r={r}
+                fill={roleColor(node.role)}
                 stroke="white"
-                strokeWidth="1"
-              />
-            )}
-            {/* Node title */}
-            <text
-              x={node.x}
-              y={node.y - getNodeSize(node.influence) - 8}
-              textAnchor="middle"
-              className="text-xs font-semibold fill-foreground pointer-events-none"
-            >
-              {node.title.length > 20 ? node.title.substring(0, 20) + '...' : node.title}
-            </text>
-            {/* Year and influence */}
-            <text
-              x={node.x}
-              y={node.y + getNodeSize(node.influence) + 12}
-              textAnchor="middle"
-              className="text-xs fill-muted-foreground pointer-events-none"
-            >
-              {node.year}
-            </text>
-            <text
-              x={node.x}
-              y={node.y + getNodeSize(node.influence) + 24}
-              textAnchor="middle"
-              className="text-xs fill-legal-info pointer-events-none font-medium"
-            >
-              {node.influence}% influence
-            </text>
-          </g>
-        ))}
+                strokeWidth={node.role === "primary" ? 3 : 2}
+                className="cursor-pointer"
+                onClick={() => handleNodeClick(node)}
+                onMouseEnter={() => setHoveredId(node.id)}
+                onMouseLeave={() => setHoveredId(null)}
+              >
+                <title>
+                  {`${node.title}${node.year ? ` (${node.year})` : ""}\n${roleLabel(node.role)}\n${node.court || "Unknown court"} • ${node.citations.toLocaleString()} citations\nClick for details`}
+                </title>
+              </circle>
+              {/* case name */}
+              <text
+                x={node.x}
+                y={labelBelow ? node.y + r + 13 : node.y - r - 7}
+                textAnchor="middle"
+                fontSize="11"
+                fontWeight={node.role === "primary" ? "700" : "600"}
+                fill={colors.foreground}
+                className="pointer-events-none"
+              >
+                {node.title.length > 22 ? node.title.substring(0, 22) + "…" : node.title}
+              </text>
+              {/* year only on the primary case; other years live in the hover tooltip */}
+              {node.role === "primary" && node.year && (
+                <text
+                  x={node.x}
+                  y={node.y + r + 14}
+                  textAnchor="middle"
+                  fontSize="10"
+                  fill={colors.muted}
+                  className="pointer-events-none"
+                >
+                  {node.year}
+                </text>
+              )}
+            </g>
+          );
+        })}
       </svg>
 
-      {nodes.length === 0 && !isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-center">
-            {isError ? (
-              <>
-                <AlertCircle className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-foreground mb-2">
-                  Unable to load network
-                </h3>
-                <p className="text-muted-foreground mb-4">
-                  Something went wrong. Please try searching again.
-                </p>
-              </>
-            ) : (
-              <>
-                <BookOpen className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-semibold text-foreground mb-2">
-                  Citation Network Visualization
-                </h3>
-                <p className="text-muted-foreground mb-4">
-                  {hasQuery
-                    ? "No cases found matching your search and filters"
-                    : "Search for a case above to explore its citation network"}
-                </p>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      {nodes.length === 0 && !isLoading && emptyState}
 
-      {/* Case Detail Modal */}
+      {renderDialog()}
+    </div>
+  );
+
+  // ── Case detail dialog ─────────────────────────────────────────────────────
+  function renderDialog() {
+    return (
       <Dialog open={!!selectedNode} onOpenChange={() => setSelectedNode(null)}>
         <DialogContent>
           <DialogHeader>
@@ -331,13 +437,12 @@ export const CitationNetwork = ({
               {selectedNode?.title}
             </DialogTitle>
             <DialogDescription>
-              {selectedNode?.court} • {selectedNode?.year}
+              {[selectedNode?.court, selectedNode?.year].filter(Boolean).join(" • ")}
             </DialogDescription>
           </DialogHeader>
 
           {selectedNode && (
-            <div className="space-y-6 max-h-96 overflow-y-auto">
-              {/* Case Description */}
+            <div className="space-y-5 max-h-96 overflow-y-auto">
               {selectedNode.description && (
                 <div className="space-y-2">
                   <h4 className="font-semibold text-foreground">Case Summary</h4>
@@ -347,16 +452,20 @@ export const CitationNetwork = ({
                 </div>
               )}
 
-              {/* Key Stats */}
               <div className="grid grid-cols-2 gap-4">
                 <Card className="p-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-medium">Citations</span>
+                    <span className="text-sm font-medium">Times Cited</span>
                     <div className="flex items-center gap-1">
                       <Link2 className="h-4 w-4 text-legal-info" />
-                      <span className="text-sm font-semibold">{selectedNode.citations.toLocaleString()}</span>
+                      <span className="text-sm font-semibold">
+                        {selectedNode.citations.toLocaleString()}
+                      </span>
                     </div>
                   </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    How many later cases cite this decision.
+                  </p>
                 </Card>
 
                 <Card className="p-3">
@@ -364,13 +473,15 @@ export const CitationNetwork = ({
                     <span className="text-sm font-medium">Influence</span>
                     <div className="flex items-center gap-1">
                       <TrendingUp className="h-4 w-4 text-legal-success" />
-                      <span className="text-sm font-semibold">{selectedNode.influence}%</span>
+                      <span className="text-sm font-semibold">{selectedNode.influence}/100</span>
                     </div>
                   </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Citation count relative to the most-cited case in the database.
+                  </p>
                 </Card>
               </div>
 
-              {/* Court and Category */}
               <div className="flex flex-wrap gap-2">
                 {selectedNode.court && (
                   <Badge variant="secondary" className="flex items-center gap-1">
@@ -378,7 +489,9 @@ export const CitationNetwork = ({
                     {selectedNode.court}
                   </Badge>
                 )}
-                <Badge variant="outline">{selectedNode.category}</Badge>
+                {selectedNode.category && selectedNode.category !== "General" && (
+                  <Badge variant="outline">{selectedNode.category}</Badge>
+                )}
                 {selectedNode.year && (
                   <Badge variant="outline" className="flex items-center gap-1">
                     <Calendar className="h-3 w-3" />
@@ -387,12 +500,11 @@ export const CitationNetwork = ({
                 )}
               </div>
 
-              {/* Judges */}
               {selectedNode.judges && selectedNode.judges.length > 0 && (
                 <div className="space-y-2">
                   <h4 className="font-semibold text-foreground flex items-center gap-2">
                     <Users className="h-4 w-4" />
-                    Judges
+                    Author
                   </h4>
                   <div className="flex flex-wrap gap-1">
                     {selectedNode.judges.map((judge, index) => (
@@ -404,69 +516,44 @@ export const CitationNetwork = ({
                 </div>
               )}
 
-              {/* Legal Principles */}
-              {selectedNode.keyLegalPrinciples && selectedNode.keyLegalPrinciples.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-semibold text-foreground flex items-center gap-2">
-                    <FileText className="h-4 w-4" />
-                    Key Legal Principles
-                  </h4>
-                  <div className="flex flex-wrap gap-1">
-                    {selectedNode.keyLegalPrinciples.map((principle, index) => (
-                      <Badge key={index} variant="secondary" className="text-xs">
-                        {principle}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Outcome */}
               {selectedNode.outcome && (
                 <div className="space-y-2">
                   <h4 className="font-semibold text-foreground">Outcome</h4>
-                  <p className="text-sm text-muted-foreground">
-                    {selectedNode.outcome}
+                  <p className="text-sm text-muted-foreground">{selectedNode.outcome}</p>
+                </div>
+              )}
+
+              <div className="pt-4 border-t">
+                {selectedNode.role === "primary" ? (
+                  <p className="text-sm text-muted-foreground text-center py-1">
+                    This case is already the primary case of the map. The graph
+                    around it shows everything it cites and everything citing it
+                    in our database. Click any other node to explore from there.
                   </p>
-                </div>
-              )}
-
-              {/* Related Areas */}
-              {selectedNode.relatedAreas && selectedNode.relatedAreas.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="font-semibold text-foreground">Related Legal Areas</h4>
-                  <div className="flex flex-wrap gap-1">
-                    {selectedNode.relatedAreas.map((area, index) => (
-                      <Badge key={index} variant="outline" className="text-xs">
-                        {area}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Action Buttons */}
-              <div className="flex gap-2 pt-4 border-t">
-                <Button size="sm" variant="outline" className="flex-1" onClick={() => setSelectedNode(null)}>
-                  <Eye className="h-4 w-4 mr-2" />
-                  View Full Case
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    onExpandNode?.(selectedNode);
-                    setSelectedNode(null);
-                  }}
-                >
-                  <ArrowRight className="h-4 w-4 mr-2" />
-                  Expand Network
-                </Button>
+                ) : (
+                  <>
+                    <Button
+                      size="sm"
+                      className="w-full"
+                      onClick={() => {
+                        onExpandNode?.(selectedNode);
+                        setSelectedNode(null);
+                      }}
+                    >
+                      <ArrowRight className="h-4 w-4 mr-2" />
+                      Map This Case's Citations
+                    </Button>
+                    <p className="text-xs text-muted-foreground mt-2 text-center">
+                      Rebuilds the graph with this case in the center, showing what it cites
+                      and what cites it.
+                    </p>
+                  </>
+                )}
               </div>
             </div>
           )}
         </DialogContent>
       </Dialog>
-    </div>
-  );
+    );
+  }
 };

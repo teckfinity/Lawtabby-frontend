@@ -1,19 +1,24 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
 import { BookOpen, Scale, Users, FileText } from "lucide-react";
 import { useCitationSearchSuggestions } from "@/api/hooks/useCitationMaps";
+import type { CitationSearchSuggestion } from "@/api/ai-features/citation-maps";
 
 interface SearchSuggestionsProps {
   searchQuery: string;
-  onSelectSuggestion: (suggestion: string) => void;
+  /** Query already loaded into the graph — suggestions stay closed for it. */
+  committedQuery?: string;
+  onSelectSuggestion: (suggestion: CitationSearchSuggestion) => void;
   children: React.ReactNode;
 }
 
-export const SearchSuggestions = ({ searchQuery, onSelectSuggestion, children }: SearchSuggestionsProps) => {
+export const SearchSuggestions = ({ searchQuery, committedQuery = "", onSelectSuggestion, children }: SearchSuggestionsProps) => {
   const [open, setOpen] = useState(false);
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  // Query the user already committed (Enter or suggestion click) — don't reopen for it.
+  const committedRef = useRef("");
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedQuery(searchQuery), 300);
@@ -23,12 +28,14 @@ export const SearchSuggestions = ({ searchQuery, onSelectSuggestion, children }:
   const { data: suggestions = [] } = useCitationSearchSuggestions(debouncedQuery);
 
   useEffect(() => {
-    if (searchQuery.length >= 2 && suggestions.length > 0) {
-      setOpen(true);
-    } else {
-      setOpen(false);
-    }
-  }, [searchQuery, suggestions]);
+    const q = searchQuery.trim();
+    setOpen(
+      q.length >= 2 &&
+        suggestions.length > 0 &&
+        q !== committedRef.current &&
+        q !== committedQuery.trim()
+    );
+  }, [searchQuery, suggestions, committedQuery]);
 
   const getTypeIcon = (type: string) => {
     switch (type) {
@@ -62,9 +69,21 @@ export const SearchSuggestions = ({ searchQuery, onSelectSuggestion, children }:
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        {children}
-      </PopoverTrigger>
+      {/* Anchor, not Trigger: Trigger injects type="button" onto the input,
+          which makes it impossible to type in the search bar. */}
+      <PopoverAnchor asChild>
+        <div
+          className="w-full"
+          onKeyDownCapture={(e) => {
+            if (e.key === "Enter" || e.key === "Escape") {
+              committedRef.current = searchQuery.trim();
+              setOpen(false);
+            }
+          }}
+        >
+          {children}
+        </div>
+      </PopoverAnchor>
       <PopoverContent
         className="w-96 p-0"
         align="start"
@@ -81,7 +100,8 @@ export const SearchSuggestions = ({ searchQuery, onSelectSuggestion, children }:
                     key={`${suggestion.type}-${index}`}
                     value={suggestion.title}
                     onSelect={() => {
-                      onSelectSuggestion(suggestion.title);
+                      committedRef.current = suggestion.title.trim();
+                      onSelectSuggestion(suggestion);
                       setOpen(false);
                     }}
                     className="flex items-start gap-3 p-3 cursor-pointer hover:bg-muted/50"

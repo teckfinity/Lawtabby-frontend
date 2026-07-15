@@ -4,23 +4,19 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { useCitationCaseSearch, useSaveCitationMap } from "@/api/hooks/useCitationMaps";
 import { getCitationNetwork, type CitationCaseNode, type CitationNetworkResponse } from "@/api/ai-features/citation-maps";
-import { 
-  ArrowLeft, 
-  Network, 
-  Search, 
+import {
+  ArrowLeft,
+  Network,
+  Search,
   Plus,
   Trash2,
   Zap,
-  Download,
-  Share2,
   BookOpen,
   Link2,
   Target,
-  Printer
 } from "lucide-react";
 
 interface GeneratedMap {
@@ -33,14 +29,36 @@ interface GeneratedMap {
   network: CitationNetworkResponse;
 }
 
+const SELECTED_CASES_KEY = "createMapSelectedCases";
+const MAP_TITLE_KEY = "createMapTitle";
+
 const CreateCitationMap = () => {
   const navigate = useNavigate();
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedMap, setGeneratedMap] = useState<GeneratedMap | null>(null);
-  const [selectedCases, setSelectedCases] = useState<CitationCaseNode[]>([]);
+  // Selections survive navigating away and back (sessionStorage).
+  const [selectedCases, setSelectedCases] = useState<CitationCaseNode[]>(() => {
+    try {
+      const raw = sessionStorage.getItem(SELECTED_CASES_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
   const [searchTerm, setSearchTerm] = useState("");
   const [debouncedTerm, setDebouncedTerm] = useState("");
-  const [mapTitle, setMapTitle] = useState("");
+  const [mapTitle, setMapTitle] = useState(
+    () => sessionStorage.getItem(MAP_TITLE_KEY) ?? ""
+  );
+
+  useEffect(() => {
+    sessionStorage.setItem(SELECTED_CASES_KEY, JSON.stringify(selectedCases));
+  }, [selectedCases]);
+
+  useEffect(() => {
+    sessionStorage.setItem(MAP_TITLE_KEY, mapTitle);
+  }, [mapTitle]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedTerm(searchTerm), 300);
@@ -123,9 +141,10 @@ const CreateCitationMap = () => {
               <Network className="h-6 w-6 text-white" />
             </div>
             <div>
-              <h1 className="text-3xl font-bold text-foreground">Create Citation Map</h1>
+              <h1 className="text-3xl font-bold text-foreground">Create Custom Citation Map</h1>
               <p className="text-muted-foreground">
-                Build a visual network of case relationships and legal precedents
+                Pick two or more specific cases, for example the key authorities in your brief,
+                and generate one combined map showing how they connect through citations.
               </p>
             </div>
           </div>
@@ -156,6 +175,12 @@ const CreateCitationMap = () => {
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
                   </div>
+
+                  <p className="text-sm font-medium text-muted-foreground">
+                    {debouncedTerm.trim()
+                      ? `Results for "${debouncedTerm.trim()}"`
+                      : "Suggested starting points (most-cited cases in the database)"}
+                  </p>
 
                   <div className="space-y-3">
                     {filteredCases.map((case_) => (
@@ -227,15 +252,7 @@ const CreateCitationMap = () => {
                       />
                     </div>
                     
-                    <div>
-                      <label className="text-sm font-medium mb-2 block">Focus Area (Optional)</label>
-                      <Textarea 
-                        placeholder="Describe the legal focus or theme of this citation network..."
-                        className="min-h-[80px] resize-none"
-                      />
-                    </div>
-
-                    <Button 
+                    <Button
                       onClick={handleGenerateMap}
                       className="w-full bg-legal-primary hover:bg-legal-primary/90"
                       disabled={isGenerating || selectedCases.length === 0}
@@ -303,77 +320,23 @@ const CreateCitationMap = () => {
                         </div>
                       </div>
 
-                      {/* Visualization Placeholder */}
-                      <div className="h-80 bg-muted/30 rounded-lg border-2 border-dashed border-border flex items-center justify-center relative overflow-hidden">
-                        <div className="absolute inset-0 bg-gradient-to-br from-legal-primary/5 to-legal-info/5">
-                          {/* Network nodes representing the selected cases */}
-                          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2">
-                            <div className="w-20 h-20 bg-legal-primary rounded-full flex items-center justify-center text-white font-bold shadow-legal text-xs text-center px-1">
-                              {generatedMap.centralCase?.title.split(' ')[0]}
-                            </div>
-                          </div>
-                          
-                          {generatedMap.network.nodes
-                            .filter((n) => n.id !== String(generatedMap.centralCase?.opinion_id))
-                            .slice(0, 8)
-                            .map((case_, index, arr) => {
-                            const angle = (index * 2 * Math.PI) / Math.max(arr.length, 1);
-                            const radius = 120;
-                            const x = Math.cos(angle) * radius;
-                            const y = Math.sin(angle) * radius;
-                            
-                            return (
-                              <div 
-                                key={case_.id}
-                                className="absolute w-12 h-12 bg-legal-info rounded-full flex items-center justify-center text-white text-xs font-medium shadow-legal"
-                                style={{ 
-                                  left: `calc(50% + ${x}px - 24px)`, 
-                                  top: `calc(50% + ${y}px - 24px)` 
-                                }}
-                                title={case_.title}
-                              >
-                                {case_.title.split(' ')[0].substring(0, 3)}
-                              </div>
-                            );
-                          })}
-                        </div>
-
-                        <div className="text-center z-10 bg-background/90 p-6 rounded-lg">
-                          <Network className="h-12 w-12 text-legal-primary mx-auto mb-3" />
-                          <h3 className="text-lg font-semibold mb-2">Interactive Citation Network</h3>
-                          <p className="text-sm text-muted-foreground">
-                            Network visualization with {generatedMap.network.total_nodes} connected cases
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex gap-3">
-                        <Button className="flex-1" onClick={() => window.print()}>
-                          <Download className="h-4 w-4 mr-2" />
-                          Download Map
-                        </Button>
-                        <Button variant="outline" onClick={() => window.print()}>
-                          <Printer className="h-4 w-4 mr-2" />
-                          Print Map
-                        </Button>
-                        <Button 
-                          variant="outline"
-                          onClick={() => {
-                            navigator.clipboard.writeText(window.location.href);
-                            toast("Map link copied to clipboard!");
-                          }}
-                        >
-                          <Share2 className="h-4 w-4 mr-2" />
-                          Share Map
-                        </Button>
-                        <Button 
-                          variant="outline"
-                          onClick={() => navigate("/ai/citation-maps")}
-                        >
-                          <Target className="h-4 w-4 mr-2" />
-                          Explore Network
-                        </Button>
-                      </div>
+                      <Button
+                        className="w-full"
+                        onClick={() => {
+                          const ids = generatedMap.network.nodes
+                            .map((n) => n.opinion_id)
+                            .join(",");
+                          navigate(
+                            `/ai/citation-maps?ids=${ids}&label=${encodeURIComponent(generatedMap.title)}`
+                          );
+                        }}
+                      >
+                        <Network className="h-4 w-4 mr-2" />
+                        Open Interactive Map
+                      </Button>
+                      <p className="text-xs text-muted-foreground text-center">
+                        The map is also saved to Recent Maps on the Citation Maps page.
+                      </p>
                     </div>
                   )}
                 </CardContent>
@@ -433,42 +396,39 @@ const CreateCitationMap = () => {
               </CardContent>
             </Card>
 
-            {/* Network Stats */}
+            {/* Selection summary */}
             {selectedCases.length > 0 && (
               <Card className="shadow-card">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Link2 className="h-5 w-5 text-legal-primary" />
-                    Network Preview
+                    Selection Summary
                   </CardTitle>
+                  <CardDescription>
+                    A quick read on the cases you picked. The real connections
+                    appear when you generate the map.
+                  </CardDescription>
                 </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-4 text-center">
-                    <div className="p-3 bg-muted/50 rounded-lg">
-                      <div className="text-lg font-bold text-legal-primary">{selectedCases.length}</div>
-                      <p className="text-xs text-muted-foreground">Nodes</p>
-                    </div>
-                    <div className="p-3 bg-muted/50 rounded-lg">
-                      <div className="text-lg font-bold text-legal-info">{Math.max(0, selectedCases.length - 1)}</div>
-                      <p className="text-xs text-muted-foreground">Connections</p>
-                    </div>
+                <CardContent className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span>Cases selected</span>
+                    <span className="font-medium">{selectedCases.length}</span>
                   </div>
-                  
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-sm">
-                      <span>Total Citations</span>
-                      <span className="font-medium">
-                        {selectedCases.reduce((sum, c) => sum + c.citations, 0).toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span>Avg Influence</span>
-                      <span className="font-medium">
-                        {selectedCases.length > 0 ? 
-                          Math.floor(selectedCases.reduce((sum, c) => sum + c.influence, 0) / selectedCases.length) 
-                          : 0}%
-                      </span>
-                    </div>
+                  <div className="flex justify-between text-sm">
+                    <span>Combined citations</span>
+                    <span className="font-medium">
+                      {selectedCases.reduce((sum, c) => sum + c.citations, 0).toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>Average influence</span>
+                    <span className="font-medium">
+                      {Math.floor(
+                        selectedCases.reduce((sum, c) => sum + c.influence, 0) /
+                          selectedCases.length
+                      )}
+                      /100
+                    </span>
                   </div>
                 </CardContent>
               </Card>
